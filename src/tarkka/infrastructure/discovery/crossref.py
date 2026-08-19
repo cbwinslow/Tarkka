@@ -11,7 +11,12 @@ class CrossrefProvider:
     name = "crossref"
     _URL = "https://api.crossref.org/works"
 
-    def __init__(self, transport: JsonTransport | None = None, *, mailto: str | None = None) -> None:
+    def __init__(
+        self,
+        transport: JsonTransport | None = None,
+        *,
+        mailto: str | None = None,
+    ) -> None:
         self._transport = transport or UrllibJsonTransport()
         self._mailto = mailto
 
@@ -56,17 +61,23 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
     doi = raw.get("DOI")
     doi_text = doi.lower() if isinstance(doi, str) else None
     title = raw.get("title", [])
-    title_text = title[0] if isinstance(title, list) and title and isinstance(title[0], str) else "Untitled"
+    title_text = (
+        title[0]
+        if isinstance(title, list) and title and isinstance(title[0], str)
+        else "Untitled"
+    )
     url = raw.get("URL") if isinstance(raw.get("URL"), str) else None
+    cited_by = raw.get("is-referenced-by-count")
+    provider_id = doi_text or url or "unknown"
     return DiscoveryRecord(
         provider="crossref",
-        provider_id=doi_text or str(raw.get("resource", {}).get("primary", {}).get("URL", url or "unknown")),
+        provider_id=provider_id,
         title=title_text,
         year=_published_year(raw),
         doi=doi_text,
         abstract=raw.get("abstract") if isinstance(raw.get("abstract"), str) else None,
         landing_page_url=url,
-        cited_by_count=raw.get("is-referenced-by-count") if isinstance(raw.get("is-referenced-by-count"), int) else None,
+        cited_by_count=cited_by if isinstance(cited_by, int) else None,
         external_ids={"doi": doi_text} if doi_text else {},
     )
 

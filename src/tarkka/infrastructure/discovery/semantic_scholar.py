@@ -10,11 +10,14 @@ from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransp
 class SemanticScholarProvider:
     name = "semantic-scholar"
     _URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-    _FIELDS = (
-        "title,year,abstract,url,externalIds,citationCount,openAccessPdf"
-    )
+    _FIELDS = "title,year,abstract,url,externalIds,citationCount,openAccessPdf"
 
-    def __init__(self, transport: JsonTransport | None = None, *, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        transport: JsonTransport | None = None,
+        *,
+        api_key: str | None = None,
+    ) -> None:
         self._transport = transport or UrllibJsonTransport()
         self._api_key = api_key
 
@@ -55,6 +58,10 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
     doi_text = doi.lower() if isinstance(doi, str) else None
     oa = raw.get("openAccessPdf", {})
     oa_map = oa if isinstance(oa, Mapping) else {}
+    cited_by = raw.get("citationCount")
+    external_ids = {
+        str(key): str(value) for key, value in external_map.items() if value is not None
+    }
     return DiscoveryRecord(
         provider="semantic-scholar",
         provider_id=str(raw.get("paperId", "unknown")),
@@ -64,6 +71,6 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
         abstract=raw.get("abstract") if isinstance(raw.get("abstract"), str) else None,
         landing_page_url=raw.get("url") if isinstance(raw.get("url"), str) else None,
         open_access_url=oa_map.get("url") if isinstance(oa_map.get("url"), str) else None,
-        cited_by_count=raw.get("citationCount") if isinstance(raw.get("citationCount"), int) else None,
-        external_ids={str(key): str(value) for key, value in external_map.items() if value is not None},
+        cited_by_count=cited_by if isinstance(cited_by, int) else None,
+        external_ids=external_ids,
     )

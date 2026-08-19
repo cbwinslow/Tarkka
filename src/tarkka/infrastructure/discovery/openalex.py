@@ -4,12 +4,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
+from tarkka.domain.identifiers import normalize_doi
 from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransport
 
 
 class OpenAlexProvider:
     name = "openalex"
     _URL = "https://api.openalex.org/works"
+    _MAX_PER_PAGE = 100
 
     def __init__(
         self,
@@ -23,12 +25,9 @@ class OpenAlexProvider:
     def search(self, query: ResearchQuery) -> DiscoveryPage:
         params: dict[str, str | int | bool] = {
             "search": query.text,
-            "per-page": query.limit,
+            "per-page": min(query.limit, self._MAX_PER_PAGE),
+            "cursor": query.cursor or "*",
         }
-        if query.cursor:
-            params["cursor"] = query.cursor
-        else:
-            params["cursor"] = "*"
         filters: list[str] = []
         if query.require_open_access:
             filters.append("is_oa:true")
@@ -84,9 +83,7 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
 
 
 def _doi(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    return value.removeprefix("https://doi.org/").removeprefix("http://doi.org/").lower()
+    return normalize_doi(value) if isinstance(value, str) and value.strip() else None
 
 
 def _int_or_none(value: Any) -> int | None:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+
+import pytest
 
 from tarkka.application.discover import DiscoveryService, UnknownProviderError
 from tarkka.domain.discovery import (
@@ -9,15 +12,18 @@ from tarkka.domain.discovery import (
     ProviderMode,
     ResearchQuery,
 )
+from tarkka.ports.discovery import DiscoveryProvider
 
 
 @dataclass
 class _Provider:
     name: str
     records: tuple[DiscoveryRecord, ...]
+    seen_queries: list[ResearchQuery] = field(default_factory=list)
 
     def search(self, query: ResearchQuery) -> DiscoveryPage:
-        return DiscoveryPage(provider=self.name, records=self.records)
+        self.seen_queries.append(query)
+        return DiscoveryPage(provider=self.name, records=self.records, next_cursor=f"{self.name}-next")
 
 
 def _record(provider: str, provider_id: str, *, doi: str | None = None) -> DiscoveryRecord:
@@ -46,8 +52,11 @@ def test_auto_prefers_openalex() -> None:
 def test_all_fans_out_and_deduplicates_by_doi() -> None:
     service = DiscoveryService(
         (
-            _Provider("openalex", (_record("openalex", "W1", doi="10.1/ABC"),)),
-            _Provider("crossref", (_record("crossref", "10.1/abc", doi="https://doi.org/10.1/abc"),)),
+            _Provider("openalex", (_record("openalex", "W1", doi="10.1234/ABC"),)),
+            _Provider(
+                "crossref",
+                (_record("crossref", "10.1234/abc", doi="https://doi.org/10.1234/abc"),),
+            ),
         )
     )
 
@@ -62,11 +71,60 @@ def test_all_fans_out_and_deduplicates_by_doi() -> None:
 def test_only_rejects_unknown_provider() -> None:
     service = DiscoveryService((_Provider("openalex", ()),))
 
-    try:
+    with pytest.raises(UnknownProviderError, match="missing"):
         service.discover(
             ResearchQuery("query", mode=ProviderMode.ONLY, providers=("missing",))
         )
-    except UnknownProviderError as exc:
-        assert "missing" in str(exc)
-    else:
-        raise AssertionError("expected UnknownProviderError")
+
+
+def test_duplicate_provider_names_are_rejected() -> None:
+    with pytest.raises(ValueError, match="duplicate discovery provider"):
+        DiscoveryService((_Provider("openalex", ()), _Provider("openalex", ())))
+
+
+def test_multi_provider_cursors_round_trip_to_their_own_provider() -> None:
+    openalex = _Provider("openalex", (_record("openalex", "W1"),))
+    crossref = _Provider("crossref", (_record("crossref", "C1"),))
+    service = DiscoveryService((openalex, crossref))
+
+    result = service.discover(
+        ResearchQuery(
+            "query",
+            mode=ProviderMode.ONLY,
+            providers=("openalex", "crossref"),
+            limit=10,
+            cursors={"openalex": "oa-cursor", "crossref": "cr-cursor"},
+        )
+    )
+
+    assert openalex.seen_queries[0].cursor == "oa-cursor"
+    assert crossref.seen_queries[0].cursor == "cr-cursor"
+    assert openalex.seen_queries[0].limit == 5
+    assert crossref.seen_queries[0].limit == 5
+    assert result.next_cursors == {
+        "openalex": "openalex-next",
+        "crossref": "crossref-next",
+    }
+
+
+def test_auto_selector_is_replaceable() -> None:
+    class _Selector:
+        def select(
+            self,
+            query: ResearchQuery,
+            providers: Mapping[str, DiscoveryProvider],
+        ) -> tuple[DiscoveryProvider, ...]:
+            del query
+            return (providers["crossref"],)
+
+    service = DiscoveryService(
+        (
+            _Provider("openalex", (_record("openalex", "W1"),)),
+            _Provider("crossref", (_record("crossref", "C1"),)),
+        ),
+        selector=_Selector(),
+    )
+
+    result = service.discover(ResearchQuery("query"))
+
+    assert result.providers_used == ("crossref",)

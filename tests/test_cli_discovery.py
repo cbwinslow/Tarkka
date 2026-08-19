@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from tarkka.interfaces.cli import _provider_cursors, _provider_policy, build_parser
 from tarkka.domain.discovery import ProviderMode
+from tarkka.interfaces.cli import _provider_cursors, _provider_policy, build_parser
 
 
 def test_provider_cursor_parser_accepts_repeated_provider_state() -> None:

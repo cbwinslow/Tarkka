@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
+from tarkka.domain.identifiers import normalize_doi
 from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransport
 
 
@@ -59,7 +60,7 @@ class CrossrefProvider:
 
 def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
     doi = raw.get("DOI")
-    doi_text = doi.lower() if isinstance(doi, str) else None
+    doi_text = normalize_doi(doi) if isinstance(doi, str) and doi.strip() else None
     title = raw.get("title", [])
     title_text = (
         title[0]
@@ -78,8 +79,23 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
         abstract=raw.get("abstract") if isinstance(raw.get("abstract"), str) else None,
         landing_page_url=url,
         cited_by_count=cited_by if isinstance(cited_by, int) else None,
-        external_ids={"doi": doi_text} if doi_text else {},
+        external_ids=_external_ids(raw, doi_text),
     )
+
+
+def _external_ids(raw: Mapping[str, Any], doi: str | None) -> dict[str, str]:
+    identifiers: dict[str, str] = {}
+    if doi:
+        identifiers["doi"] = doi
+    for key in ("ISBN", "ISSN", "PMID", "PMCID", "alternative-id"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            identifiers[key.lower()] = value
+        elif isinstance(value, list):
+            values = [str(item) for item in value if isinstance(item, (str, int))]
+            if values:
+                identifiers[key.lower()] = ",".join(values)
+    return identifiers
 
 
 def _published_year(raw: Mapping[str, Any]) -> int | None:

@@ -1,0 +1,41 @@
+name: Docling Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "src/tarkka/infrastructure/storage/docling_parser.py"
+      - "src/tarkka/infrastructure/storage/markdown_normalizer.py"
+      - "tests/test_docling_adapter.py"
+      - ".github/workflows/docling.yml"
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "src/tarkka/infrastructure/storage/docling_parser.py"
+      - "src/tarkka/infrastructure/storage/markdown_normalizer.py"
+      - "tests/test_docling_adapter.py"
+      - ".github/workflows/docling.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  docling-import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Docling integration (CPU)
+        run: >-
+          python -m pip install -e '.[dev,docling]'
+          --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Verify optional adapter
+        run: >-
+          python -c "from tarkka.infrastructure.storage.docling_parser import DoclingParser;
+          assert DoclingParser.is_available()"
+      - name: Run adapter tests
+        run: pytest tests/test_docling_adapter.py

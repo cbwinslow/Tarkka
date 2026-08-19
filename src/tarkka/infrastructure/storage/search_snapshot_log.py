@@ -36,6 +36,7 @@ def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:
         "text": query.text,
         "limit": query.limit,
         "cursor": query.cursor,
+        "cursors": dict(query.cursors),
         "mode": query.mode.value,
         "providers": list(query.providers),
         "require_open_access": query.require_open_access,

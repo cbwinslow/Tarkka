@@ -23,7 +23,11 @@ class _Provider:
 
     def search(self, query: ResearchQuery) -> DiscoveryPage:
         self.seen_queries.append(query)
-        return DiscoveryPage(provider=self.name, records=self.records, next_cursor=f"{self.name}-next")
+        return DiscoveryPage(
+            provider=self.name,
+            records=self.records,
+            next_cursor=f"{self.name}-next",
+        )
 
 
 def _record(provider: str, provider_id: str, *, doi: str | None = None) -> DiscoveryRecord:
@@ -107,6 +111,27 @@ def test_multi_provider_cursors_round_trip_to_their_own_provider() -> None:
     }
 
 
+def test_multi_provider_limit_must_cover_each_provider() -> None:
+    service = DiscoveryService((_Provider("openalex", ()), _Provider("crossref", ())))
+
+    with pytest.raises(ValueError, match="smaller than selected provider count"):
+        service.discover(ResearchQuery("query", mode=ProviderMode.ALL, limit=1))
+
+
+def test_cursor_for_unselected_provider_is_rejected() -> None:
+    service = DiscoveryService((_Provider("openalex", ()), _Provider("crossref", ())))
+
+    with pytest.raises(ValueError, match="unselected provider"):
+        service.discover(
+            ResearchQuery(
+                "query",
+                mode=ProviderMode.ONLY,
+                providers=("openalex",),
+                cursors={"crossref": "cursor"},
+            )
+        )
+
+
 def test_auto_selector_is_replaceable() -> None:
     class _Selector:
         def select(
@@ -128,3 +153,19 @@ def test_auto_selector_is_replaceable() -> None:
     result = service.discover(ResearchQuery("query"))
 
     assert result.providers_used == ("crossref",)
+
+
+def test_auto_selector_must_return_provider() -> None:
+    class _EmptySelector:
+        def select(
+            self,
+            query: ResearchQuery,
+            providers: Mapping[str, DiscoveryProvider],
+        ) -> tuple[DiscoveryProvider, ...]:
+            del query, providers
+            return ()
+
+    service = DiscoveryService((_Provider("openalex", ()),), selector=_EmptySelector())
+
+    with pytest.raises(ValueError, match="returned no providers"):
+        service.discover(ResearchQuery("query"))

@@ -57,5 +57,6 @@ class VerticalSliceTest(unittest.TestCase):
             artifact_b = store.put_file(second)
 
             self.assertEqual(artifact_a.sha256, artifact_b.sha256)
+            self.assertEqual(artifact_a.artifact_id, artifact_b.artifact_id)
             self.assertEqual(artifact_a.storage_key, artifact_b.storage_key)
             self.assertEqual(store.read_bytes(artifact_a), b"same bytes")

@@ -47,18 +47,9 @@ class IngestService:
                 f"no parser supports media type {artifact.media_type!r} for {source.name!r}"
             )
 
-        stored_path = self._artifact_store_path(artifact)
+        stored_path = self._artifact_store.path_for(artifact)
         document = parser.parse(artifact, stored_path)
         manifest = build_document_manifest(document, artifact)
         self._repository.save_artifact(artifact)
         self._repository.save_document(document, manifest)
         return IngestResult(artifact=artifact, document=document, manifest=manifest)
-
-    def _artifact_store_path(self, artifact: Artifact) -> Path:
-        resolver = getattr(self._artifact_store, "path_for", None)
-        if resolver is None:
-            raise TypeError("artifact store must expose path_for() to parser adapters")
-        path = resolver(artifact)
-        if not isinstance(path, Path):
-            raise TypeError("artifact store path_for() must return pathlib.Path")
-        return path

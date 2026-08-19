@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from tarkka.domain.discovery import DiscoveryRecord
-from tarkka.domain.identifiers import normalize_doi
+from tarkka.domain.identifiers import try_normalize_doi
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,8 +37,9 @@ class CanonicalIdentityResolver:
 
 
 def _canonical_key(record: DiscoveryRecord) -> str:
-    if record.doi:
-        return f"doi:{normalize_doi(record.doi)}"
+    doi = try_normalize_doi(record.doi)
+    if doi:
+        return f"doi:{doi}"
     return f"provider:{record.provider}:{record.provider_id}"
 
 
@@ -48,19 +49,18 @@ def _candidate(key: str, records: tuple[DiscoveryRecord, ...]) -> CanonicalWorkC
     for record in records:
         external_ids.update(record.external_ids)
         external_ids[record.provider] = record.provider_id
-    doi = normalize_doi(preferred.doi) if preferred.doi else None
     return CanonicalWorkCandidate(
         canonical_key=key,
         title=preferred.title,
         year=preferred.year,
-        doi=doi,
+        doi=try_normalize_doi(preferred.doi),
         records=records,
         external_ids=external_ids,
     )
 
 
 def _preferred(records: tuple[DiscoveryRecord, ...]) -> DiscoveryRecord:
-    # Prefer records with more useful compact metadata; ties retain source order.
+    # max() returns the first maximal item, so input/source order is the explicit tie-breaker.
     return max(
         records,
         key=lambda record: (

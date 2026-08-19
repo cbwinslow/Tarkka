@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
+from uuid import UUID, uuid4
 
 
 class ProviderMode(StrEnum):
@@ -77,3 +79,28 @@ class DiscoveryResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "next_cursors", MappingProxyType(dict(self.next_cursors)))
+
+
+@dataclass(frozen=True, slots=True)
+class SearchSnapshot:
+    """Immutable record of what a provider selection returned at one point in time."""
+
+    snapshot_id: UUID
+    query: ResearchQuery
+    providers_used: tuple[str, ...]
+    records: tuple[DiscoveryRecord, ...]
+    next_cursors: Mapping[str, str] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "next_cursors", MappingProxyType(dict(self.next_cursors)))
+
+    @classmethod
+    def from_result(cls, result: DiscoveryResult) -> SearchSnapshot:
+        return cls(
+            snapshot_id=uuid4(),
+            query=result.query,
+            providers_used=result.providers_used,
+            records=result.records,
+            next_cursors=result.next_cursors,
+        )

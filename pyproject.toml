@@ -14,7 +14,9 @@ dependencies = []
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
+docling = ["docling>=2.117,<3"]
 dev = ["pytest>=8.3", "ruff>=0.9", "mypy>=1.14"]
+all = ["tarkka[postgres,docling]"]
 
 [project.scripts]
 tarkka = "tarkka.interfaces.cli:main"

@@ -76,6 +76,7 @@ class DiscoveryResult:
     providers_used: tuple[str, ...]
     records: tuple[DiscoveryRecord, ...]
     next_cursors: Mapping[str, str] = field(default_factory=dict)
+    snapshot_id: UUID = field(default_factory=uuid4)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "next_cursors", MappingProxyType(dict(self.next_cursors)))
@@ -98,7 +99,7 @@ class SearchSnapshot:
     @classmethod
     def from_result(cls, result: DiscoveryResult) -> SearchSnapshot:
         return cls(
-            snapshot_id=uuid4(),
+            snapshot_id=result.snapshot_id,
             query=result.query,
             providers_used=result.providers_used,
             records=result.records,

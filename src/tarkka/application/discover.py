@@ -7,8 +7,10 @@ from tarkka.domain.discovery import (
     DiscoveryResult,
     ProviderMode,
     ResearchQuery,
+    SearchSnapshot,
 )
 from tarkka.ports.discovery import DiscoveryProvider
+from tarkka.ports.snapshots import SearchSnapshotRecorder
 
 
 class UnknownProviderError(ValueError):
@@ -18,10 +20,16 @@ class UnknownProviderError(ValueError):
 class DiscoveryService:
     """Provider-neutral discovery with explicit selection and deterministic deduplication."""
 
-    def __init__(self, providers: Iterable[DiscoveryProvider]) -> None:
+    def __init__(
+        self,
+        providers: Iterable[DiscoveryProvider],
+        *,
+        snapshot_recorder: SearchSnapshotRecorder | None = None,
+    ) -> None:
         self._providers = {provider.name: provider for provider in providers}
         if not self._providers:
             raise ValueError("at least one discovery provider is required")
+        self._snapshot_recorder = snapshot_recorder
 
     def _select(self, query: ResearchQuery) -> tuple[DiscoveryProvider, ...]:
         if query.mode is ProviderMode.ALL:
@@ -48,12 +56,15 @@ class DiscoveryService:
             for page in pages
             if page.next_cursor is not None
         }
-        return DiscoveryResult(
+        result = DiscoveryResult(
             query=query,
             providers_used=tuple(provider.name for provider in selected),
             records=records[: query.limit],
             next_cursors=cursors,
         )
+        if self._snapshot_recorder is not None:
+            self._snapshot_recorder.record(SearchSnapshot.from_result(result))
+        return result
 
 
 def _deduplicate(records: Iterable[DiscoveryRecord]) -> tuple[DiscoveryRecord, ...]:

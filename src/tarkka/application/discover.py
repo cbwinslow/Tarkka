@@ -95,8 +95,15 @@ def _provider_searches(
     providers: tuple[DiscoveryProvider, ...],
     query: ResearchQuery,
 ) -> tuple[tuple[DiscoveryProvider, ResearchQuery], ...]:
+    selected_names = {provider.name for provider in providers}
+    unknown_cursors = sorted(set(query.cursors) - selected_names)
+    if unknown_cursors:
+        raise ValueError(
+            "cursor provided for unselected provider(s): " + ", ".join(unknown_cursors)
+        )
     if query.cursor and len(providers) != 1:
         raise ValueError("a single cursor is ambiguous for multi-provider discovery; use cursors")
+
     count = len(providers)
     quotient, remainder = divmod(query.limit, count)
     searches: list[tuple[DiscoveryProvider, ResearchQuery]] = []

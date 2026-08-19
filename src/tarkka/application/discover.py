@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 
 from tarkka.domain.discovery import (
     DiscoveryPage,
@@ -25,7 +26,7 @@ class DiscoveryProviderError(RuntimeError):
 
 
 class DefaultProviderSelector:
-    """Narrow default policy that can be replaced without changing DiscoveryService."""
+    """Narrow deterministic AUTO policy; replaceable by domain/cost/health-aware selectors."""
 
     def select(
         self,
@@ -48,9 +49,14 @@ class DiscoveryService:
         selector: ProviderSelector | None = None,
         snapshot_recorder: SearchSnapshotRecorder | None = None,
     ) -> None:
-        self._providers = {provider.name: provider for provider in providers}
-        if not self._providers:
+        provider_list = tuple(providers)
+        if not provider_list:
             raise ValueError("at least one discovery provider is required")
+        names = [provider.name for provider in provider_list]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate discovery provider name(s): {', '.join(duplicates)}")
+        self._providers = {provider.name: provider for provider in provider_list}
         self._selector = selector or DefaultProviderSelector()
         self._snapshot_recorder = snapshot_recorder
 
@@ -66,7 +72,8 @@ class DiscoveryService:
 
     def discover(self, query: ResearchQuery) -> DiscoveryResult:
         selected = self._select(query)
-        pages = _search_selected(selected, query)
+        searches = _provider_searches(selected, query)
+        pages = _search_selected(searches)
         records = _deduplicate(record for page in pages for record in page.records)
         cursors = {
             page.provider: page.next_cursor
@@ -76,7 +83,7 @@ class DiscoveryService:
         result = DiscoveryResult(
             query=query,
             providers_used=tuple(page.provider for page in pages),
-            records=records[: query.limit],
+            records=records,
             next_cursors=cursors,
         )
         if self._snapshot_recorder is not None:
@@ -84,17 +91,43 @@ class DiscoveryService:
         return result
 
 
-def _search_selected(
+def _provider_searches(
     providers: tuple[DiscoveryProvider, ...],
     query: ResearchQuery,
+) -> tuple[tuple[DiscoveryProvider, ResearchQuery], ...]:
+    if query.cursor and len(providers) != 1:
+        raise ValueError("a single cursor is ambiguous for multi-provider discovery; use cursors")
+    count = len(providers)
+    quotient, remainder = divmod(query.limit, count)
+    searches: list[tuple[DiscoveryProvider, ResearchQuery]] = []
+    for index, provider in enumerate(providers):
+        budget = max(1, quotient + int(index < remainder))
+        provider_cursor = query.cursors.get(provider.name)
+        if provider_cursor is None and count == 1:
+            provider_cursor = query.cursor
+        searches.append(
+            (
+                provider,
+                replace(query, limit=budget, cursor=provider_cursor, cursors={}),
+            )
+        )
+    return tuple(searches)
+
+
+def _search_selected(
+    searches: tuple[tuple[DiscoveryProvider, ResearchQuery], ...],
 ) -> tuple[DiscoveryPage, ...]:
-    if len(providers) == 1:
-        return (providers[0].search(query),)
+    if len(searches) == 1:
+        provider, query = searches[0]
+        return (provider.search(query),)
 
     pages: dict[str, DiscoveryPage] = {}
-    errors: dict[str, BaseException] = {}
-    with ThreadPoolExecutor(max_workers=len(providers)) as executor:
-        futures = {executor.submit(provider.search, query): provider.name for provider in providers}
+    errors: dict[str, Exception] = {}
+    with ThreadPoolExecutor(max_workers=len(searches)) as executor:
+        futures = {
+            executor.submit(provider.search, query): provider.name
+            for provider, query in searches
+        }
         for future in as_completed(futures):
             name = futures[future]
             try:
@@ -104,7 +137,7 @@ def _search_selected(
     if errors:
         details = "; ".join(f"{name}: {error}" for name, error in sorted(errors.items()))
         raise DiscoveryProviderError(f"discovery provider failure(s): {details}")
-    return tuple(pages[provider.name] for provider in providers)
+    return tuple(pages[provider.name] for provider, _ in searches)
 
 
 def _deduplicate(records: Iterable[DiscoveryRecord]) -> tuple[DiscoveryRecord, ...]:

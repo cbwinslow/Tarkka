@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
+from uuid import uuid4
 
 from tarkka.domain.models import Artifact
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
@@ -25,11 +26,11 @@ class _FakeConverter:
 
 def _artifact() -> Artifact:
     return Artifact(
-        artifact_id=__import__("uuid").uuid4(),
+        artifact_id=uuid4(),
         sha256="a" * 64,
         size_bytes=123,
         media_type="application/pdf",
-        storage_key=PurePosixPath("aa/a" * 1),
+        storage_key=PurePosixPath("aa/digest"),
         original_name="paper.pdf",
     )
 

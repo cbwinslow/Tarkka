@@ -5,7 +5,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from tarkka.domain.manifest import ResourceManifest
@@ -27,11 +27,18 @@ class JsonResearchRepository:
 
     def _read(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            decoded: Any = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"unable to read Tarkka catalog {self.path}: {exc}") from exc
+        if not isinstance(decoded, dict):
+            raise RuntimeError("invalid Tarkka catalog: root must be a JSON object")
+        data = cast(dict[str, Any], decoded)
         if data.get("schema_version") != 1:
             raise RuntimeError("unsupported Tarkka catalog schema version")
+        if not isinstance(data.get("artifacts"), dict) or not isinstance(
+            data.get("documents"), dict
+        ):
+            raise RuntimeError("invalid Tarkka catalog: artifacts/documents must be JSON objects")
         return data
 
     def _write(self, data: dict[str, Any]) -> None:

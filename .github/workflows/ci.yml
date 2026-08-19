@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Ruff
+        run: ruff check .
+      - name: Mypy
+        run: mypy
+      - name: Pytest
+        run: pytest
+
+  docling-import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Docling integration (CPU)
+        run: >-
+          python -m pip install -e '.[dev,docling]'
+          --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Verify optional adapter
+        run: python -c "from tarkka.infrastructure.storage.docling_parser import DoclingParser; assert DoclingParser.is_available()"
+      - name: Run adapter tests
+        run: pytest tests/test_docling_adapter.py

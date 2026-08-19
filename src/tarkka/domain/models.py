@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 from uuid import UUID, uuid4
 
 
@@ -67,6 +68,23 @@ class Artifact:
             raise ValueError("size_bytes must be non-negative")
         if not self.media_type:
             raise ValueError("media_type must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class Acquisition:
+    """One observation of where/how an immutable artifact was acquired."""
+
+    acquisition_id: UUID
+    artifact_id: UUID
+    source_uri: str
+    acquired_at: datetime = field(default_factory=utc_now)
+    original_name: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.source_uri.strip():
+            raise ValueError("acquisition source_uri must not be blank")
+        object.__setattr__(self, "metadata", _immutable_mapping(self.metadata))
 
 
 @dataclass(frozen=True, slots=True)

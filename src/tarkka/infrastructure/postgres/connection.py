@@ -14,7 +14,7 @@ class PostgresSettings:
     dsn: str
 
     @classmethod
-    def from_environment(cls) -> "PostgresSettings":
+    def from_environment(cls) -> PostgresSettings:
         dsn = environ.get("TARKKA_DATABASE_URL", "").strip()
         if not dsn:
             raise ValueError("TARKKA_DATABASE_URL is required for PostgreSQL operations")

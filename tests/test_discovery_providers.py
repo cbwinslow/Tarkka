@@ -60,7 +60,7 @@ def test_openalex_maps_work_cursor_and_caps_page_size() -> None:
     assert transport.last_params["per-page"] == 100
 
 
-def test_crossref_maps_metadata_and_known_identifiers() -> None:
+def test_crossref_maps_metadata_known_identifiers_and_cursor() -> None:
     transport = _Transport(
         {
             "message": {
@@ -83,7 +83,7 @@ def test_crossref_maps_metadata_and_known_identifiers() -> None:
     )
 
     page = CrossrefProvider(transport, mailto="researcher@example.test").search(
-        ResearchQuery("baseball model", limit=50)
+        ResearchQuery("baseball model", limit=10)
     )
 
     record = page.records[0]
@@ -94,6 +94,16 @@ def test_crossref_maps_metadata_and_known_identifiers() -> None:
     assert record.external_ids["alternative-id"] == "LOCAL-1"
     assert transport.last_params["cursor"] == "*"
     assert transport.last_params["mailto"] == "researcher@example.test"
+
+
+def test_crossref_open_access_uses_verified_free_full_text_filters() -> None:
+    transport = _Transport({"message": {"total-results": 0, "items": []}})
+
+    CrossrefProvider(transport).search(ResearchQuery("query", require_open_access=True))
+
+    filters = str(transport.last_params["filter"])
+    assert "assertion:free" in filters
+    assert "has-full-text:true" in filters
 
 
 def test_semantic_scholar_maps_search_result_and_api_key() -> None:
@@ -143,3 +153,12 @@ def test_semantic_scholar_rejects_invalid_cursor() -> None:
 
     with pytest.raises(ValueError, match="integer offset"):
         provider.search(ResearchQuery("query", cursor="not-an-offset"))
+
+
+def test_semantic_scholar_rejects_missing_paper_id() -> None:
+    provider = SemanticScholarProvider(
+        _Transport({"total": 1, "data": [{"title": "Missing identity"}]})
+    )
+
+    with pytest.raises(ValueError, match="paperId"):
+        provider.search(ResearchQuery("query"))

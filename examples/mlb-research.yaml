@@ -1,0 +1,68 @@
+version: 1
+kind: research_workspace
+
+metadata:
+  name: mlb-game-outcome-research
+  description: Research methods, features, and evidence for pregame MLB outcome prediction.
+  domain_pack: baseball
+
+topics:
+  - id: game-winner
+    question: Which methods and pregame features improve calibrated MLB game-winner probabilities out of sample?
+    subtopics:
+      - starting pitcher quality
+      - bullpen fatigue
+      - team strength ratings
+      - park and weather effects
+      - travel and rest
+      - lineup strength
+      - market odds as benchmark
+
+sources:
+  discovery:
+    - openalex
+    - semantic_scholar
+    - crossref
+    - arxiv
+  user_provided: true
+
+search:
+  languages: [en]
+  year_min: 2000
+  include_terms:
+    - baseball
+    - MLB
+  max_results_per_provider: 500
+
+extract:
+  contracts:
+    - research.claims
+    - research.methods
+    - research.variables
+    - research.models
+    - research.datasets
+    - research.metrics
+    - research.experiments
+    - research.results
+    - research.limitations
+
+quality:
+  domain_policy: baseball-predictive-modeling
+  observations:
+    - temporal_split
+    - leakage_risk
+    - sample_seasons
+    - statcast_era
+    - calibration_reported
+    - out_of_sample
+
+retrieval:
+  default_representation: manifest
+  progressive_disclosure: true
+  full_text_on_demand: true
+
+outputs:
+  - type: quarto
+    template: literature-and-model-review
+  - type: jsonl
+    objects: [claims, methods, variables, models, metrics]

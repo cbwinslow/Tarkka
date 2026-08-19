@@ -68,6 +68,10 @@ class SemanticScholarProvider:
 
 
 def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
+    paper_id = raw.get("paperId")
+    if not isinstance(paper_id, str) or not paper_id.strip():
+        raise ValueError("Semantic Scholar record must include paperId")
+
     external = raw.get("externalIds", {})
     external_map = external if isinstance(external, Mapping) else {}
     doi = external_map.get("DOI")
@@ -80,7 +84,7 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
     }
     return DiscoveryRecord(
         provider="semantic-scholar",
-        provider_id=str(raw.get("paperId", "unknown")),
+        provider_id=paper_id,
         title=str(raw.get("title") or "Untitled"),
         year=raw.get("year") if isinstance(raw.get("year"), int) else None,
         doi=doi_text,

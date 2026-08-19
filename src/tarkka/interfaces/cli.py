@@ -23,6 +23,8 @@ from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
 
+_PROVIDER_NAMES = ("openalex", "crossref", "semantic-scholar")
+
 
 def _home() -> Path:
     return Path(os.environ.get("TARKKA_HOME", "~/.tarkka")).expanduser().resolve()
@@ -87,6 +89,20 @@ def _provider_policy(raw: list[str] | None) -> tuple[ProviderMode, tuple[str, ..
     return ProviderMode.ONLY, selected
 
 
+def _provider_cursors(raw: list[str] | None) -> dict[str, str]:
+    cursors: dict[str, str] = {}
+    for item in raw or ():
+        provider, separator, cursor = item.partition("=")
+        if not separator or not provider or not cursor:
+            raise ValueError("cursor must use PROVIDER=CURSOR syntax")
+        if provider not in _PROVIDER_NAMES:
+            raise ValueError(f"unknown cursor provider: {provider}")
+        if provider in cursors:
+            raise ValueError(f"duplicate cursor for provider: {provider}")
+        cursors[provider] = cursor
+    return cursors
+
+
 def _cmd_ingest(args: argparse.Namespace) -> int:
     store, repo, acquisitions = _runtime()
     service = IngestService(
@@ -110,6 +126,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         query = ResearchQuery(
             text=args.query,
             limit=args.limit,
+            cursors=_provider_cursors(args.cursor),
             mode=mode,
             providers=providers,
             require_open_access=args.open_access,
@@ -120,7 +137,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         result = DiscoveryService(
             _discovery_providers(), snapshot_recorder=snapshots
         ).discover(query)
-    except (OSError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -190,8 +207,14 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument(
         "--provider",
         action="append",
-        choices=("auto", "all", "openalex", "crossref", "semantic-scholar"),
+        choices=("auto", "all", *_PROVIDER_NAMES),
         help="provider policy; repeat to select multiple explicit providers",
+    )
+    discover.add_argument(
+        "--cursor",
+        action="append",
+        metavar="PROVIDER=CURSOR",
+        help="provider-specific continuation cursor; repeat for multiple providers",
     )
     discover.add_argument("--limit", type=int, default=25)
     discover.add_argument("--year-from", type=int)

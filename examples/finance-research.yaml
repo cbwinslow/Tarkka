@@ -1,0 +1,70 @@
+version: 1
+kind: research_workspace
+
+metadata:
+  name: factor-investing-research
+  description: Evidence review for factor investing across inflation and rate regimes.
+  domain_pack: finance
+
+topics:
+  - id: factor-regimes
+    question: How robust are equity factor premia across inflation and interest-rate regimes after costs and out-of-sample validation?
+    subtopics:
+      - value
+      - momentum
+      - quality
+      - profitability
+      - low volatility
+      - transaction costs
+      - regime dependence
+
+sources:
+  discovery:
+    - openalex
+    - semantic_scholar
+    - crossref
+    - arxiv
+  user_provided: true
+  notes:
+    - Licensed institutional research such as CFA Institute material should be user-provided or acquired only through a permitted adapter/policy.
+
+search:
+  languages: [en]
+  year_min: 1990
+  max_results_per_provider: 1000
+
+extract:
+  contracts:
+    - research.claims
+    - research.hypotheses
+    - research.methods
+    - research.variables
+    - research.models
+    - research.datasets
+    - research.metrics
+    - research.experiments
+    - research.results
+    - research.limitations
+
+quality:
+  domain_policy: empirical-finance
+  observations:
+    - out_of_sample
+    - lookahead_bias
+    - survivorship_bias
+    - transaction_costs
+    - multiple_testing
+    - publication_decay
+    - data_snooping
+    - replication_status
+
+retrieval:
+  default_representation: manifest
+  progressive_disclosure: true
+  full_text_on_demand: true
+
+outputs:
+  - type: quarto
+    template: evidence-review
+  - type: jsonl
+    objects: [claims, methods, variables, models, metrics, results]

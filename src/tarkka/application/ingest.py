@@ -54,7 +54,10 @@ class IngestService:
         if self._acquisition_recorder is not None:
             self._acquisition_recorder.record(acquisition)
 
-        parser = next((candidate for candidate in self._parsers if candidate.supports(artifact)), None)
+        parser = next(
+            (candidate for candidate in self._parsers if candidate.supports(artifact)),
+            None,
+        )
         if parser is None:
             raise UnsupportedDocumentError(
                 f"no parser supports media type {artifact.media_type!r} for {source.name!r}"

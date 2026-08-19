@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Mapping
 
 from tarkka.domain.discovery import DiscoveryRecord
 
@@ -68,7 +67,7 @@ def _candidate(key: str, records: tuple[DiscoveryRecord, ...]) -> CanonicalWorkC
 
 
 def _preferred(records: tuple[DiscoveryRecord, ...]) -> DiscoveryRecord:
-    # Prefer the record carrying the most useful compact research metadata. Ties retain source order.
+    # Prefer records with more useful compact metadata; ties retain source order.
     return max(
         records,
         key=lambda record: (

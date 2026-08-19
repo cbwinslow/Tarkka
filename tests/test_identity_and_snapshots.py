@@ -32,14 +32,19 @@ def _record(
 
 
 def test_identity_resolver_groups_only_matching_dois() -> None:
-    openalex = _record("openalex", "W1", doi="10.1/ABC")
-    crossref = _record("crossref", "10.1/abc", doi="https://doi.org/10.1/abc", abstract="x")
+    openalex = _record("openalex", "W1", doi="10.1234/ABC")
+    crossref = _record(
+        "crossref",
+        "10.1234/abc",
+        doi="https://doi.org/10.1234/abc",
+        abstract="x",
+    )
     unkeyed = _record("semantic-scholar", "S2-9")
 
     resolved = CanonicalIdentityResolver().resolve((openalex, crossref, unkeyed))
 
     assert len(resolved) == 2
-    assert resolved[0].canonical_key == "doi:10.1/abc"
+    assert resolved[0].canonical_key == "doi:10.1234/abc"
     assert len(resolved[0].records) == 2
     assert resolved[0].records[0] == openalex
     assert resolved[0].records[1] == crossref
@@ -48,20 +53,37 @@ def test_identity_resolver_groups_only_matching_dois() -> None:
 
 
 def test_search_snapshot_log_preserves_exact_compact_result(tmp_path: Path) -> None:
-    result = DiscoveryResult(
-        query=ResearchQuery("mlb machine learning"),
+    first_result = DiscoveryResult(
+        query=ResearchQuery(
+            "mlb machine learning",
+            cursors={"openalex": "previous"},
+        ),
         providers_used=("openalex",),
-        records=(_record("openalex", "W1", doi="10.1/abc"),),
+        records=(_record("openalex", "W1", doi="10.1234/abc"),),
         next_cursors={"openalex": "next"},
     )
-    snapshot = SearchSnapshot.from_result(result)
+    second_result = DiscoveryResult(
+        query=ResearchQuery("pitcher fatigue"),
+        providers_used=("openalex",),
+        records=(_record("openalex", "W2"),),
+        next_cursors={"openalex": "next-2"},
+    )
     path = tmp_path / "search_snapshots.jsonl"
+    log = JsonlSearchSnapshotLog(path)
 
-    JsonlSearchSnapshotLog(path).record(snapshot)
+    log.record(SearchSnapshot.from_result(first_result))
+    log.record(SearchSnapshot.from_result(second_result))
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["snapshot_id"] == str(result.snapshot_id)
-    assert payload["query"]["text"] == "mlb machine learning"
-    assert payload["providers_used"] == ["openalex"]
-    assert payload["records"][0]["doi"] == "10.1/abc"
-    assert payload["next_cursors"] == {"openalex": "next"}
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    second = json.loads(lines[1])
+
+    assert first["snapshot_id"] == str(first_result.snapshot_id)
+    assert first["query"]["text"] == "mlb machine learning"
+    assert first["query"]["cursors"] == {"openalex": "previous"}
+    assert first["providers_used"] == ["openalex"]
+    assert first["records"][0]["doi"] == "10.1234/abc"
+    assert first["next_cursors"] == {"openalex": "next"}
+    assert second["snapshot_id"] == str(second_result.snapshot_id)
+    assert second["query"]["text"] == "pitcher fatigue"

@@ -105,10 +105,14 @@ def _provider_searches(
         raise ValueError("a single cursor is ambiguous for multi-provider discovery; use cursors")
 
     count = len(providers)
+    if query.limit < count:
+        raise ValueError(
+            f"query limit {query.limit} is smaller than selected provider count {count}"
+        )
     quotient, remainder = divmod(query.limit, count)
     searches: list[tuple[DiscoveryProvider, ResearchQuery]] = []
     for index, provider in enumerate(providers):
-        budget = max(1, quotient + int(index < remainder))
+        budget = quotient + int(index < remainder)
         provider_cursor = query.cursors.get(provider.name)
         if provider_cursor is None and count == 1:
             provider_cursor = query.cursor

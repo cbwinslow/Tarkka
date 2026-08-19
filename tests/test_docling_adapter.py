@@ -46,7 +46,8 @@ def test_docling_adapter_normalizes_to_tarkka_document(tmp_path: Path) -> None:
     assert parser.supports(artifact)
     assert document.artifact_id == artifact.artifact_id
     assert document.parser_name == "docling"
-    assert document.parser_version == "injected"
+    assert document.parser_version == parser.version
+    assert document.parser_version
     assert document.title == "Normalized Research Paper"
     assert len(document.sections) == 2
     text = "".join(

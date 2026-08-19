@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from tarkka.domain.discovery import DiscoveryRecord
+from tarkka.domain.identifiers import normalize_doi
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,16 +38,8 @@ class CanonicalIdentityResolver:
 
 def _canonical_key(record: DiscoveryRecord) -> str:
     if record.doi:
-        return f"doi:{_normalize_doi(record.doi)}"
+        return f"doi:{normalize_doi(record.doi)}"
     return f"provider:{record.provider}:{record.provider_id}"
-
-
-def _normalize_doi(value: str) -> str:
-    doi = value.strip().lower()
-    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
-        if doi.startswith(prefix):
-            return doi.removeprefix(prefix)
-    return doi
 
 
 def _candidate(key: str, records: tuple[DiscoveryRecord, ...]) -> CanonicalWorkCandidate:
@@ -55,7 +48,7 @@ def _candidate(key: str, records: tuple[DiscoveryRecord, ...]) -> CanonicalWorkC
     for record in records:
         external_ids.update(record.external_ids)
         external_ids[record.provider] = record.provider_id
-    doi = _normalize_doi(preferred.doi) if preferred.doi else None
+    doi = normalize_doi(preferred.doi) if preferred.doi else None
     return CanonicalWorkCandidate(
         canonical_key=key,
         title=preferred.title,

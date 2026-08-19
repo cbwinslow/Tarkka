@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
+from tarkka.domain.identifiers import normalize_doi
 from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransport
 
 
@@ -11,6 +12,7 @@ class SemanticScholarProvider:
     name = "semantic-scholar"
     _URL = "https://api.semanticscholar.org/graph/v1/paper/search"
     _FIELDS = "title,year,abstract,url,externalIds,citationCount,openAccessPdf"
+    _MAX_LIMIT = 100
 
     def __init__(
         self,
@@ -24,15 +26,24 @@ class SemanticScholarProvider:
     def search(self, query: ResearchQuery) -> DiscoveryPage:
         params: dict[str, str | int | bool] = {
             "query": query.text.replace("-", " "),
-            "limit": min(query.limit, 100),
+            "limit": min(query.limit, self._MAX_LIMIT),
             "fields": self._FIELDS,
         }
         if query.cursor:
-            params["offset"] = int(query.cursor)
+            try:
+                offset = int(query.cursor)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Semantic Scholar cursor must be an integer offset: {query.cursor!r}"
+                ) from exc
+            if offset < 0:
+                raise ValueError("Semantic Scholar cursor must be non-negative")
+            params["offset"] = offset
         if query.year_from or query.year_to:
             start = str(query.year_from or "")
             end = str(query.year_to or "")
-            params["year"] = f"{start}-{end}" if start and end else start or end
+            # Official Graph API accepts 2016-2020, 2010-, and -2015.
+            params["year"] = f"{start}-{end}" if start and end else start or f"-{end}"
         if query.require_open_access:
             params["openAccessPdf"] = ""
         headers = {"x-api-key": self._api_key} if self._api_key else None
@@ -55,7 +66,7 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
     external = raw.get("externalIds", {})
     external_map = external if isinstance(external, Mapping) else {}
     doi = external_map.get("DOI")
-    doi_text = doi.lower() if isinstance(doi, str) else None
+    doi_text = normalize_doi(doi) if isinstance(doi, str) and doi.strip() else None
     oa = raw.get("openAccessPdf", {})
     oa_map = oa if isinstance(oa, Mapping) else {}
     cited_by = raw.get("citationCount")

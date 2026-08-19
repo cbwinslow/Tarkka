@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from tarkka.domain.discovery import DiscoveryRecord, ResearchQuery, SearchSnapshot
+from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
 class JsonlSearchSnapshotLog:
@@ -23,9 +24,11 @@ class JsonlSearchSnapshotLog:
             "next_cursors": dict(snapshot.next_cursors),
             "records": [_record_to_dict(record) for record in snapshot.records],
         }
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True))
-            handle.write("\n")
+        line = json.dumps(payload, sort_keys=True) + "\n"
+        with exclusive_lock(self.path):
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+                handle.flush()
 
 
 def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:

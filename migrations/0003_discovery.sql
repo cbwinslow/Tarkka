@@ -21,6 +21,29 @@ CREATE INDEX IF NOT EXISTS search_snapshot_providers_gin_idx
 CREATE INDEX IF NOT EXISTS search_snapshot_records_gin_idx
     ON tarkka.search_snapshot USING gin (records);
 
+CREATE OR REPLACE FUNCTION tarkka.reject_search_snapshot_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'tarkka.search_snapshot is append-only';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS search_snapshot_no_update_delete ON tarkka.search_snapshot;
+CREATE TRIGGER search_snapshot_no_update_delete
+    BEFORE UPDATE OR DELETE ON tarkka.search_snapshot
+    FOR EACH ROW
+    EXECUTE FUNCTION tarkka.reject_search_snapshot_mutation();
+
+DROP TRIGGER IF EXISTS search_snapshot_no_truncate ON tarkka.search_snapshot;
+CREATE TRIGGER search_snapshot_no_truncate
+    BEFORE TRUNCATE ON tarkka.search_snapshot
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION tarkka.reject_search_snapshot_mutation();
+
+REVOKE UPDATE, DELETE, TRUNCATE ON tarkka.search_snapshot FROM PUBLIC;
+
 COMMENT ON TABLE tarkka.search_snapshot IS
     'Immutable scholarly discovery result snapshots for reproducibility and audit.';
 

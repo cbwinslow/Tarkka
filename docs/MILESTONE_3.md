@@ -3,8 +3,8 @@
 ## Goal
 
 Add provider-neutral scholarly discovery without forcing every research query through every external
-source. Tarkka should be able to search narrowly by default, fan out when explicitly requested, and
-later enrich selected candidates from secondary metadata providers.
+source. Tarkka should search narrowly by default, fan out when explicitly requested, preserve the
+exact result set for reproducibility, and enrich selected candidates only after identity resolution.
 
 ## Provider policy
 
@@ -76,29 +76,72 @@ tarkka discover "MLB betting models" --provider openalex --provider crossref
 tarkka discover "baseball forecasting" --provider all
 ```
 
-The first response remains compact: title, year, provider identity, DOI, citation count, and open
-access URL. Abstracts and full records should be fetched only when requested.
+The first response remains compact: snapshot ID, title, year, provider identity, DOI, citation count,
+and open-access URL. Abstracts and full records should be fetched only when requested.
 
-## Deduplication
+## Search snapshots
 
-The first deduplication rule is intentionally conservative:
+Every discovery result receives a stable snapshot UUID. The local runtime appends the complete
+compact result set, provider policy, filters, and continuation cursors to
+`~/.tarkka/search_snapshots.jsonl`.
 
-1. normalized DOI when available
-2. otherwise `(provider, provider_id)`
+The PostgreSQL reference schema includes `tarkka.search_snapshot` for the production persistence
+path. This makes later analysis auditable even when provider rankings or metadata change.
 
-Do not merge records by fuzzy title similarity yet. That belongs in the canonical identity resolver,
-where ambiguous merges can be scored, explained, and tested.
+## Identity resolution
 
-## Next steps within Milestone 3
+The first identity rule is intentionally conservative:
 
-1. persist reproducible `SearchSnapshot` records
-2. add canonical external-ID aliases to `Work`
-3. implement DOI-first identity resolution
-4. implement Crossref enrichment by DOI
-5. add provider retry/rate-limit/backoff policy
-6. add per-provider continuation commands
-7. add richer query intent/capability routing
-8. add arXiv as a specialized provider without changing the core contract
+1. normalize and group matching DOIs
+2. otherwise preserve `(provider, provider_id)` as a distinct identity
+
+`CanonicalIdentityResolver` keeps all source records attached to the candidate and chooses a compact
+preferred representation without discarding provenance.
+
+Do not automatically merge records by fuzzy title similarity. Ambiguous identity candidates should
+later carry explicit confidence and evidence so they can be reviewed and regression-tested.
+
+## Separation of stages
+
+```text
+provider selection
+      ↓
+discovery
+      ↓
+search snapshot
+      ↓
+identity resolution
+      ↓
+enrichment
+      ↓
+acquisition / normalization
+```
+
+Provider adapters must not call one another. Cross-provider combination and enrichment belong in
+application services where policy, cost, retries, and provenance can be controlled explicitly.
+
+## Delivered in this slice
+
+1. provider-neutral discovery contracts
+2. `auto` / `only` / `all` selection policy
+3. OpenAlex adapter
+4. Crossref adapter
+5. Semantic Scholar adapter
+6. DOI-first deduplication and canonical identity grouping
+7. reproducible local SearchSnapshots
+8. PostgreSQL SearchSnapshot migration
+9. agent-friendly `tarkka discover` CLI
+10. network-free adapter and orchestration tests
+
+## Remaining Milestone 3 work
+
+1. implement Crossref enrichment by DOI
+2. add canonical external-ID aliases to persistent `Work` entities
+3. add provider retry/rate-limit/backoff policy
+4. add per-provider continuation commands
+5. add richer query intent/capability routing
+6. add arXiv as a specialized provider without changing the core contract
+7. add explicit fuzzy identity candidates with confidence/evidence
 
 ## Invariant
 

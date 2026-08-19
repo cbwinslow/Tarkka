@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tarkka.domain.manifest import ResourceManifest, build_document_manifest
-from tarkka.domain.models import Artifact, Document
+from tarkka.domain.models import Acquisition, Artifact, Document, new_id
+from tarkka.ports.acquisitions import AcquisitionRecorder
 from tarkka.ports.artifacts import ArtifactStore
 from tarkka.ports.parsing import DocumentParser
 from tarkka.ports.repositories import ResearchRepository
@@ -17,6 +18,7 @@ class UnsupportedDocumentError(ValueError):
 @dataclass(frozen=True, slots=True)
 class IngestResult:
     artifact: Artifact
+    acquisition: Acquisition
     document: Document
     manifest: ResourceManifest
 
@@ -28,12 +30,14 @@ class IngestService:
         artifact_store: ArtifactStore,
         repository: ResearchRepository,
         parsers: tuple[DocumentParser, ...],
+        acquisition_recorder: AcquisitionRecorder | None = None,
     ) -> None:
         if not parsers:
             raise ValueError("at least one document parser is required")
         self._artifact_store = artifact_store
         self._repository = repository
         self._parsers = parsers
+        self._acquisition_recorder = acquisition_recorder
 
     def ingest(self, source: Path) -> IngestResult:
         source = source.expanduser().resolve()
@@ -41,6 +45,15 @@ class IngestService:
             raise FileNotFoundError(source)
 
         artifact = self._artifact_store.put_file(source)
+        acquisition = Acquisition(
+            acquisition_id=new_id(),
+            artifact_id=artifact.artifact_id,
+            source_uri=source.as_uri(),
+            original_name=source.name,
+        )
+        if self._acquisition_recorder is not None:
+            self._acquisition_recorder.record(acquisition)
+
         parser = next((candidate for candidate in self._parsers if candidate.supports(artifact)), None)
         if parser is None:
             raise UnsupportedDocumentError(
@@ -52,4 +65,9 @@ class IngestService:
         manifest = build_document_manifest(document, artifact)
         self._repository.save_artifact(artifact)
         self._repository.save_document(document, manifest)
-        return IngestResult(artifact=artifact, document=document, manifest=manifest)
+        return IngestResult(
+            artifact=artifact,
+            acquisition=acquisition,
+            document=document,
+            manifest=manifest,
+        )

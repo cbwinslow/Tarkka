@@ -22,6 +22,7 @@ class ResearchQuery:
     text: str
     limit: int = 25
     cursor: str | None = None
+    cursors: Mapping[str, str] = field(default_factory=dict)
     mode: ProviderMode = ProviderMode.AUTO
     providers: tuple[str, ...] = ()
     require_open_access: bool = False
@@ -37,6 +38,9 @@ class ResearchQuery:
             raise ValueError("mode=only requires at least one provider")
         if self.year_from and self.year_to and self.year_from > self.year_to:
             raise ValueError("year_from must be <= year_to")
+        if self.cursor and self.cursors:
+            raise ValueError("use either cursor or provider-keyed cursors, not both")
+        object.__setattr__(self, "cursors", MappingProxyType(dict(self.cursors)))
 
 
 @dataclass(frozen=True, slots=True)

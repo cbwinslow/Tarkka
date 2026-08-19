@@ -9,21 +9,32 @@ from uuid import UUID
 
 from tarkka.application.ingest import IngestService, UnsupportedDocumentError
 from tarkka.domain.manifest import ResourceManifest
+from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
+from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
+from tarkka.ports.parsing import DocumentParser
 
 
 def _home() -> Path:
     return Path(os.environ.get("TARKKA_HOME", "~/.tarkka")).expanduser().resolve()
 
 
-def _runtime() -> tuple[LocalArtifactStore, JsonResearchRepository]:
+def _runtime() -> tuple[LocalArtifactStore, JsonResearchRepository, JsonlAcquisitionLog]:
     home = _home()
     return (
         LocalArtifactStore(home / "artifacts"),
         JsonResearchRepository(home / "catalog.json"),
+        JsonlAcquisitionLog(home / "acquisitions.jsonl"),
     )
+
+
+def _parsers() -> tuple[DocumentParser, ...]:
+    parsers: list[DocumentParser] = [PlainTextParser()]
+    if DoclingParser.is_available():
+        parsers.append(DoclingParser())
+    return tuple(parsers)
 
 
 def _manifest_yaml(manifest: ResourceManifest) -> str:
@@ -49,15 +60,16 @@ def _parse_document_id(raw: str) -> UUID:
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
-    store, repo = _runtime()
+    store, repo, acquisitions = _runtime()
     service = IngestService(
         artifact_store=store,
         repository=repo,
-        parsers=(PlainTextParser(),),
+        acquisition_recorder=acquisitions,
+        parsers=_parsers(),
     )
     try:
         result = service.ingest(Path(args.path))
-    except (FileNotFoundError, UnsupportedDocumentError, UnicodeDecodeError) as exc:
+    except (FileNotFoundError, UnsupportedDocumentError, UnicodeDecodeError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(_manifest_yaml(result.manifest))
@@ -65,7 +77,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
-    _, repo = _runtime()
+    _, repo, _ = _runtime()
     manifest = repo.get_manifest(args.document_id)
     if manifest is None:
         print(f"error: document not found: {args.document_id}", file=sys.stderr)
@@ -75,7 +87,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_read(args: argparse.Namespace) -> int:
-    _, repo = _runtime()
+    _, repo, _ = _runtime()
     document = repo.get_document(args.document_id)
     if document is None:
         print(f"error: document not found: {args.document_id}", file=sys.stderr)

@@ -11,7 +11,12 @@ class OpenAlexProvider:
     name = "openalex"
     _URL = "https://api.openalex.org/works"
 
-    def __init__(self, transport: JsonTransport | None = None, *, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        transport: JsonTransport | None = None,
+        *,
+        api_key: str | None = None,
+    ) -> None:
         self._transport = transport or UrllibJsonTransport()
         self._api_key = api_key
 

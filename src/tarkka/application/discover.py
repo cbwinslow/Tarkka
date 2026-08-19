@@ -68,7 +68,20 @@ class DiscoveryService:
             if missing:
                 raise UnknownProviderError(f"unknown discovery provider(s): {', '.join(missing)}")
             return tuple(self._providers[name] for name in query.providers)
-        return self._selector.select(query, self._providers)
+
+        selected = self._selector.select(query, self._providers)
+        if not selected:
+            raise ValueError("AUTO provider selector returned no providers")
+        selected_names = [provider.name for provider in selected]
+        unknown = sorted({name for name in selected_names if name not in self._providers})
+        if unknown:
+            raise ValueError(f"AUTO provider selector returned unknown provider(s): {', '.join(unknown)}")
+        duplicates = sorted({name for name in selected_names if selected_names.count(name) > 1})
+        if duplicates:
+            raise ValueError(
+                f"AUTO provider selector returned duplicate provider(s): {', '.join(duplicates)}"
+            )
+        return selected
 
     def discover(self, query: ResearchQuery) -> DiscoveryResult:
         selected = self._select(query)

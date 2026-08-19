@@ -18,6 +18,7 @@ from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
+from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
@@ -115,12 +116,16 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             year_from=args.year_from,
             year_to=args.year_to,
         )
-        result = DiscoveryService(_discovery_providers()).discover(query)
+        snapshots = JsonlSearchSnapshotLog(_home() / "search_snapshots.jsonl")
+        result = DiscoveryService(
+            _discovery_providers(), snapshot_recorder=snapshots
+        ).discover(query)
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
     payload = {
+        "snapshot_id": str(result.snapshot_id),
         "query": result.query.text,
         "providers": result.providers_used,
         "returned": len(result.records),

@@ -43,7 +43,12 @@ class SemanticScholarProvider:
             start = str(query.year_from or "")
             end = str(query.year_to or "")
             # Official Graph API accepts 2016-2020, 2010-, and -2015.
-            params["year"] = f"{start}-{end}" if start and end else start or f"-{end}"
+            if start and end:
+                params["year"] = f"{start}-{end}"
+            elif start:
+                params["year"] = f"{start}-"
+            else:
+                params["year"] = f"-{end}"
         if query.require_open_access:
             params["openAccessPdf"] = ""
         headers = {"x-api-key": self._api_key} if self._api_key else None

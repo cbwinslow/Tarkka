@@ -25,11 +25,8 @@ class CrossrefProvider:
         params: dict[str, str | int | bool] = {
             "query.bibliographic": query.text,
             "rows": query.limit,
+            "cursor": query.cursor or "*",
         }
-        if query.cursor:
-            params["cursor"] = query.cursor
-        elif query.limit > 20:
-            params["cursor"] = "*"
         if self._mailto:
             params["mailto"] = self._mailto
         filters: list[str] = []
@@ -37,6 +34,10 @@ class CrossrefProvider:
             filters.append(f"from-pub-date:{query.year_from}-01-01")
         if query.year_to:
             filters.append(f"until-pub-date:{query.year_to}-12-31")
+        if query.require_open_access:
+            # Crossref documents `assertion:free` plus `has-full-text:true` as the reliable
+            # machine-readable signal for content explicitly deposited as free to read.
+            filters.extend(("assertion:free", "has-full-text:true"))
         if filters:
             params["filter"] = ",".join(filters)
 

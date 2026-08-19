@@ -68,9 +68,11 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
         if isinstance(title, list) and title and isinstance(title[0], str)
         else "Untitled"
     )
-    url = raw.get("URL") if isinstance(raw.get("URL"), str) else None
+    url = raw.get("URL") if isinstance(raw.get("URL"), str) and raw.get("URL") else None
+    provider_id = doi_text or url
+    if provider_id is None:
+        raise ValueError("Crossref record must include DOI or URL")
     cited_by = raw.get("is-referenced-by-count")
-    provider_id = doi_text or url or "unknown"
     return DiscoveryRecord(
         provider="crossref",
         provider_id=provider_id,

@@ -61,7 +61,12 @@ class IdentityReviewService:
         except IndexError as exc:
             raise IdentityCandidateNotFoundError("identity candidate index out of range") from exc
 
-        candidate = self._matcher.compare(left, right)
+        candidate = self._matcher.compare(
+            left,
+            right,
+            left_index=left_index,
+            right_index=right_index,
+        )
         if candidate is None:
             raise IdentityCandidateNotFoundError(
                 f"records {left_index} and {right_index} are not a fuzzy identity candidate"

@@ -280,24 +280,28 @@ class ExtractionBatch:
     extractions: tuple[ResearchExtraction, ...]
 
     def __post_init__(self) -> None:
-        evidence_ids = {item.evidence_id for item in self.evidence}
+        evidence_ids = {evidence_item.evidence_id for evidence_item in self.evidence}
         if len(evidence_ids) != len(self.evidence):
             raise ValueError("extraction batch evidence IDs must be unique")
-        extraction_ids = {item.extraction_id for item in self.extractions}
+        extraction_ids = {
+            extraction_item.extraction_id for extraction_item in self.extractions
+        }
         if len(extraction_ids) != len(self.extractions):
             raise ValueError("extraction batch extraction IDs must be unique")
 
-        run_ids = {item.provenance.run_id for item in self.evidence}
-        run_ids.update(item.provenance.run_id for item in self.extractions)
+        run_ids = {evidence_item.provenance.run_id for evidence_item in self.evidence}
+        run_ids.update(
+            extraction_item.provenance.run_id for extraction_item in self.extractions
+        )
         if len(run_ids) > 1:
             raise ValueError("extraction batch must contain exactly one extraction run")
 
-        for item in self.evidence:
-            if item.document_id != self.document_id:
+        for evidence_item in self.evidence:
+            if evidence_item.document_id != self.document_id:
                 raise ValueError("evidence does not belong to extraction batch document")
-        for item in self.extractions:
-            if item.document_id != self.document_id:
+        for extraction_item in self.extractions:
+            if extraction_item.document_id != self.document_id:
                 raise ValueError("extraction does not belong to extraction batch document")
-            missing = set(item.evidence_ids) - evidence_ids
+            missing = set(extraction_item.evidence_ids) - evidence_ids
             if missing:
                 raise ValueError("extraction references evidence outside the batch")

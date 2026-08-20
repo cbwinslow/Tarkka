@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from difflib import SequenceMatcher
 from itertools import combinations
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.identifiers import try_normalize_arxiv_id, try_normalize_doi
@@ -114,7 +114,7 @@ def _arxiv_id(record: DiscoveryRecord) -> str | None:
     return None
 
 
-def _candidate_id(left: DiscoveryRecord, right: DiscoveryRecord):
+def _candidate_id(left: DiscoveryRecord, right: DiscoveryRecord) -> UUID:
     identities = sorted(
         (
             f"{left.provider}:{left.provider_id}",

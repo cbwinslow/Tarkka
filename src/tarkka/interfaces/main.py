@@ -43,13 +43,15 @@ def _service() -> IdentityReviewService:
 def _cmd_suggest(args: argparse.Namespace) -> int:
     try:
         candidates = _service().suggest(args.snapshot_id)
-    except (IdentitySnapshotNotFoundError, SnapshotDataError, RuntimeError, ValueError) as exc:
+    except (IdentitySnapshotNotFoundError, SnapshotDataError, OSError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     payload = [
         {
             "candidate_id": str(candidate.candidate_id),
             "confidence": candidate.confidence,
+            "left_index": candidate.left_index,
+            "right_index": candidate.right_index,
             "left": {
                 "provider": candidate.left_provider,
                 "provider_id": candidate.left_provider_id,
@@ -83,8 +85,8 @@ def _cmd_decide(args: argparse.Namespace) -> int:
         IdentitySnapshotNotFoundError,
         IdentityCandidateNotFoundError,
         SnapshotDataError,
+        OSError,
         RuntimeError,
-        ValueError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -97,7 +99,6 @@ def _cmd_decide(args: argparse.Namespace) -> int:
                 "left_index": decision.left_index,
                 "right_index": decision.right_index,
                 "rationale": decision.rationale,
-                "merged": False,
             },
             indent=2,
             sort_keys=True,

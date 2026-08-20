@@ -20,7 +20,7 @@ export TARKKA_MODEL_PROVIDER="litellm"
 export TARKKA_MODEL_VERSION="server-or-model-version"
 ```
 
-`TARKKA_MODEL_BASE_URL` may use HTTP for trusted local services or HTTPS for remote services. Do not send bearer credentials over untrusted plaintext HTTP. API keys are never persisted into extraction records.
+`TARKKA_MODEL_BASE_URL` must use HTTPS for remote endpoints. Plaintext HTTP is accepted only for loopback hosts (`localhost`, `127.0.0.1`, and `::1`) so Tarkka does not accidentally send research text or bearer credentials over an unencrypted remote connection. API keys are never persisted into extraction records.
 
 ## CLI
 
@@ -78,7 +78,7 @@ Provider-specific behavior stays outside Tarkka's core. A future native adapter 
 Provider tests remain network-free:
 
 ```bash
-pytest -q tests/test_openai_compatible_claim_model.py
+pytest -q tests/test_openai_compatible_claim_model.py tests/test_model_endpoint_security.py
 ```
 
 The full project gate remains:

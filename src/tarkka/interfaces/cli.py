@@ -11,6 +11,7 @@ from tarkka.application.discover import DiscoveryService
 from tarkka.application.ingest import IngestService, UnsupportedDocumentError
 from tarkka.application.work_selection import (
     SnapshotNotFoundError,
+    SnapshotRecordConflictError,
     SnapshotRecordNotFoundError,
     WorkSelectionService,
 )
@@ -26,7 +27,7 @@ from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
-from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog
+from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog, SnapshotDataError
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
@@ -229,6 +230,12 @@ def _cmd_work_save(args: argparse.Namespace) -> int:
     )
     try:
         selection = service.save_snapshot_result(args.snapshot_id, args.index)
+    except SnapshotRecordConflictError as exc:
+        print(f"error: identity conflict: {exc}", file=sys.stderr)
+        return 3
+    except SnapshotDataError as exc:
+        print(f"error: corrupted snapshot data: {exc}", file=sys.stderr)
+        return 2
     except (SnapshotNotFoundError, SnapshotRecordNotFoundError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
-from tarkka.domain.identifiers import normalize_doi
+from tarkka.domain.identifiers import try_normalize_doi
 from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransport
 
 
@@ -25,7 +25,7 @@ class SemanticScholarProvider:
 
     def search(self, query: ResearchQuery) -> DiscoveryPage:
         params: dict[str, str | int | bool] = {
-            "query": query.text.replace("-", " "),
+            "query": query.text,
             "limit": min(query.limit, self._MAX_LIMIT),
             "fields": self._FIELDS,
         }
@@ -74,11 +74,10 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
 
     external = raw.get("externalIds", {})
     external_map = external if isinstance(external, Mapping) else {}
-    doi = external_map.get("DOI")
-    doi_text = normalize_doi(doi) if isinstance(doi, str) and doi.strip() else None
     oa = raw.get("openAccessPdf", {})
     oa_map = oa if isinstance(oa, Mapping) else {}
     cited_by = raw.get("citationCount")
+    # Canonical external identifiers are strings by domain contract.
     external_ids = {
         str(key): str(value) for key, value in external_map.items() if value is not None
     }
@@ -87,7 +86,7 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
         provider_id=paper_id,
         title=str(raw.get("title") or "Untitled"),
         year=raw.get("year") if isinstance(raw.get("year"), int) else None,
-        doi=doi_text,
+        doi=try_normalize_doi(external_map.get("DOI")),
         abstract=raw.get("abstract") if isinstance(raw.get("abstract"), str) else None,
         landing_page_url=raw.get("url") if isinstance(raw.get("url"), str) else None,
         open_access_url=oa_map.get("url") if isinstance(oa_map.get("url"), str) else None,

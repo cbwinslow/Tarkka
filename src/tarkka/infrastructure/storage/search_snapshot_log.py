@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
-from tarkka.domain.discovery import DiscoveryRecord, ResearchQuery, SearchSnapshot
+from tarkka.domain.discovery import (
+    DiscoveryRecord,
+    ProviderMode,
+    ResearchQuery,
+    SearchSnapshot,
+)
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
@@ -31,6 +38,21 @@ class JsonlSearchSnapshotLog:
             handle.flush()
             os.fsync(handle.fileno())
 
+    def get(self, snapshot_id: UUID) -> SearchSnapshot | None:
+        if not self.path.exists():
+            return None
+        try:
+            with self.path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    raw = json.loads(line)
+                    if raw.get("snapshot_id") == str(snapshot_id):
+                        return _snapshot_from_dict(raw)
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"unable to read Tarkka search snapshots {self.path}: {exc}") from exc
+        return None
+
 
 def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:
     return {
@@ -44,6 +66,20 @@ def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:
         "year_from": query.year_from,
         "year_to": query.year_to,
     }
+
+
+def _query_from_dict(raw: dict[str, Any]) -> ResearchQuery:
+    return ResearchQuery(
+        text=str(raw["text"]),
+        limit=int(raw.get("limit", 25)),
+        cursor=raw.get("cursor"),
+        cursors={str(key): str(value) for key, value in dict(raw.get("cursors", {})).items()},
+        mode=ProviderMode(str(raw.get("mode", ProviderMode.AUTO.value))),
+        providers=tuple(str(value) for value in raw.get("providers", [])),
+        require_open_access=bool(raw.get("require_open_access", False)),
+        year_from=raw.get("year_from"),
+        year_to=raw.get("year_to"),
+    )
 
 
 def _record_to_dict(record: DiscoveryRecord) -> dict[str, Any]:
@@ -60,3 +96,30 @@ def _record_to_dict(record: DiscoveryRecord) -> dict[str, Any]:
         "external_ids": dict(record.external_ids),
         "metadata": dict(record.metadata),
     }
+
+
+def _record_from_dict(raw: dict[str, Any]) -> DiscoveryRecord:
+    return DiscoveryRecord(
+        provider=str(raw["provider"]),
+        provider_id=str(raw["provider_id"]),
+        title=str(raw["title"]),
+        year=raw.get("year"),
+        doi=raw.get("doi"),
+        abstract=raw.get("abstract"),
+        landing_page_url=raw.get("landing_page_url"),
+        open_access_url=raw.get("open_access_url"),
+        cited_by_count=raw.get("cited_by_count"),
+        external_ids={str(key): str(value) for key, value in dict(raw.get("external_ids", {})).items()},
+        metadata=dict(raw.get("metadata", {})),
+    )
+
+
+def _snapshot_from_dict(raw: dict[str, Any]) -> SearchSnapshot:
+    return SearchSnapshot(
+        snapshot_id=UUID(str(raw["snapshot_id"])),
+        created_at=datetime.fromisoformat(str(raw["created_at"])),
+        query=_query_from_dict(dict(raw["query"])),
+        providers_used=tuple(str(value) for value in raw.get("providers_used", [])),
+        next_cursors={str(key): str(value) for key, value in dict(raw.get("next_cursors", {})).items()},
+        records=tuple(_record_from_dict(dict(value)) for value in raw.get("records", [])),
+    )

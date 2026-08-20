@@ -140,7 +140,7 @@ class Claim(ResearchExtractionBase):
     claim_type: str = "proposition"
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.text.strip() or not self.claim_type.strip():
             raise ValueError("claim text/type must not be blank")
 
@@ -154,7 +154,7 @@ class Hypothesis(ResearchExtractionBase):
     text: str
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.text.strip():
             raise ValueError("hypothesis text must not be blank")
 
@@ -169,7 +169,7 @@ class Method(ResearchExtractionBase):
     description: str | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.name.strip():
             raise ValueError("method name must not be blank")
 
@@ -184,7 +184,7 @@ class Dataset(ResearchExtractionBase):
     description: str | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.name.strip():
             raise ValueError("dataset name must not be blank")
 
@@ -199,7 +199,7 @@ class Variable(ResearchExtractionBase):
     role: str | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.name.strip():
             raise ValueError("variable name must not be blank")
 
@@ -214,7 +214,7 @@ class Model(ResearchExtractionBase):
     family: str | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.name.strip():
             raise ValueError("model name must not be blank")
 
@@ -230,7 +230,7 @@ class Metric(ResearchExtractionBase):
     unit: str | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.name.strip():
             raise ValueError("metric name must not be blank")
 
@@ -245,7 +245,7 @@ class Result(ResearchExtractionBase):
     direction: str | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.text.strip():
             raise ValueError("result text must not be blank")
 
@@ -259,7 +259,7 @@ class Limitation(ResearchExtractionBase):
     text: str
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        ResearchExtractionBase.__post_init__(self)
         if not self.text.strip():
             raise ValueError("limitation text must not be blank")
 
@@ -283,6 +283,15 @@ class ExtractionBatch:
         evidence_ids = {item.evidence_id for item in self.evidence}
         if len(evidence_ids) != len(self.evidence):
             raise ValueError("extraction batch evidence IDs must be unique")
+        extraction_ids = {item.extraction_id for item in self.extractions}
+        if len(extraction_ids) != len(self.extractions):
+            raise ValueError("extraction batch extraction IDs must be unique")
+
+        run_ids = {item.provenance.run_id for item in self.evidence}
+        run_ids.update(item.provenance.run_id for item in self.extractions)
+        if len(run_ids) > 1:
+            raise ValueError("extraction batch must contain exactly one extraction run")
+
         for item in self.evidence:
             if item.document_id != self.document_id:
                 raise ValueError("evidence does not belong to extraction batch document")

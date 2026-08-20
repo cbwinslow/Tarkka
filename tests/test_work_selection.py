@@ -14,12 +14,13 @@ from tarkka.application.work_selection import (
 )
 from tarkka.application.works import WorkCatalogService, WorkIdentityConflictError
 from tarkka.domain.discovery import DiscoveryRecord, ResearchQuery, SearchSnapshot
+from tarkka.domain.work_identity import WorkIdentifier
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tarkka.infrastructure.storage.search_snapshot_log import (
     JsonlSearchSnapshotLog,
     SnapshotDataError,
 )
-from tarkka.interfaces.cli import build_parser
+from tarkka.interfaces.cli import _work_payload, build_parser
 
 
 def _snapshot() -> SearchSnapshot:
@@ -121,6 +122,38 @@ def test_work_selection_persists_explicit_snapshot_result(tmp_path: Path) -> Non
     assert saved.work.work_id == repeated.work.work_id
     assert repository.find_work_by_identifier("doi", "10.1234/example") == saved.work
     assert len(repository.list_source_records(saved.work.work_id)) == 1
+
+
+def test_work_payload_preserves_multiple_values_for_one_identifier_scheme(tmp_path: Path) -> None:
+    snapshots = JsonlSearchSnapshotLog(tmp_path / "snapshots.jsonl")
+    snapshot = _snapshot()
+    snapshots.record(snapshot)
+    repository = JsonWorkRepository(tmp_path / "works.json")
+    saved = WorkSelectionService(
+        snapshots,
+        WorkCatalogService(repository),
+    ).save_snapshot_result(snapshot.snapshot_id, 0)
+
+    with repository.transaction():
+        repository.save_identifier(
+            WorkIdentifier(
+                identifier_id=uuid4(),
+                work_id=saved.work.work_id,
+                scheme="issn",
+                value="1111-2222",
+            )
+        )
+        repository.save_identifier(
+            WorkIdentifier(
+                identifier_id=uuid4(),
+                work_id=saved.work.work_id,
+                scheme="issn",
+                value="3333-4444",
+            )
+        )
+
+    payload = _work_payload(saved.work, repository)
+    assert payload["identifiers"]["issn"] == ["1111-2222", "3333-4444"]  # type: ignore[index]
 
 
 def test_work_selection_rejects_missing_snapshot_and_index(tmp_path: Path) -> None:

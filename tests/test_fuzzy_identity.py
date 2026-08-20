@@ -31,6 +31,7 @@ def _record(
     title: str,
     year: int | None = 2024,
     doi: str | None = None,
+    external_ids: dict[str, str] | None = None,
 ) -> DiscoveryRecord:
     return DiscoveryRecord(
         provider=provider,
@@ -38,6 +39,7 @@ def _record(
         title=title,
         year=year,
         doi=doi,
+        external_ids=external_ids or {},
     )
 
 
@@ -70,11 +72,22 @@ def test_near_identical_cross_provider_titles_become_review_candidates() -> None
     }
 
 
-def test_unicode_titles_are_normalized_without_being_discarded() -> None:
+def test_unicode_compatibility_forms_normalize_to_same_title() -> None:
     matcher = FuzzyIdentityMatcher()
     candidate = matcher.compare(
-        _record("openalex", "W1", "Prédiction des résultats de baseball"),
-        _record("semantic-scholar", "S1", "Prédiction des résultats de baseball"),
+        _record("openalex", "W1", "ＭＡＣＨＩＮＥ ＬＥＡＲＮＩＮＧ ＦＯＲ ＢＡＳＥＢＡＬＬ"),
+        _record("semantic-scholar", "S1", "machine learning for baseball"),
+    )
+
+    assert candidate is not None
+    assert candidate.confidence == 1.0
+
+
+def test_non_latin_titles_are_not_discarded() -> None:
+    matcher = FuzzyIdentityMatcher()
+    candidate = matcher.compare(
+        _record("openalex", "W1", "棒球比赛结果预测"),
+        _record("semantic-scholar", "S1", "棒球比赛结果预测"),
     )
 
     assert candidate is not None
@@ -86,6 +99,16 @@ def test_conflicting_strong_identifiers_never_become_fuzzy_candidates() -> None:
     candidate = matcher.compare(
         _record("openalex", "W1", "Same title", doi="10.1234/one"),
         _record("crossref", "C1", "Same title", doi="10.1234/two"),
+    )
+
+    assert candidate is None
+
+
+def test_conflicting_arxiv_identifiers_never_become_fuzzy_candidates() -> None:
+    matcher = FuzzyIdentityMatcher()
+    candidate = matcher.compare(
+        _record("openalex", "W1", "Same title", external_ids={"arxiv": "2401.00001"}),
+        _record("semantic-scholar", "S1", "Same title", external_ids={"arxiv": "2401.00002"}),
     )
 
     assert candidate is None
@@ -108,6 +131,26 @@ def test_titles_that_normalize_to_empty_are_rejected() -> None:
         _record("openalex", "W1", "---"),
         _record("semantic-scholar", "S1", "..."),
     ) is None
+
+
+def test_suggestions_include_actionable_snapshot_indexes(tmp_path: Path) -> None:
+    snapshot = _snapshot()
+    service = IdentityReviewService(
+        snapshots=_Snapshots(snapshot),
+        decisions=JsonlIdentityDecisionLog(tmp_path / "identity_decisions.jsonl"),
+    )
+
+    candidate = service.suggest(snapshot.snapshot_id)[0]
+
+    assert candidate.left_index == 0
+    assert candidate.right_index == 1
+    decision = service.decide(
+        snapshot.snapshot_id,
+        candidate.left_index,
+        candidate.right_index,
+        IdentityDecision.ACCEPT,
+    )
+    assert decision.candidate_id == candidate.candidate_id
 
 
 def test_accept_records_auditable_decision_without_merging(tmp_path: Path) -> None:

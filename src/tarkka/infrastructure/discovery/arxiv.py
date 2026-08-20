@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
-from typing import Any, Protocol
+from datetime import UTC, datetime
+from typing import Protocol
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
-from tarkka.domain.identifiers import try_normalize_doi
+from tarkka.domain.identifiers import normalize_arxiv_id, try_normalize_doi
 
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _OPENSEARCH = "{http://a9.com/-/spec/opensearch/1.1/}"
@@ -87,12 +87,12 @@ class ArxivProvider:
 
 
 def _search_query(query: ResearchQuery) -> str:
-    text = " ".join(query.text.split())
-    expression = f'all:"{text.replace(chr(34), "")}"'
+    text = " ".join(query.text.split()).replace('"', "")
+    expression = f'all:"{text}"'
     if query.year_from is None and query.year_to is None:
         return expression
     lower_year = query.year_from or 1900
-    upper_year = query.year_to or datetime.now().year
+    upper_year = query.year_to or datetime.now(UTC).year
     return (
         f"{expression} AND submittedDate:"
         f"[{lower_year:04d}01010000 TO {upper_year:04d}12312359]"
@@ -113,7 +113,7 @@ def _cursor_start(cursor: str | None) -> int:
 
 def _record(entry: ElementTree.Element) -> DiscoveryRecord:
     raw_id = _required_text(entry.find(f"{_ATOM}id"), "arXiv entry id")
-    provider_id = raw_id.rstrip("/").rsplit("/", 1)[-1]
+    arxiv_id = normalize_arxiv_id(raw_id)
     title = _clean_text(_required_text(entry.find(f"{_ATOM}title"), "arXiv title"))
     abstract = _clean_text(_required_text(entry.find(f"{_ATOM}summary"), "arXiv summary"))
     published = _text(entry.find(f"{_ATOM}published"))
@@ -126,23 +126,24 @@ def _record(entry: ElementTree.Element) -> DiscoveryRecord:
     ]
     primary = entry.find(f"{_ARXIV}primary_category")
     primary_category = primary.attrib.get("term") if primary is not None else None
-    external_ids: dict[str, str] = {"arxiv": provider_id}
+    external_ids: dict[str, str] = {"arxiv": arxiv_id}
     if doi:
         external_ids["doi"] = doi
     return DiscoveryRecord(
         provider="arxiv",
-        provider_id=provider_id,
+        provider_id=arxiv_id,
         title=title,
         year=_year(published),
         doi=doi,
         abstract=abstract,
-        landing_page_url=raw_id.replace("http://", "https://"),
+        landing_page_url=f"https://arxiv.org/abs/{arxiv_id}",
         open_access_url=pdf_url,
         external_ids=external_ids,
         metadata={
             "categories": categories,
             "primary_category": primary_category,
             "publication_type": "preprint",
+            "observed_entry_id": raw_id,
         },
     )
 

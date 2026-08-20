@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import quote
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
-from tarkka.domain.identifiers import try_normalize_doi
+from tarkka.domain.identifiers import normalize_doi, try_normalize_doi
 from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransport
 
 
@@ -59,6 +60,24 @@ class CrossrefProvider:
             total=total if isinstance(total, int) else None,
         )
 
+    def lookup_by_doi(self, doi: str) -> DiscoveryRecord:
+        """Retrieve one Crossref metadata record for a canonical DOI."""
+        normalized = normalize_doi(doi)
+        params: dict[str, str | int | bool] = {}
+        if self._mailto:
+            params["mailto"] = self._mailto
+        payload = self._transport.get_json(
+            f"{self._URL}/{quote(normalized, safe='')}",
+            params=params,
+        )
+        message = payload.get("message")
+        if not isinstance(message, Mapping):
+            raise ValueError("Crossref work response message must be an object")
+        record = _record(message)
+        if try_normalize_doi(record.doi) != normalized:
+            raise ValueError("Crossref DOI lookup returned a different DOI")
+        return record
+
 
 def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
     doi_text = try_normalize_doi(raw.get("DOI"))
@@ -83,6 +102,7 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
         landing_page_url=url,
         cited_by_count=cited_by if isinstance(cited_by, int) else None,
         external_ids=_external_ids(raw, doi_text),
+        metadata=_metadata(raw),
     )
 
 
@@ -100,6 +120,17 @@ def _external_ids(raw: Mapping[str, Any], doi: str | None) -> dict[str, str]:
                 # External IDs are strings; JSON preserves list boundaries.
                 identifiers[key.lower()] = json.dumps(values, separators=(",", ":"))
     return identifiers
+
+
+def _metadata(raw: Mapping[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    publication_type = raw.get("type")
+    if isinstance(publication_type, str) and publication_type:
+        metadata["publication_type"] = publication_type
+    container = raw.get("container-title")
+    if isinstance(container, list) and container and isinstance(container[0], str):
+        metadata["venue"] = container[0]
+    return metadata
 
 
 def _published_year(raw: Mapping[str, Any]) -> int | None:

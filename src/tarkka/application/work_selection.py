@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from tarkka.application.identity import CanonicalIdentityResolver
-from tarkka.application.works import WorkCatalogService
+from tarkka.application.works import WorkCatalogService, WorkIdentityConflictError
 from tarkka.domain.models import Work
 from tarkka.ports.snapshots import SearchSnapshotReader
 
@@ -15,6 +15,10 @@ class SnapshotNotFoundError(LookupError):
 
 class SnapshotRecordNotFoundError(LookupError):
     pass
+
+
+class SnapshotRecordConflictError(RuntimeError):
+    """Raised when a selected result conflicts with existing canonical Work identity."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,5 +54,11 @@ class WorkSelectionService:
 
         record = snapshot.records[result_index]
         candidate = self._resolver.resolve((record,))[0]
-        work = self._catalog.persist_candidate(candidate)
+        try:
+            work = self._catalog.persist_candidate(candidate)
+        except WorkIdentityConflictError as exc:
+            raise SnapshotRecordConflictError(
+                f"selected result {result_index} from snapshot {snapshot_id} conflicts with "
+                f"existing canonical Work identity: {exc}"
+            ) from exc
         return SavedWorkSelection(snapshot_id=snapshot_id, result_index=result_index, work=work)

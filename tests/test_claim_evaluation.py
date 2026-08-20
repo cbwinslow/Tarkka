@@ -71,7 +71,10 @@ def test_rule_extractor_reports_precision_and_recall_from_exact_evidence() -> No
     extra = "The model predicts higher accuracy."
     document = _document(f"Background. {expected} {extra}")
 
-    report = evaluate_claims(RuleBasedClaimExtractor().extract(document), (_gold(document, expected),))
+    report = evaluate_claims(
+        RuleBasedClaimExtractor().extract(document),
+        (_gold(document, expected),),
+    )
 
     assert report.true_positives == 1
     assert report.false_positives == 1
@@ -103,7 +106,10 @@ def test_model_paraphrase_matches_gold_by_exact_supporting_span() -> None:
         )
     )
 
-    report = evaluate_claims(ModelClaimExtractor(model).extract(document), (_gold(document, evidence_text),))
+    report = evaluate_claims(
+        ModelClaimExtractor(model).extract(document),
+        (_gold(document, evidence_text),),
+    )
 
     assert report.precision == 1.0
     assert report.recall == 1.0
@@ -125,7 +131,10 @@ def test_attribution_accuracy_is_measured_separately_from_detection() -> None:
         )
     )
 
-    report = evaluate_claims(ModelClaimExtractor(model).extract(document), (_gold(document, evidence_text),))
+    report = evaluate_claims(
+        ModelClaimExtractor(model).extract(document),
+        (_gold(document, evidence_text),),
+    )
 
     assert report.true_positives == 1
     assert report.attribution_accuracy == 0.0

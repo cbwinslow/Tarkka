@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
 from tarkka.application.fuzzy_identity import FuzzyIdentityMatcher
 from tarkka.application.identity_review import IdentityReviewService
@@ -15,11 +16,17 @@ class _Snapshots:
     def __init__(self, snapshot: SearchSnapshot) -> None:
         self.snapshot = snapshot
 
-    def get(self, snapshot_id):
+    def get(self, snapshot_id: UUID) -> SearchSnapshot | None:
         return self.snapshot if snapshot_id == self.snapshot.snapshot_id else None
 
 
-def _record(provider: str, provider_id: str, title: str, year: int | None = 2024, doi=None):
+def _record(
+    provider: str,
+    provider_id: str,
+    title: str,
+    year: int | None = 2024,
+    doi: str | None = None,
+) -> DiscoveryRecord:
     return DiscoveryRecord(
         provider=provider,
         provider_id=provider_id,
@@ -93,6 +100,6 @@ def test_accept_records_auditable_decision_without_merging(tmp_path: Path) -> No
 
     assert decision.candidate_id == candidates_before[0].candidate_id
     assert candidates_after == candidates_before
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     assert payload["decision"] == "accept"
     assert payload["rationale"] == "same study after review"

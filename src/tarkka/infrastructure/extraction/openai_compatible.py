@@ -212,7 +212,8 @@ def _validate_base_url(value: str) -> str:
         raise ValueError("model base URL must not contain a query or fragment")
     if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
         raise ValueError(
-            "plaintext HTTP model endpoints are restricted to loopback; use HTTPS for remote endpoints"
+            "plaintext HTTP model endpoints are restricted to loopback; "
+            "use HTTPS for remote endpoints"
         )
     return stripped
 

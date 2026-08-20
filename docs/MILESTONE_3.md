@@ -56,51 +56,49 @@ ResearchQuery(
 ```
 
 For multi-provider discovery, the global result budget is divided deterministically across selected
-providers before requests are made. Tarkka therefore never fetches a provider page, discards unseen
-records because of a later global truncation, and then advances past those records with its cursor.
-The global limit must be at least the number of selected providers.
+providers before requests are made. The global limit must be at least the number of selected
+providers. Independent provider requests execute concurrently while output ordering remains
+deterministic.
 
-Independent provider requests execute concurrently. Output ordering remains deterministic.
-
-## CLI
+## CLI workflow
 
 ```bash
-# Narrow default policy
+# 1. Discover compact candidates
 tarkka discover "machine learning MLB game outcome prediction"
 
-# Explicit provider
-tarkka discover "MLB win probability" --provider semantic-scholar
+# Output includes a snapshot_id and an index for each returned result.
 
-# Explicit multi-provider search
-tarkka discover "MLB betting models" --provider openalex --provider crossref
+# 2. Persist only a selected result
+tarkka work save --snapshot <snapshot-id> --index 0
 
-# Exhaustive fan-out
-tarkka discover "baseball forecasting" --provider all
+# 3. Inspect compact canonical Work state
+tarkka work show <work-id>
 
-# Continue provider-specific pages
-tarkka discover "baseball forecasting" --provider all \
-  --cursor openalex='...' \
-  --cursor crossref='...' \
-  --cursor semantic-scholar='100'
+# 4. Enrich the selected Work by DOI with Crossref
+tarkka work enrich <work-id>
 ```
 
-The first response remains compact: snapshot ID, title, year, provider identity, DOI, citation count,
-and open-access URL. Abstracts, persisted Work state, enrichment, and full records should be expanded
-or invoked only when useful.
+Discovery does not automatically persist every result. Selection is explicit and references the
+exact SearchSnapshot plus result index so the persistence decision remains reproducible.
+
+The first response remains compact: snapshot ID, result index, title, year, provider identity, DOI,
+citation count, and open-access URL. Abstracts, persisted Work state, enrichment, and full records are
+expanded only when useful.
 
 ## Reliability
 
 The shared stdlib HTTP transport has configurable per-attempt and total timeouts, retries transient
 network failures and 429/5xx responses, honors numeric and HTTP-date `Retry-After`, and applies
-jittered exponential backoff otherwise. Provider failures are isolated while concurrent calls settle
-and are then reported together with useful exception context.
+jittered exponential backoff otherwise. Provider failures are isolated while concurrent calls settle.
 
 ## Search snapshots
 
 Every discovery result receives a stable snapshot UUID. The local runtime appends the complete
 compact result set, provider policy, filters, and provider-keyed continuation cursors to
-`~/.tarkka/search_snapshots.jsonl`. Local appends are inter-process locked and durable for supported
-local filesystems.
+`~/.tarkka/search_snapshots.jsonl`.
+
+The local snapshot adapter also supports lookup by snapshot UUID so later user/agent actions can
+select the exact result that was previously presented without replaying the search.
 
 The PostgreSQL reference schema includes `tarkka.search_snapshot`, targeted indexes, and append-only
 protection against update/delete/truncate operations.
@@ -118,7 +116,7 @@ later carry explicit confidence and evidence so they can be reviewed and regress
 
 ## Persistent canonical Work identity
 
-Selected identity candidates can be persisted under a Tarkka-owned UUID:
+Selected identity candidates are persisted under a Tarkka-owned UUID:
 
 ```text
 Canonical Work (work_id)
@@ -156,8 +154,7 @@ Enrichment is conservative:
 - missing abstract, venue, publication type, and identifiers may be filled
 - the complete provider observation remains available independently of the canonical projection
 
-Future enrichment policy may decide whether to call Crossref automatically, selectively, or only on
-explicit request. Provider adapters still must not call one another.
+Provider adapters still must not call one another.
 
 ## Separation of stages
 
@@ -168,6 +165,8 @@ discovery
       ↓
 SearchSnapshot
       ↓
+explicit result selection
+      ↓
 identity candidate resolution
       ↓
 persistent canonical Work
@@ -176,9 +175,6 @@ selective enrichment
       ↓
 acquisition / normalization
 ```
-
-Cross-provider combination, persistence, enrichment, and identity resolution belong in application
-services where policy, cost, retries, provenance, and conflicts can be controlled explicitly.
 
 ## Delivered in this milestone so far
 
@@ -192,26 +188,25 @@ services where policy, cost, retries, provenance, and conflicts can be controlle
 8. reproducible, append-only local SearchSnapshots
 9. append-only PostgreSQL SearchSnapshot migration
 10. agent-friendly `tarkka discover` CLI
-11. hardened GitHub Actions workflows
-12. network-free adapter/orchestration/identity/retry tests
-13. persistent canonical `Work` identity
-14. typed external-ID aliases with uniqueness protection
-15. preserved provider source observations
-16. durable local Work repository and PostgreSQL Work identity schema
-17. Crossref single-DOI metadata enrichment
-18. idempotence/conflict/non-destructive enrichment tests
+11. persistent canonical `Work` identity
+12. typed external-ID aliases with uniqueness protection
+13. preserved provider source observations
+14. durable local Work repository and PostgreSQL Work identity schema
+15. Crossref single-DOI metadata enrichment
+16. explicit snapshot-result selection through `tarkka work save`
+17. compact `tarkka work show` and selective `tarkka work enrich`
+18. snapshot replay/selection tests and Work identity regression tests
 
 ## Remaining Milestone 3 work
 
-1. expose selected Work persistence/enrichment through a small user/agent-facing workflow
-2. add richer query intent/capability routing
-3. add arXiv as a specialized provider without changing the core contract
-4. add explicit fuzzy identity candidates with confidence/evidence
-5. decide/measure automatic versus explicit enrichment policy
-6. add PostgreSQL Work repository implementation when the production persistence path is exercised
+1. add richer query intent/capability routing
+2. add arXiv as a specialized provider without changing the core contract
+3. add explicit fuzzy identity candidates with confidence/evidence
+4. decide/measure automatic versus explicit enrichment policy
+5. add PostgreSQL Work repository implementation when the production persistence path is exercised
 
 ## Invariant
 
-Provider selection is policy. Canonical Work identity belongs to Tarkka, not to a provider. Provider
-adapters remain replaceable and must not call one another. Cross-provider combination, enrichment,
-and identity resolution belong in application services.
+Provider selection is policy. Canonical Work identity belongs to Tarkka, not to a provider. Discovery
+is broad and cheap; persistence and enrichment are explicit. Provider adapters remain replaceable and
+must not call one another.

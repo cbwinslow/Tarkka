@@ -7,6 +7,7 @@ from uuid import uuid4
 from tarkka.application.full_text import FullTextAcquisitionService
 from tarkka.application.ingest import IngestService
 from tarkka.domain.models import Work
+from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
@@ -18,7 +19,12 @@ from tarkka.ports.full_text import FullTextResource
 class _MarkdownResolver:
     name = "fixture"
 
-    def resolve(self, work: Work, identifiers: tuple[object, ...], source_records: tuple[object, ...]):
+    def resolve(
+        self,
+        work: Work,
+        identifiers: tuple[WorkIdentifier, ...],
+        source_records: tuple[WorkSourceRecord, ...],
+    ) -> FullTextResource:
         del work, identifiers, source_records
         return FullTextResource(
             provider=self.name,
@@ -30,9 +36,9 @@ class _MarkdownResolver:
 
 
 class _MarkdownFetcher:
-    def fetch(self, resource: FullTextResource, destination: str) -> None:
+    def fetch(self, resource: FullTextResource, destination: Path) -> None:
         assert resource.source_uri == "https://example.test/paper.md"
-        Path(destination).write_text("# Result\nEvidence-backed text.\n", encoding="utf-8")
+        destination.write_text("# Result\nEvidence-backed text.\n", encoding="utf-8")
 
 
 def test_full_text_acquisition_preserves_remote_provenance_and_normalizes(tmp_path: Path) -> None:

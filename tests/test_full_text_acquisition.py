@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from tarkka.application.full_text import FullTextAcquisitionService
 from tarkka.application.ingest import IngestService
 from tarkka.domain.models import Work
@@ -68,3 +70,24 @@ def test_full_text_acquisition_preserves_remote_provenance_and_normalizes(tmp_pa
     payload = json.loads(acquisition_path.read_text(encoding="utf-8").strip())
     assert payload["source_uri"] == "https://example.test/paper.md"
     assert payload["metadata"]["fixture"] == "true"
+
+
+@pytest.mark.parametrize(
+    "filename",
+    (
+        "../paper.pdf",
+        "nested/paper.pdf",
+        r"..\paper.pdf",
+        r"C:\temp\paper.pdf",
+        "/tmp/paper.pdf",
+        "..",
+    ),
+)
+def test_full_text_resource_rejects_unsafe_filenames(filename: str) -> None:
+    with pytest.raises(ValueError, match="safe path component"):
+        FullTextResource(
+            provider="fixture",
+            source_uri="https://example.test/paper.pdf",
+            media_type="application/pdf",
+            filename=filename,
+        )

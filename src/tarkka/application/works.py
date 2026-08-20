@@ -31,52 +31,57 @@ class WorkCatalogService:
         self._repository = repository
 
     def persist_candidate(self, candidate: CanonicalWorkCandidate) -> Work:
-        aliases = _candidate_aliases(candidate)
-        matched = {
-            work.work_id: work
-            for alias in aliases
-            if (work := self._repository.find_work_by_identifier(alias[0], alias[1])) is not None
-        }
-        if len(matched) > 1:
-            raise WorkIdentityConflictError(
-                "candidate identifiers resolve to multiple canonical Works: "
-                + ", ".join(str(work_id) for work_id in sorted(matched, key=str))
-            )
+        with self._repository.transaction():
+            aliases = _candidate_aliases(candidate)
+            matched = {
+                work.work_id: work
+                for alias in aliases
+                if (work := self._repository.find_work_by_identifier(alias[0], alias[1])) is not None
+            }
+            if len(matched) > 1:
+                raise WorkIdentityConflictError(
+                    "candidate identifiers resolve to multiple canonical Works: "
+                    + ", ".join(str(work_id) for work_id in sorted(matched, key=str))
+                )
 
-        existing = next(iter(matched.values()), None)
-        if existing is None:
-            work = Work(
-                work_id=uuid4(),
-                title=candidate.title,
-                publication_type=_first_metadata_str(candidate.records, "publication_type")
-                or "unknown",
-                publication_year=candidate.year,
-                abstract=_first_abstract(candidate.records),
-                venue=_first_metadata_str(candidate.records, "venue"),
-            )
-        else:
-            work = _fill_missing_work_metadata(existing, candidate.records, candidate.year)
+            existing = next(iter(matched.values()), None)
+            if existing is None:
+                work = Work(
+                    work_id=uuid4(),
+                    title=candidate.title,
+                    publication_type=_first_metadata_str(candidate.records, "publication_type")
+                    or "unknown",
+                    publication_year=candidate.year,
+                    abstract=_first_abstract(candidate.records),
+                    venue=_first_metadata_str(candidate.records, "venue"),
+                )
+            else:
+                work = _fill_missing_work_metadata(existing, candidate.records, candidate.year)
 
-        self._repository.save_work(work)
-        self._save_aliases(work.work_id, aliases)
-        self._save_records(work.work_id, candidate.records)
-        return work
+            self._repository.save_work(work)
+            self._save_aliases(work.work_id, aliases)
+            self._save_records(work.work_id, candidate.records)
+            return work
 
     def enrich_by_doi(self, work_id: UUID, enricher: WorkMetadataEnricher) -> Work:
-        work = self._repository.get_work(work_id)
-        if work is None:
-            raise WorkNotFoundError(f"work not found: {work_id}")
+        record: DiscoveryRecord
+        doi: str
+        with self._repository.transaction():
+            work = self._repository.get_work(work_id)
+            if work is None:
+                raise WorkNotFoundError(f"work not found: {work_id}")
 
-        doi = next(
-            (
-                identifier.value
-                for identifier in self._repository.list_identifiers(work_id)
-                if identifier.scheme == "doi"
-            ),
-            None,
-        )
-        if doi is None:
-            raise WorkEnrichmentError("work has no DOI alias")
+            doi_value = next(
+                (
+                    identifier.value
+                    for identifier in self._repository.list_identifiers(work_id)
+                    if identifier.scheme == "doi"
+                ),
+                None,
+            )
+            if doi_value is None:
+                raise WorkEnrichmentError("work has no DOI alias")
+            doi = doi_value
 
         record = enricher.lookup_by_doi(doi)
         returned_doi = try_normalize_doi(record.doi)
@@ -85,11 +90,15 @@ class WorkCatalogService:
                 f"{enricher.name} returned DOI {returned_doi!r} for requested DOI {doi!r}"
             )
 
-        self._save_records(work_id, (record,))
-        self._save_aliases(work_id, _record_aliases(record))
-        updated = _fill_missing_from_record(work, record)
-        self._repository.save_work(updated)
-        return updated
+        with self._repository.transaction():
+            current = self._repository.get_work(work_id)
+            if current is None:
+                raise WorkNotFoundError(f"work not found during enrichment: {work_id}")
+            self._save_records(work_id, (record,))
+            self._save_aliases(work_id, _record_aliases(record))
+            updated = _fill_missing_from_record(current, record)
+            self._repository.save_work(updated)
+            return updated
 
     def _save_aliases(self, work_id: UUID, aliases: Iterable[tuple[str, str]]) -> None:
         for scheme, value in aliases:

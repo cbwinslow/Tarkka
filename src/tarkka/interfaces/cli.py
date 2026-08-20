@@ -17,7 +17,7 @@ from tarkka.application.work_selection import (
     WorkSelectionService,
 )
 from tarkka.application.works import WorkCatalogService, WorkEnrichmentError, WorkNotFoundError
-from tarkka.domain.discovery import ProviderMode, ResearchQuery
+from tarkka.domain.discovery import ProviderMode, ResearchIntent, ResearchQuery
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Work
 from tarkka.infrastructure.discovery.arxiv import ArxivProvider
@@ -200,6 +200,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             cursors=_provider_cursors(args.cursor),
             mode=mode,
             providers=providers,
+            intent=ResearchIntent(args.intent),
             require_open_access=args.open_access,
             year_from=args.year_from,
             year_to=args.year_to,
@@ -214,6 +215,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
     payload = {
         "snapshot_id": str(result.snapshot_id),
         "query": result.query.text,
+        "intent": result.query.intent.value,
         "providers": result.providers_used,
         "returned": len(result.records),
         "next_cursors": dict(result.next_cursors),
@@ -365,6 +367,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         choices=("auto", "all", *_PROVIDER_NAMES),
         help="provider policy; repeat to select multiple explicit providers",
+    )
+    discover.add_argument(
+        "--intent",
+        choices=tuple(intent.value for intent in ResearchIntent),
+        default=ResearchIntent.BROAD.value,
+        help="provider-neutral intent used by auto routing",
     )
     discover.add_argument(
         "--cursor",

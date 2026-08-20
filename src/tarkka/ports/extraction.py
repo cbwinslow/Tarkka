@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from tarkka.domain.extraction import ExtractionBatch, Evidence, ResearchExtraction, ResearchObjectKind
+from tarkka.domain.extraction import (
+    Evidence,
+    ExtractionBatch,
+    ResearchExtraction,
+    ResearchObjectKind,
+)
 from tarkka.domain.models import Document
 
 

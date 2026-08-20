@@ -7,14 +7,27 @@ import sys
 from pathlib import Path
 from uuid import UUID
 
+from tarkka.application.discover import DiscoveryService
 from tarkka.application.ingest import IngestService, UnsupportedDocumentError
+from tarkka.domain.discovery import ProviderMode, ResearchQuery
 from tarkka.domain.manifest import ResourceManifest
+from tarkka.infrastructure.discovery.crossref import CrossrefProvider
+from tarkka.infrastructure.discovery.openalex import OpenAlexProvider
+from tarkka.infrastructure.discovery.semantic_scholar import SemanticScholarProvider
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
+from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
+from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
+
+_PROVIDER_NAMES = (
+    OpenAlexProvider.name,
+    CrossrefProvider.name,
+    SemanticScholarProvider.name,
+)
 
 
 def _home() -> Path:
@@ -35,6 +48,14 @@ def _parsers() -> tuple[DocumentParser, ...]:
     if DoclingParser.is_available():
         parsers.append(DoclingParser())
     return tuple(parsers)
+
+
+def _discovery_providers() -> tuple[DiscoveryProvider, ...]:
+    return (
+        OpenAlexProvider(api_key=os.environ.get("TARKKA_OPENALEX_API_KEY")),
+        CrossrefProvider(mailto=os.environ.get("TARKKA_CROSSREF_MAILTO")),
+        SemanticScholarProvider(api_key=os.environ.get("TARKKA_SEMANTIC_SCHOLAR_API_KEY")),
+    )
 
 
 def _manifest_yaml(manifest: ResourceManifest) -> str:
@@ -59,6 +80,33 @@ def _parse_document_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid document id: {raw}") from exc
 
 
+def _provider_policy(raw: list[str] | None) -> tuple[ProviderMode, tuple[str, ...]]:
+    selected = tuple(raw or ("auto",))
+    if "auto" in selected:
+        if len(selected) != 1:
+            raise ValueError("provider 'auto' cannot be combined with explicit providers")
+        return ProviderMode.AUTO, ()
+    if "all" in selected:
+        if len(selected) != 1:
+            raise ValueError("provider 'all' cannot be combined with explicit providers")
+        return ProviderMode.ALL, ()
+    return ProviderMode.ONLY, selected
+
+
+def _provider_cursors(raw: list[str] | None) -> dict[str, str]:
+    cursors: dict[str, str] = {}
+    for item in raw or ():
+        provider, separator, cursor = item.partition("=")
+        if not separator or not provider or not cursor:
+            raise ValueError("cursor must use PROVIDER=CURSOR syntax")
+        if provider not in _PROVIDER_NAMES:
+            raise ValueError(f"unknown cursor provider: {provider}")
+        if provider in cursors:
+            raise ValueError(f"duplicate cursor for provider: {provider}")
+        cursors[provider] = cursor
+    return cursors
+
+
 def _cmd_ingest(args: argparse.Namespace) -> int:
     store, repo, acquisitions = _runtime()
     service = IngestService(
@@ -73,6 +121,50 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(_manifest_yaml(result.manifest))
+    return 0
+
+
+def _cmd_discover(args: argparse.Namespace) -> int:
+    try:
+        mode, providers = _provider_policy(args.provider)
+        query = ResearchQuery(
+            text=args.query,
+            limit=args.limit,
+            cursors=_provider_cursors(args.cursor),
+            mode=mode,
+            providers=providers,
+            require_open_access=args.open_access,
+            year_from=args.year_from,
+            year_to=args.year_to,
+        )
+        snapshots = JsonlSearchSnapshotLog(_home() / "search_snapshots.jsonl")
+        result = DiscoveryService(
+            _discovery_providers(), snapshot_recorder=snapshots
+        ).discover(query)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    payload = {
+        "snapshot_id": str(result.snapshot_id),
+        "query": result.query.text,
+        "providers": result.providers_used,
+        "returned": len(result.records),
+        "next_cursors": dict(result.next_cursors),
+        "results": [
+            {
+                "provider": record.provider,
+                "provider_id": record.provider_id,
+                "title": record.title,
+                "year": record.year,
+                "doi": record.doi,
+                "cited_by_count": record.cited_by_count,
+                "open_access_url": record.open_access_url,
+            }
+            for record in result.records
+        ],
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
@@ -113,6 +205,26 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = sub.add_parser("ingest", help="ingest one local document")
     ingest.add_argument("path")
     ingest.set_defaults(func=_cmd_ingest)
+
+    discover = sub.add_parser("discover", help="discover scholarly works")
+    discover.add_argument("query")
+    discover.add_argument(
+        "--provider",
+        action="append",
+        choices=("auto", "all", *_PROVIDER_NAMES),
+        help="provider policy; repeat to select multiple explicit providers",
+    )
+    discover.add_argument(
+        "--cursor",
+        action="append",
+        metavar="PROVIDER=CURSOR",
+        help="provider-specific continuation cursor; repeat for multiple providers",
+    )
+    discover.add_argument("--limit", type=int, default=25)
+    discover.add_argument("--year-from", type=int)
+    discover.add_argument("--year-to", type=int)
+    discover.add_argument("--open-access", action="store_true")
+    discover.set_defaults(func=_cmd_discover)
 
     inspect = sub.add_parser("inspect", help="show a compact progressive-disclosure manifest")
     inspect.add_argument("document_id", type=_parse_document_id)

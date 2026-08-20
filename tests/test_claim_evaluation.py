@@ -146,6 +146,47 @@ def test_model_paraphrase_matches_gold_by_exact_supporting_span() -> None:
     assert report.f1 == 1.0
 
 
+def test_duplicate_model_candidates_with_identical_evidence_match_one_to_one() -> None:
+    evidence_text = "The model improved performance by 12%."
+    document = _document(evidence_text)
+    passage = document.sections[0].passages[0]
+    model = _FixtureModel(
+        candidates=(
+            ModelClaimCandidate(
+                text="Performance improved by 12%.",
+                evidence=(
+                    EvidenceSelector(
+                        passage_id=passage.passage_id,
+                        char_start=0,
+                        char_end=len(evidence_text),
+                    ),
+                ),
+                confidence=0.9,
+            ),
+            ModelClaimCandidate(
+                text="The model showed a 12% improvement.",
+                evidence=(
+                    EvidenceSelector(
+                        passage_id=passage.passage_id,
+                        char_start=0,
+                        char_end=len(evidence_text),
+                    ),
+                ),
+                confidence=0.85,
+            ),
+        )
+    )
+
+    report = evaluate_claims(
+        ModelClaimExtractor(model).extract(document),
+        (_gold(document, evidence_text),),
+    )
+
+    assert report.true_positives == 1
+    assert report.false_positives == 1
+    assert report.false_negatives == 0
+
+
 def test_attribution_accuracy_is_measured_separately_from_detection() -> None:
     evidence_text = "The analysis identified a measurable association."
     document = _document(evidence_text)

@@ -63,24 +63,67 @@ class _PredictedClaim:
     evidence: frozenset[GoldEvidenceSpan]
 
 
+def _validate_gold(batch: ExtractionBatch, gold: tuple[GoldClaim, ...]) -> None:
+    """Validate gold claims against the source document.
+
+    Args:
+        batch: Extraction batch containing the source document.
+        gold: Gold claims to validate.
+
+    Raises:
+        ValueError: If any gold evidence span references an unknown passage ID,
+            has char_end beyond the passage text length, or if duplicate complete
+            evidence sets exist across gold claims.
+    """
+    # Build passage index
+    passages_by_id = {}
+    for section in batch.document.sections:
+        for passage in section.passages:
+            passages_by_id[passage.passage_id] = passage
+
+    # Validate each evidence span
+    for gold_claim in gold:
+        for span in gold_claim.evidence:
+            if span.passage_id not in passages_by_id:
+                raise ValueError(
+                    f"gold evidence span references unknown passage {span.passage_id}"
+                )
+            passage = passages_by_id[span.passage_id]
+            if span.char_end > len(passage.text):
+                raise ValueError(
+                    f"gold evidence span char_end {span.char_end} exceeds "
+                    f"passage text length {len(passage.text)} "
+                    f"for passage {span.passage_id}"
+                )
+
+    # Check for duplicate evidence sets
+    evidence_sets = [frozenset(claim.evidence) for claim in gold]
+    if len(set(evidence_sets)) != len(evidence_sets):
+        raise ValueError("duplicate complete evidence sets found in gold claims")
+
+
 def evaluate_claims(
     batch: ExtractionBatch,
     gold: tuple[GoldClaim, ...],
 ) -> ClaimEvaluationReport:
     """Evaluate claim predictions against gold labels using exact evidence-set matching.
-    
+
     Claim wording is excluded from matching, and each gold claim can match at most one
     prediction. Unmatched predictions count as false positives, while unmatched gold
     claims count as false negatives.
-    
+
     Args:
         batch: Extraction results containing predicted claims and their evidence.
         gold: Gold claims with passage-local evidence spans and attribution labels.
-    
+
     Returns:
         A report containing detection counts, precision, recall, F1, and attribution
         accuracy. Attribution accuracy is ``None`` when no claims are matched.
+
+    Raises:
+        ValueError: If gold claims contain invalid evidence spans or duplicate evidence sets.
     """
+    _validate_gold(batch, gold)
     predictions = _claim_predictions(batch)
     unmatched_gold = list(gold)
     matched_attribution = 0

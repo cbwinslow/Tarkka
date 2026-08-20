@@ -10,10 +10,13 @@ The first harness therefore defines a gold claim by its exact supporting normali
 
 ```text
 GoldClaim
-  -> passage_id
-  -> char_start
-  -> char_end
-  -> expected attribution
+  -> evidence: tuple[GoldEvidenceSpan, ...]
+  -> attribution: AttributionKind
+
+GoldEvidenceSpan
+  -> passage_id: UUID
+  -> char_start: int
+  -> char_end: int
 ```
 
 A predicted `Claim` is a true positive only when its complete evidence-span set exactly matches one unmatched gold claim. Each gold item may match at most one prediction, so duplicate predictions count as false positives.

@@ -57,6 +57,13 @@ def _parse_claim_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid claim id: {raw}") from exc
 
 
+def _parse_run_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("run:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid run id: {raw}") from exc
+
+
 def _identity_service() -> IdentityReviewService:
     home = _home()
     return IdentityReviewService(
@@ -205,28 +212,28 @@ def _cmd_claims_show(args: argparse.Namespace) -> int:
     repository = _extraction_repository()
     try:
         record = repository.get_extraction(args.claim_id)
+        if not isinstance(record, Claim):
+            print(f"error: claim not found: {args.claim_id}", file=sys.stderr)
+            return 2
+        evidence = []
+        for evidence_id in record.evidence_ids:
+            item = repository.get_evidence(evidence_id)
+            if item is None:
+                print(f"error: evidence not found: {evidence_id}", file=sys.stderr)
+                return 2
+            evidence.append(
+                {
+                    "evidence_id": str(item.evidence_id),
+                    "section_id": str(item.section_id),
+                    "passage_id": str(item.passage_id),
+                    "passage_char_start": item.passage_char_start,
+                    "passage_char_end": item.passage_char_end,
+                    "text": item.text,
+                }
+            )
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if not isinstance(record, Claim):
-        print(f"error: claim not found: {args.claim_id}", file=sys.stderr)
-        return 2
-    evidence = []
-    for evidence_id in record.evidence_ids:
-        item = repository.get_evidence(evidence_id)
-        if item is None:
-            print(f"error: evidence not found: {evidence_id}", file=sys.stderr)
-            return 2
-        evidence.append(
-            {
-                "evidence_id": str(item.evidence_id),
-                "section_id": str(item.section_id),
-                "passage_id": str(item.passage_id),
-                "passage_char_start": item.passage_char_start,
-                "passage_char_end": item.passage_char_end,
-                "text": item.text,
-            }
-        )
     payload = _claim_payload(record)
     payload["evidence"] = evidence
     print(json.dumps(payload, indent=2, sort_keys=True))
@@ -266,7 +273,7 @@ def _claims_parser() -> argparse.ArgumentParser:
 
     listing = sub.add_parser("list", help="list claims for a document")
     listing.add_argument("document_id", type=_parse_document_id)
-    listing.add_argument("--run", dest="run_id", type=UUID)
+    listing.add_argument("--run", dest="run_id", type=_parse_run_id)
     listing.add_argument("--offset", type=int, default=0)
     listing.add_argument("--limit", type=int, default=100)
     listing.set_defaults(func=_cmd_claims_list)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -25,8 +24,7 @@ class UrllibBinaryFetcher:
         self.max_bytes = max_bytes
         self.user_agent = user_agent
 
-    def fetch(self, resource: FullTextResource, destination: str) -> None:
-        path = Path(destination)
+    def fetch(self, resource: FullTextResource, destination: Path) -> None:
         request = Request(resource.source_uri, headers={"User-Agent": self.user_agent})
         with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
             content_type = response.headers.get_content_type()
@@ -38,12 +36,12 @@ class UrllibBinaryFetcher:
             if length is not None and int(length) > self.max_bytes:
                 raise ValueError("full-text response exceeds configured download limit")
             written = 0
-            with path.open("wb") as handle:
+            with destination.open("wb") as handle:
                 while chunk := response.read(1024 * 1024):
                     written += len(chunk)
                     if written > self.max_bytes:
                         raise ValueError("full-text response exceeds configured download limit")
                     handle.write(chunk)
         if written == 0:
-            path.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
             raise ValueError("full-text response was empty")

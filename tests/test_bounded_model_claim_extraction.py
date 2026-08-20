@@ -256,7 +256,7 @@ def test_overlap_duplicates_are_collapsed_and_keep_higher_confidence() -> None:
 
 
 def test_dedup_signature_supports_multiple_evidence_selectors() -> None:
-    document = _document("aaaaaaaa", "shared result", "more evidence")
+    document = _document("prefix", "shared result", "more evidence", "suffix")
     shared = document.sections[0].passages[1]
     more = document.sections[0].passages[2]
     first_selector = EvidenceSelector(shared.passage_id, 0, len(shared.text))
@@ -274,11 +274,15 @@ def test_dedup_signature_supports_multiple_evidence_selectors() -> None:
     model = RecordingModel(responses=[(first,), (reordered,)])
     extractor = ModelClaimExtractor(
         model,
-        batching=ModelBatchingPolicy(max_chars=40, max_passages=3, overlap_passages=2),
+        batching=ModelBatchingPolicy(max_chars=100, max_passages=3, overlap_passages=2),
     )
 
     batch = extractor.extract(document)
 
+    assert [[item.ordinal for item in request.passages] for request in model.requests] == [
+        [0, 1, 2],
+        [1, 2, 3],
+    ]
     assert len(batch.extractions) == 1
     assert batch.extractions[0].provenance.confidence == 0.9
     assert len(batch.evidence) == 2

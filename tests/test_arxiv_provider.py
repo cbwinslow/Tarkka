@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from uuid import uuid4
 
 from tarkka.domain.discovery import ResearchQuery
+from tarkka.domain.identifiers import normalize_arxiv_id
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier
 from tarkka.infrastructure.discovery.arxiv import ArxivProvider
@@ -62,12 +63,12 @@ def test_arxiv_provider_parses_atom_and_emits_numeric_cursor() -> None:
     assert page.next_cursor == "1"
     assert len(page.records) == 1
     record = page.records[0]
-    assert record.provider_id == "2401.01234v2"
+    assert record.provider_id == "2401.01234"
     assert record.title == "A Baseball Prediction Model"
     assert record.year == 2024
     assert record.doi == "10.1234/example"
     assert record.open_access_url == "https://arxiv.org/pdf/2401.01234v2"
-    assert record.external_ids["arxiv"] == "2401.01234v2"
+    assert record.external_ids["arxiv"] == "2401.01234"
     assert record.metadata["primary_category"] == "stat.ML"
     assert transport.params is not None
     assert transport.params["start"] == 0
@@ -93,12 +94,17 @@ def test_arxiv_full_text_resolver_uses_canonical_alias() -> None:
         identifier_id=uuid4(),
         work_id=work_id,
         scheme="arxiv",
-        value="2401.01234v2",
+        value="arXiv:2401.01234v2",
     )
 
     resource = ArxivFullTextResolver().resolve(work, (identifier,), ())
 
     assert resource is not None
-    assert resource.source_uri == "https://arxiv.org/pdf/2401.01234v2"
+    assert resource.source_uri == "https://arxiv.org/pdf/2401.01234"
     assert resource.media_type == "application/pdf"
-    assert resource.filename == "2401.01234v2.pdf"
+    assert resource.filename == "2401.01234.pdf"
+
+
+def test_arxiv_identifier_normalization_supports_modern_and_legacy_forms() -> None:
+    assert normalize_arxiv_id("https://arxiv.org/abs/2401.01234v3") == "2401.01234"
+    assert normalize_arxiv_id("http://arxiv.org/pdf/hep-ex/0307015v1.pdf") == "hep-ex/0307015"

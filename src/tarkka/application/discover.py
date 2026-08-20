@@ -9,6 +9,7 @@ from tarkka.domain.discovery import (
     DiscoveryRecord,
     DiscoveryResult,
     ProviderMode,
+    ResearchIntent,
     ResearchQuery,
     SearchSnapshot,
 )
@@ -28,7 +29,7 @@ class DiscoveryProviderError(RuntimeError):
 
 
 class DefaultProviderSelector:
-    """Narrow deterministic AUTO policy; replaceable by domain/cost/health-aware selectors."""
+    """Deterministic capability-aware AUTO discovery policy."""
 
     def select(
         self,
@@ -37,11 +38,22 @@ class DefaultProviderSelector:
     ) -> tuple[DiscoveryProvider, ...]:
         if not providers:
             raise ValueError("provider selector requires at least one provider")
-        # The initial policy is intentionally narrow; query-aware strategies plug in via the port.
-        if query.require_open_access and "openalex" in providers:
-            return (providers["openalex"],)
-        if "openalex" in providers:
-            return (providers["openalex"],)
+
+        preferences: tuple[str, ...]
+        if query.intent is ResearchIntent.PREPRINT:
+            preferences = ("arxiv", "openalex")
+        elif query.intent is ResearchIntent.CITATIONS:
+            preferences = ("semantic-scholar", "openalex")
+        elif query.intent is ResearchIntent.BIBLIOGRAPHIC:
+            preferences = ("crossref", "openalex")
+        elif query.require_open_access:
+            preferences = ("openalex", "semantic-scholar")
+        else:
+            preferences = ("openalex", "crossref", "semantic-scholar", "arxiv")
+
+        for name in preferences:
+            if name in providers:
+                return (providers[name],)
         return (providers[sorted(providers)[0]],)
 
 
@@ -136,7 +148,6 @@ def _provider_searches(
         provider_cursor = query.cursors.get(provider.name)
         if provider_cursor is None and count == 1:
             provider_cursor = query.cursor
-        # A sub-query receives only the cursor belonging to its provider.
         searches.append(
             (
                 provider,

@@ -10,6 +10,7 @@ from uuid import UUID
 from tarkka.domain.discovery import (
     DiscoveryRecord,
     ProviderMode,
+    ResearchIntent,
     ResearchQuery,
     SearchSnapshot,
 )
@@ -81,6 +82,7 @@ def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:
         "cursors": dict(query.cursors),
         "mode": query.mode.value,
         "providers": list(query.providers),
+        "intent": query.intent.value,
         "require_open_access": query.require_open_access,
         "year_from": query.year_from,
         "year_to": query.year_to,
@@ -93,6 +95,11 @@ def _query_from_dict(raw: dict[str, Any]) -> ResearchQuery:
         mode_value = ProviderMode.AUTO.value
     elif not mode_value:
         raise TypeError("mode must not be an empty string")
+    intent_value = _optional_str(raw, "intent")
+    if intent_value is None:
+        intent_value = ResearchIntent.BROAD.value
+    elif not intent_value:
+        raise TypeError("intent must not be an empty string")
     return ResearchQuery(
         text=_required_str(raw, "text"),
         limit=_int_with_default(raw, "limit", 25),
@@ -100,6 +107,7 @@ def _query_from_dict(raw: dict[str, Any]) -> ResearchQuery:
         cursors=_string_mapping(raw.get("cursors", {}), "query.cursors"),
         mode=ProviderMode(mode_value),
         providers=_string_tuple(raw.get("providers", []), "query.providers"),
+        intent=ResearchIntent(intent_value),
         require_open_access=_optional_bool(raw, "require_open_access", False),
         year_from=_optional_int(raw, "year_from", None),
         year_to=_optional_int(raw, "year_to", None),

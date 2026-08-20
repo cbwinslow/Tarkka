@@ -43,10 +43,14 @@ class FuzzyIdentityMatcher:
         if _strong_identity_relation(left, right) != "none":
             return None
 
+        left_title = _normalize_title(left.title)
+        right_title = _normalize_title(right.title)
+        if not left_title or not right_title:
+            return None
         title_score = SequenceMatcher(
             None,
-            _normalize_title(left.title),
-            _normalize_title(right.title),
+            left_title,
+            right_title,
             autojunk=False,
         ).ratio()
         evidence = [

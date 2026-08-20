@@ -58,7 +58,7 @@ class FullTextAcquisitionService:
 
         with TemporaryDirectory(prefix="tarkka-acquire-") as temp_dir:
             path = Path(temp_dir) / resource.filename
-            self._fetcher.fetch(resource, str(path))
+            self._fetcher.fetch(resource, path)
             result = self._ingest.ingest_acquired(
                 path,
                 source_uri=resource.source_uri,

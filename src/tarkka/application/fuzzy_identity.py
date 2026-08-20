@@ -62,7 +62,7 @@ class FuzzyIdentityMatcher:
     ) -> IdentityCandidate | None:
         if left.provider == right.provider:
             return None
-        # Matching strong IDs belong to deterministic resolution; conflicting strong IDs fail closed.
+        # Strong-ID matches use deterministic resolution; conflicts fail closed.
         if _strong_identity_relation(left, right) is not StrongIdentityRelation.NONE:
             return None
 

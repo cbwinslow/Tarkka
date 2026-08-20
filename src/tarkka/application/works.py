@@ -48,8 +48,11 @@ class WorkCatalogService:
             work = Work(
                 work_id=uuid4(),
                 title=candidate.title,
+                publication_type=_first_metadata_str(candidate.records, "publication_type")
+                or "unknown",
                 publication_year=candidate.year,
                 abstract=_first_abstract(candidate.records),
+                venue=_first_metadata_str(candidate.records, "venue"),
             )
         else:
             work = _fill_missing_work_metadata(existing, candidate.records, candidate.year)
@@ -162,21 +165,45 @@ def _first_abstract(records: Iterable[DiscoveryRecord]) -> str | None:
     return next((record.abstract for record in records if record.abstract), None)
 
 
+def _first_metadata_str(records: Iterable[DiscoveryRecord], key: str) -> str | None:
+    for record in records:
+        value = record.metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def _fill_missing_work_metadata(
     work: Work,
     records: Iterable[DiscoveryRecord],
     candidate_year: int | None,
 ) -> Work:
+    record_tuple = tuple(records)
     return replace(
         work,
+        publication_type=(
+            _first_metadata_str(record_tuple, "publication_type")
+            if work.publication_type == "unknown"
+            else work.publication_type
+        )
+        or "unknown",
         publication_year=work.publication_year or candidate_year,
-        abstract=work.abstract or _first_abstract(records),
+        abstract=work.abstract or _first_abstract(record_tuple),
+        venue=work.venue or _first_metadata_str(record_tuple, "venue"),
     )
 
 
 def _fill_missing_from_record(work: Work, record: DiscoveryRecord) -> Work:
+    publication_type = record.metadata.get("publication_type")
+    venue = record.metadata.get("venue")
     return replace(
         work,
+        publication_type=(
+            publication_type
+            if work.publication_type == "unknown" and isinstance(publication_type, str)
+            else work.publication_type
+        ),
         publication_year=work.publication_year or record.year,
         abstract=work.abstract or record.abstract,
+        venue=work.venue or (venue if isinstance(venue, str) else None),
     )

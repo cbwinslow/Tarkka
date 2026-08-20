@@ -79,7 +79,11 @@ def test_arxiv_provider_parses_atom_and_emits_numeric_cursor() -> None:
 
 
 def test_arxiv_provider_uses_explicit_cursor() -> None:
-    transport = _AtomTransport(_ATOM.replace("<opensearch:totalResults>2", "<opensearch:totalResults>7"))
+    payload = _ATOM.replace(
+        "<opensearch:totalResults>2",
+        "<opensearch:totalResults>7",
+    )
+    transport = _AtomTransport(payload)
     page = ArxivProvider(transport).search(ResearchQuery("test", limit=1, cursor="5"))
 
     assert transport.params is not None

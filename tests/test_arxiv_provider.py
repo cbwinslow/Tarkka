@@ -78,6 +78,14 @@ def test_arxiv_provider_parses_atom_and_emits_numeric_cursor() -> None:
     )
 
 
+def test_arxiv_provider_preserves_quoted_phrases() -> None:
+    transport = _AtomTransport(_ATOM)
+    ArxivProvider(transport).search(ResearchQuery('baseball "win probability"', limit=1))
+
+    assert transport.params is not None
+    assert transport.params["search_query"] == 'all:"baseball" AND all:"win probability"'
+
+
 def test_arxiv_provider_uses_explicit_cursor() -> None:
     payload = _ATOM.replace(
         "<opensearch:totalResults>2",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 
@@ -39,10 +39,8 @@ def exclusive_lock(
         yield
     finally:
         os.close(fd)
-        try:
+        with suppress(FileNotFoundError):
             lock_path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _remove_stale_lock(lock_path: Path) -> bool:
@@ -53,10 +51,8 @@ def _remove_stale_lock(lock_path: Path) -> bool:
         return False
     if _process_exists(pid):
         return False
-    try:
+    with suppress(FileNotFoundError):
         lock_path.unlink()
-    except FileNotFoundError:
-        pass
     return True
 
 

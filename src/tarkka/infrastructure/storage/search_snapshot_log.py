@@ -88,12 +88,17 @@ def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:
 
 
 def _query_from_dict(raw: dict[str, Any]) -> ResearchQuery:
+    mode_value = _optional_str(raw, "mode")
+    if mode_value is None:
+        mode_value = ProviderMode.AUTO.value
+    elif not mode_value:
+        raise TypeError("mode must not be an empty string")
     return ResearchQuery(
         text=_required_str(raw, "text"),
         limit=_int_with_default(raw, "limit", 25),
         cursor=_optional_str(raw, "cursor"),
         cursors=_string_mapping(raw.get("cursors", {}), "query.cursors"),
-        mode=ProviderMode(_optional_str(raw, "mode") or ProviderMode.AUTO.value),
+        mode=ProviderMode(mode_value),
         providers=_string_tuple(raw.get("providers", []), "query.providers"),
         require_open_access=_optional_bool(raw, "require_open_access", False),
         year_from=_optional_int(raw, "year_from", None),

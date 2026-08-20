@@ -52,6 +52,15 @@ def test_identity_resolver_groups_only_matching_dois() -> None:
     assert resolved[1].canonical_key == "provider:semantic-scholar:S2-9"
 
 
+def test_identity_resolver_falls_back_when_external_doi_is_malformed() -> None:
+    record = _record("openalex", "W-bad", doi="doi:")
+
+    resolved = CanonicalIdentityResolver().resolve((record,))
+
+    assert resolved[0].canonical_key == "provider:openalex:W-bad"
+    assert resolved[0].doi is None
+
+
 def test_search_snapshot_log_preserves_exact_compact_result(tmp_path: Path) -> None:
     first_result = DiscoveryResult(
         query=ResearchQuery(

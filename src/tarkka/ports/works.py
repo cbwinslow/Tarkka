@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import Protocol
 from uuid import UUID
 
@@ -10,6 +11,8 @@ from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 
 class WorkRepository(Protocol):
     """Persistence boundary for canonical Work identity and source observations."""
+
+    def transaction(self) -> AbstractContextManager[None]: ...
 
     def save_work(self, work: Work) -> None: ...
 

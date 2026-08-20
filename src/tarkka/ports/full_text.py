@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 from typing import Protocol
 
@@ -29,7 +29,19 @@ class FullTextResource:
             raise ValueError("full-text media type must not be blank")
         if not self.filename.strip():
             raise ValueError("full-text filename must not be blank")
+        if not _is_safe_filename(self.filename):
+            raise ValueError("full-text filename must be one safe path component")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+
+def _is_safe_filename(filename: str) -> bool:
+    """Reject absolute, traversal, POSIX, and Windows path spellings."""
+    if filename in {".", ".."} or "\x00" in filename:
+        return False
+    return (
+        PurePosixPath(filename).name == filename
+        and PureWindowsPath(filename).name == filename
+    )
 
 
 class FullTextResolver(Protocol):

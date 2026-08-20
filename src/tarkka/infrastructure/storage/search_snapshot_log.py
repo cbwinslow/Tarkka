@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,7 @@ from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
 class JsonlSearchSnapshotLog:
-    """Append-only local log of scholarly discovery snapshots."""
+    """Append-only durable local log of scholarly discovery snapshots."""
 
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
@@ -29,6 +30,7 @@ class JsonlSearchSnapshotLog:
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(line)
                 handle.flush()
+                os.fsync(handle.fileno())
 
 
 def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,13 +8,14 @@ import pytest
 
 from tarkka.application.work_selection import (
     SnapshotNotFoundError,
+    SnapshotRecordConflictError,
     SnapshotRecordNotFoundError,
     WorkSelectionService,
 )
-from tarkka.application.works import WorkCatalogService
+from tarkka.application.works import WorkCatalogService, WorkIdentityConflictError
 from tarkka.domain.discovery import DiscoveryRecord, ResearchQuery, SearchSnapshot
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
-from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog
+from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog, SnapshotDataError
 from tarkka.interfaces.cli import build_parser
 
 
@@ -49,6 +51,60 @@ def test_snapshot_log_round_trips_snapshot(tmp_path: Path) -> None:
     assert restored.records[0].doi == "10.1234/example"
 
 
+def test_snapshot_log_rejects_corrupt_typed_fields(tmp_path: Path) -> None:
+    path = tmp_path / "snapshots.jsonl"
+    snapshot = _snapshot()
+    payload = {
+        "snapshot_id": str(snapshot.snapshot_id),
+        "created_at": snapshot.created_at.isoformat(),
+        "query": {
+            "text": "baseball prediction",
+            "limit": 25,
+            "cursor": None,
+            "cursors": {},
+            "mode": "auto",
+            "providers": [],
+            "require_open_access": False,
+            "year_from": None,
+            "year_to": None,
+        },
+        "providers_used": ["openalex"],
+        "next_cursors": {"openalex": None},
+        "records": [],
+    }
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    with pytest.raises(SnapshotDataError, match="keys and values must be strings"):
+        JsonlSearchSnapshotLog(path).get(snapshot.snapshot_id)
+
+
+def test_snapshot_log_reports_invalid_provider_mode_as_corrupt_data(tmp_path: Path) -> None:
+    path = tmp_path / "snapshots.jsonl"
+    snapshot = _snapshot()
+    payload = {
+        "snapshot_id": str(snapshot.snapshot_id),
+        "created_at": snapshot.created_at.isoformat(),
+        "query": {
+            "text": "baseball prediction",
+            "limit": 25,
+            "cursor": None,
+            "cursors": {},
+            "mode": "not-a-mode",
+            "providers": [],
+            "require_open_access": False,
+            "year_from": None,
+            "year_to": None,
+        },
+        "providers_used": ["openalex"],
+        "next_cursors": {},
+        "records": [],
+    }
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    with pytest.raises(SnapshotDataError, match="invalid snapshot"):
+        JsonlSearchSnapshotLog(path).get(snapshot.snapshot_id)
+
+
 def test_work_selection_persists_explicit_snapshot_result(tmp_path: Path) -> None:
     snapshots = JsonlSearchSnapshotLog(tmp_path / "snapshots.jsonl")
     snapshot = _snapshot()
@@ -76,6 +132,23 @@ def test_work_selection_rejects_missing_snapshot_and_index(tmp_path: Path) -> No
     snapshots.record(snapshot)
     with pytest.raises(SnapshotRecordNotFoundError):
         service.save_snapshot_result(snapshot.snapshot_id, 2)
+
+
+def test_work_selection_promotes_identity_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshots = JsonlSearchSnapshotLog(tmp_path / "snapshots.jsonl")
+    snapshot = _snapshot()
+    snapshots.record(snapshot)
+    repository = JsonWorkRepository(tmp_path / "works.json")
+    catalog = WorkCatalogService(repository)
+
+    def _raise_conflict(*args: object, **kwargs: object) -> object:
+        raise WorkIdentityConflictError("doi belongs to another work")
+
+    monkeypatch.setattr(catalog, "persist_candidate", _raise_conflict)
+    service = WorkSelectionService(snapshots, catalog)
+
+    with pytest.raises(SnapshotRecordConflictError, match="existing canonical Work identity"):
+        service.save_snapshot_result(snapshot.snapshot_id, 0)
 
 
 def test_work_cli_exposes_selection_and_enrichment_commands() -> None:

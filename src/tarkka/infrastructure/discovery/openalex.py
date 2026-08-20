@@ -4,13 +4,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
-from tarkka.domain.identifiers import normalize_doi
+from tarkka.domain.identifiers import try_normalize_doi
 from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransport
 
 
 class OpenAlexProvider:
     name = "openalex"
     _URL = "https://api.openalex.org/works"
+    # Current OpenAlex list endpoints document a maximum per-page value of 100.
     _MAX_PER_PAGE = 100
 
     def __init__(
@@ -57,20 +58,25 @@ class OpenAlexProvider:
 
 
 def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
+    raw_id = raw.get("id")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        raise ValueError("OpenAlex record must include id")
+    provider_id = raw_id.rstrip("/").rsplit("/", 1)[-1]
+    if not provider_id:
+        raise ValueError("OpenAlex record id must include a stable identifier")
+
     ids = raw.get("ids", {})
     ids_map = ids if isinstance(ids, Mapping) else {}
-    doi = _doi(raw.get("doi"))
     primary = raw.get("primary_location", {})
     primary_map = primary if isinstance(primary, Mapping) else {}
     oa = raw.get("open_access", {})
     oa_map = oa if isinstance(oa, Mapping) else {}
-    provider_id = str(raw.get("id", "")).rsplit("/", 1)[-1]
     return DiscoveryRecord(
         provider="openalex",
         provider_id=provider_id,
         title=str(raw.get("display_name") or raw.get("title") or "Untitled"),
         year=_int_or_none(raw.get("publication_year")),
-        doi=doi,
+        doi=try_normalize_doi(raw.get("doi")),
         landing_page_url=_str_or_none(primary_map.get("landing_page_url")),
         open_access_url=_str_or_none(oa_map.get("oa_url")),
         cited_by_count=_int_or_none(raw.get("cited_by_count")),
@@ -80,10 +86,6 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
             if value is not None
         },
     )
-
-
-def _doi(value: Any) -> str | None:
-    return normalize_doi(value) if isinstance(value, str) and value.strip() else None
 
 
 def _int_or_none(value: Any) -> int | None:

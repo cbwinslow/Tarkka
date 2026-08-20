@@ -1,10 +1,11 @@
-# Milestone 3 — Scholarly Discovery and Provider Selection
+# Milestone 3 — Scholarly Discovery, Identity, and Enrichment
 
 ## Goal
 
 Add provider-neutral scholarly discovery without forcing every research query through every external
 source. Tarkka should search narrowly by default, fan out when explicitly requested, preserve the
-exact result set for reproducibility, and enrich selected candidates only after identity resolution.
+exact result set for reproducibility, persist selected works under an internal canonical identity,
+and enrich those works only after identity resolution.
 
 ## Provider policy
 
@@ -28,8 +29,9 @@ DOIs, citation counts, publication years, and open-access metadata.
 
 ### Crossref
 
-Available as a search provider and intended to become especially important as a DOI metadata
-enrichment source. Cursor pagination starts on every query so continuation is always available.
+Available as a search provider and as a DOI metadata enricher. Discovery cursor pagination starts on
+every search query so continuation is available. Enrichment uses the single-work DOI lookup endpoint
+and produces another provider observation rather than making Crossref the canonical identity owner.
 
 ### Semantic Scholar
 
@@ -83,38 +85,79 @@ tarkka discover "baseball forecasting" --provider all \
 ```
 
 The first response remains compact: snapshot ID, title, year, provider identity, DOI, citation count,
-and open-access URL. Abstracts and full records should be fetched only when requested.
+and open-access URL. Abstracts, persisted Work state, enrichment, and full records should be expanded
+or invoked only when useful.
 
 ## Reliability
 
-The shared stdlib HTTP transport has configurable timeouts, retries transient network failures and
-429/5xx responses, honors numeric `Retry-After`, and applies exponential backoff otherwise.
-Provider failures are isolated while concurrent calls settle and are then reported together.
+The shared stdlib HTTP transport has configurable per-attempt and total timeouts, retries transient
+network failures and 429/5xx responses, honors numeric and HTTP-date `Retry-After`, and applies
+jittered exponential backoff otherwise. Provider failures are isolated while concurrent calls settle
+and are then reported together with useful exception context.
 
 ## Search snapshots
 
 Every discovery result receives a stable snapshot UUID. The local runtime appends the complete
 compact result set, provider policy, filters, and provider-keyed continuation cursors to
-`~/.tarkka/search_snapshots.jsonl`. Local appends are inter-process locked and written as one JSONL
-row.
+`~/.tarkka/search_snapshots.jsonl`. Local appends are inter-process locked and durable for supported
+local filesystems.
 
-The PostgreSQL reference schema includes `tarkka.search_snapshot`, indexes the main JSON/array query
-surfaces, and enforces append-only behavior against update, delete, and truncate operations.
+The PostgreSQL reference schema includes `tarkka.search_snapshot`, targeted indexes, and append-only
+protection against update/delete/truncate operations.
 
 ## Identity resolution
 
-The first identity rule is intentionally conservative:
+Discovery identity resolution is intentionally conservative:
 
 1. validate and normalize DOI when available
 2. group matching normalized DOIs
-3. otherwise preserve `(provider, provider_id)` as a distinct identity
-
-Records without a stable provider identity are rejected rather than assigned a shared placeholder.
-`CanonicalIdentityResolver` keeps all source records attached to the candidate and chooses a compact
-preferred representation without discarding provenance.
+3. otherwise preserve `(provider, provider_id)` as a distinct identity candidate
 
 Do not automatically merge records by fuzzy title similarity. Ambiguous identity candidates should
 later carry explicit confidence and evidence so they can be reviewed and regression-tested.
+
+## Persistent canonical Work identity
+
+Selected identity candidates can be persisted under a Tarkka-owned UUID:
+
+```text
+Canonical Work (work_id)
+   ├── WorkIdentifier: doi -> 10.xxxx/...
+   ├── WorkIdentifier: openalex -> W...
+   ├── WorkIdentifier: semantic-scholar -> ...
+   └── WorkSourceRecord[]
+        ├── OpenAlex observation
+        ├── Semantic Scholar observation
+        └── Crossref enrichment observation
+```
+
+Invariants:
+
+- provider IDs never become Tarkka's primary key
+- a normalized `(scheme, value)` identifier alias may belong to only one Work
+- the same candidate may be persisted repeatedly without creating a second Work
+- provider records remain distinct source observations
+- identifiers discovered during enrichment are added as aliases
+- conflicting strong identifiers fail closed instead of silently reassigning identity
+
+The local/offline profile uses a durable JSON Work repository; PostgreSQL has dedicated `work`,
+`work_identifier`, and `work_source_record` tables for the reference production model.
+
+## Enrichment policy
+
+Enrichment is a separate application stage from discovery. `WorkMetadataEnricher` adapters fetch a
+provider observation for a known identity. The initial Crossref enrichment path looks up one work by
+DOI.
+
+Enrichment is conservative:
+
+- the returned DOI must equal the requested normalized DOI
+- already-selected canonical title/year values are not overwritten
+- missing abstract, venue, publication type, and identifiers may be filled
+- the complete provider observation remains available independently of the canonical projection
+
+Future enrichment policy may decide whether to call Crossref automatically, selectively, or only on
+explicit request. Provider adapters still must not call one another.
 
 ## Separation of stages
 
@@ -123,42 +166,52 @@ provider selection
       ↓
 discovery
       ↓
-search snapshot
+SearchSnapshot
       ↓
-identity resolution
+identity candidate resolution
       ↓
-enrichment
+persistent canonical Work
+      ↓
+selective enrichment
       ↓
 acquisition / normalization
 ```
 
-Provider adapters must not call one another. Cross-provider combination and enrichment belong in
-application services where policy, cost, retries, and provenance can be controlled explicitly.
+Cross-provider combination, persistence, enrichment, and identity resolution belong in application
+services where policy, cost, retries, provenance, and conflicts can be controlled explicitly.
 
-## Delivered in this slice
+## Delivered in this milestone so far
 
 1. provider-neutral discovery contracts
 2. pluggable `auto` plus explicit `only` / `all` policies
-3. OpenAlex, Crossref, and Semantic Scholar adapters
+3. OpenAlex, Crossref, and Semantic Scholar discovery adapters
 4. concurrent multi-provider execution with deterministic result budgets
 5. provider-keyed continuation cursors
-6. DOI validation, deduplication, and canonical identity grouping
+6. DOI validation, deduplication, and conservative identity grouping
 7. resilient shared HTTP transport
 8. reproducible, append-only local SearchSnapshots
-9. append-only PostgreSQL SearchSnapshot migration and indexes
+9. append-only PostgreSQL SearchSnapshot migration
 10. agent-friendly `tarkka discover` CLI
 11. hardened GitHub Actions workflows
-12. network-free adapter, orchestration, identity, CLI, and retry tests
+12. network-free adapter/orchestration/identity/retry tests
+13. persistent canonical `Work` identity
+14. typed external-ID aliases with uniqueness protection
+15. preserved provider source observations
+16. durable local Work repository and PostgreSQL Work identity schema
+17. Crossref single-DOI metadata enrichment
+18. idempotence/conflict/non-destructive enrichment tests
 
 ## Remaining Milestone 3 work
 
-1. implement Crossref enrichment by DOI
-2. add canonical external-ID aliases to persistent `Work` entities
-3. add richer query intent/capability routing
-4. add arXiv as a specialized provider without changing the core contract
-5. add explicit fuzzy identity candidates with confidence/evidence
+1. expose selected Work persistence/enrichment through a small user/agent-facing workflow
+2. add richer query intent/capability routing
+3. add arXiv as a specialized provider without changing the core contract
+4. add explicit fuzzy identity candidates with confidence/evidence
+5. decide/measure automatic versus explicit enrichment policy
+6. add PostgreSQL Work repository implementation when the production persistence path is exercised
 
 ## Invariant
 
-Provider selection is a policy. Provider adapters remain replaceable and must not call one another.
-Cross-provider combination, enrichment, and identity resolution belong in application services.
+Provider selection is policy. Canonical Work identity belongs to Tarkka, not to a provider. Provider
+adapters remain replaceable and must not call one another. Cross-provider combination, enrichment,
+and identity resolution belong in application services.

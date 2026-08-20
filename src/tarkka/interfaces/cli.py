@@ -27,7 +27,10 @@ from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
-from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog, SnapshotDataError
+from tarkka.infrastructure.storage.search_snapshot_log import (
+    JsonlSearchSnapshotLog,
+    SnapshotDataError,
+)
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser

@@ -26,11 +26,10 @@ class JsonlSearchSnapshotLog:
             "records": [_record_to_dict(record) for record in snapshot.records],
         }
         line = json.dumps(payload, sort_keys=True) + "\n"
-        with exclusive_lock(self.path):
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(line)
-                handle.flush()
-                os.fsync(handle.fileno())
+        with exclusive_lock(self.path), self.path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
 
 
 def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:

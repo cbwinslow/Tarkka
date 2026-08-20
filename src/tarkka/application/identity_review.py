@@ -57,7 +57,9 @@ class IdentityReviewService:
         except IndexError as exc:
             raise IdentityCandidateNotFoundError("identity candidate index out of range") from exc
         if left_index < 0 or right_index < 0 or left_index == right_index:
-            raise IdentityCandidateNotFoundError("identity candidate requires two different indexes")
+            raise IdentityCandidateNotFoundError(
+                "identity candidate requires two different indexes"
+            )
 
         candidate = self._matcher.compare(left, right)
         if candidate is None:

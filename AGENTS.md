@@ -2,7 +2,9 @@
 
 ## Purpose
 
-This repository is a documentation-first foundation for a domain-agnostic research infrastructure platform. Coding agents must preserve the architectural contracts before optimizing for implementation speed.
+Tarkka is a domain-agnostic research infrastructure platform with an implemented local ingestion kernel and scholarly-discovery layer. Coding agents must preserve the architectural contracts and evidence/provenance guarantees before optimizing for implementation speed.
+
+This file is the shared repository instruction source for Codex, Claude, and other coding agents. Tool-specific instruction files should extend it only when they have genuinely tool-specific behavior; do not duplicate these rules into parallel files.
 
 ## Read progressively
 
@@ -18,14 +20,16 @@ Load additional docs only when the task touches them:
 
 | Task | Read |
 |---|---|
+| current implementation sequence/status | `docs/ROADMAP.md`, latest `docs/MILESTONE_*.md` |
 | core/domain design | `docs/CANONICAL_DATA_MODEL.md` |
 | service/module boundaries | `docs/ARCHITECTURE.md` |
 | ingestion/workflows | `docs/RESEARCH_PIPELINE.md` |
 | plugins/adapters | `docs/CONNECTOR_PLUGIN_SPEC.md` |
 | MCP/agent APIs | `docs/AGENT_INTERFACE.md`, `docs/CONTEXT_EFFICIENCY.md` |
 | auth/privacy/content rights | `docs/SECURITY_PRIVACY_LICENSING.md` |
-| implementation sequencing | `docs/ROADMAP.md`, `docs/DEVELOPMENT.md` |
+| implementation practices | `docs/DEVELOPMENT.md` |
 | naming/package namespace | `docs/NAMING.md` |
+| unresolved design choices | `docs/OPEN_QUESTIONS.md` |
 | external projects/dependencies | `docs/REFERENCE_PROJECTS.md` |
 
 This is intentional progressive disclosure to conserve context.
@@ -36,32 +40,40 @@ Do not violate these without an explicit architecture decision:
 
 - Domain core is independent of specific research providers, parsers, LLM vendors, web frameworks, and databases.
 - External systems are accessed through narrow adapters/ports.
-- PostgreSQL is the reference metadata system of record; pgvector is the initial vector strategy.
+- PostgreSQL is the reference metadata system of record; pgvector is the initial vector strategy when vector retrieval is implemented.
 - Raw artifacts are content-addressed and separate from normalized research records.
+- Acquisition/source provenance is separate from artifact content identity.
 - Claims are distinct from evidence and citations.
-- Important derived data preserves provenance.
+- Important derived data preserves provenance and version information.
 - Rights/access/storage/redistribution/commercial-use concerns are modeled separately.
 - Domain-specific semantics belong in domain packs or downstream integrations.
 - Agent interfaces use progressive disclosure rather than returning full documents by default.
+- Provider selection, cross-provider identity, and enrichment are separate application concerns; provider adapters do not call one another.
+- Ambiguous/fuzzy identity must not silently collapse records.
 - CLI/API/MCP/SDK should share application services.
 - Expensive pipeline stages should be resumable/idempotent where practical.
+- Core operation must not require an LLM.
 
 ## Before creating code
 
 1. Search the repository for an existing contract or concept.
 2. Prefer extending existing assets over creating duplicate abstractions.
-3. Identify the correct layer: domain, application, port, adapter, infrastructure, or interface.
-4. Check whether the change affects provenance, rights, caching/versioning, or agent context cost.
-5. Add or update tests with the implementation.
+3. Identify the correct layer: domain, application, port, infrastructure/adapter, or interface.
+4. Check the current roadmap/milestone rather than starting speculative future layers.
+5. Check whether the change affects provenance, rights, identity, caching/versioning, pagination, or agent context cost.
+6. Add or update tests with the implementation.
+7. Update architecture/milestone docs when behavior or contracts materially change.
 
 ## Implementation style
 
 - Prefer explicit, readable Python.
+- Use lowercase `tarkka` for machine-facing package/CLI/schema identifiers unless an external system requires otherwise.
 - Use type hints throughout public/internal contracts.
 - Use composition and protocols/interfaces over inheritance-heavy frameworks.
 - Validate external inputs at boundaries.
-- Fail safely and return actionable typed errors.
-- Use structured logging.
+- Fail safely and return actionable typed/interface errors.
+- Preserve useful exception context for infrastructure/provider failures.
+- Use structured logging as observability is introduced.
 - Keep network calls out of domain logic.
 - Avoid hidden global state.
 - Make concurrency/rate limiting explicit at orchestration boundaries.
@@ -78,19 +90,20 @@ Before adding a substantial dependency, determine:
 - network/data behavior
 - test strategy
 
-Do not recreate mature parsing/search/reporting systems merely to avoid integration work.
+Do not recreate mature parsing/search/reporting systems merely to avoid integration work, but do not make a vendor library the architecture either.
 
 ## Agent/token efficiency
 
 For agent-facing features:
 
+- capability metadata first
 - manifest first
-- summary second
+- summary/structured finding second
 - evidence on demand
 - full content only when required
 - return stable handles/IDs
 - include pagination/cursors
-- include estimated result size where useful
+- include estimated result size/token cost where useful
 - prefer sequential capability/schema discovery
 
 Read `docs/CONTEXT_EFFICIENCY.md` before changing MCP/tool contracts.
@@ -99,26 +112,28 @@ Read `docs/CONTEXT_EFFICIENCY.md` before changing MCP/tool contracts.
 
 Use the smallest appropriate level:
 
-- unit tests for domain logic
-- shared contract tests for adapters
-- integration tests for PostgreSQL/artifact storage
+- unit tests for domain/application logic
+- shared contract tests for replaceable adapters
+- integration tests for PostgreSQL/artifact/parser boundaries
 - deterministic end-to-end fixtures for pipeline slices
 
-Do not depend on live external APIs in normal unit tests.
+Do not depend on live external APIs in normal unit/CI tests. External provider responses are untrusted fixture boundaries and should include malformed/edge cases where relevant.
 
 ## Scope discipline
 
 Avoid large speculative frameworks. Implement the current roadmap milestone and leave explicit extension points.
 
-If documentation and code disagree, treat the conflict as a design issue: update the relevant architecture document in the same change or explain why it is intentionally superseded.
+If documentation and code disagree, treat the conflict as a design issue: update the relevant architecture/status document in the same change or explain why it is intentionally superseded.
+
+Do not reopen decisions listed as resolved merely because an older planning document or automated review comment suggests a different direction. Verify against the current code, current docs, and current upstream documentation.
 
 ## Progress reporting
 
-For substantial work, maintain a concise task record in the PR/issue or working notes containing:
+For substantial work, maintain a concise task record in the PR/issue containing:
 
 - goal
 - decisions
-- files changed
+- files/contracts changed
 - tests/validation
 - unresolved questions
 

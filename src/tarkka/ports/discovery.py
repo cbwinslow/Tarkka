@@ -15,9 +15,10 @@ class DiscoveryProvider(Protocol):
 class ProviderSelector(Protocol):
     """Choose providers for AUTO discovery policy.
 
-    Precondition: ``providers`` is non-empty. Implementations should be deterministic for the same
-    query and provider set. They may return one or multiple providers and can consider query intent,
-    credentials, rate limits, provider health, cost/latency budgets, or domain-specific coverage.
+    ``providers`` must be non-empty; selectors should raise ``ValueError`` if that contract is
+    violated. Implementations should be deterministic for the same query and provider set. They may
+    return one or multiple providers and can consider query intent, credentials, rate limits,
+    provider health, cost/latency budgets, or domain-specific coverage.
     """
 
     def select(

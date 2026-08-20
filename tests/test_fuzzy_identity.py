@@ -69,6 +69,17 @@ def test_near_identical_cross_provider_titles_become_review_candidates() -> None
     }
 
 
+def test_unicode_titles_are_normalized_without_being_discarded() -> None:
+    matcher = FuzzyIdentityMatcher()
+    candidate = matcher.compare(
+        _record("openalex", "W1", "Prédiction des résultats de baseball"),
+        _record("semantic-scholar", "S1", "Prédiction des résultats de baseball"),
+    )
+
+    assert candidate is not None
+    assert candidate.confidence == 1.0
+
+
 def test_conflicting_strong_identifiers_never_become_fuzzy_candidates() -> None:
     matcher = FuzzyIdentityMatcher()
     candidate = matcher.compare(

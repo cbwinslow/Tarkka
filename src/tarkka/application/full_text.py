@@ -57,7 +57,10 @@ class FullTextAcquisitionService:
             raise FullTextNotFoundError(f"no full-text representation found for work {work_id}")
 
         with TemporaryDirectory(prefix="tarkka-acquire-") as temp_dir:
-            path = Path(temp_dir) / resource.filename
+            root = Path(temp_dir).resolve()
+            path = (root / resource.filename).resolve()
+            if path.parent != root:
+                raise ValueError("full-text filename escaped temporary acquisition directory")
             self._fetcher.fetch(resource, path)
             result = self._ingest.ingest_acquired(
                 path,

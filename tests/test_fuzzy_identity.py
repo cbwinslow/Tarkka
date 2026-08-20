@@ -63,6 +63,7 @@ def test_near_identical_cross_provider_titles_become_review_candidates() -> None
     assert candidate is not None
     assert candidate.review_required is True
     assert candidate.confidence == 1.0
+    assert candidate.matcher_version == "title-year-v1"
     assert {item.signal for item in candidate.evidence} == {
         "title_similarity",
         "publication_year",
@@ -132,6 +133,12 @@ def test_accept_records_auditable_decision_without_merging(tmp_path: Path) -> No
     payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     assert payload["decision"] == "accept"
     assert payload["rationale"] == "same study after review"
+    assert payload["matcher_version"] == "title-year-v1"
+    assert payload["confidence"] == 1.0
+    assert {item["signal"] for item in payload["evidence"]} == {
+        "title_similarity",
+        "publication_year",
+    }
 
 
 def test_negative_identity_indexes_are_rejected_before_lookup(tmp_path: Path) -> None:

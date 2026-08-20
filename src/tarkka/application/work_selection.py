@@ -9,15 +9,19 @@ from tarkka.domain.models import Work
 from tarkka.ports.snapshots import SearchSnapshotReader
 
 
-class SnapshotNotFoundError(LookupError):
+class SnapshotSelectionError(RuntimeError):
+    """Base error for explicit SearchSnapshot result selection failures."""
+
+
+class SnapshotNotFoundError(SnapshotSelectionError):
     pass
 
 
-class SnapshotRecordNotFoundError(LookupError):
+class SnapshotRecordNotFoundError(SnapshotSelectionError):
     pass
 
 
-class SnapshotRecordConflictError(RuntimeError):
+class SnapshotRecordConflictError(SnapshotSelectionError):
     """Raised when a selected result conflicts with existing canonical Work identity."""
 
 

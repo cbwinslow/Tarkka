@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from tarkka.ports.full_text import FullTextResource
 
 
 class UrllibBinaryFetcher:
-    """Small bounded downloader for explicitly selected full-text resources."""
+    """Small bounded HTTPS downloader for explicitly selected full-text resources."""
 
     def __init__(
         self,
@@ -25,25 +26,41 @@ class UrllibBinaryFetcher:
         self.user_agent = user_agent
 
     def fetch(self, resource: FullTextResource, destination: Path) -> None:
+        _validate_https_url(resource.source_uri)
         request = Request(resource.source_uri, headers={"User-Agent": self.user_agent})
-        with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
-            content_type = response.headers.get_content_type()
-            if content_type != resource.media_type:
-                message = (
-                    f"expected {resource.media_type}, received {content_type} "
-                    f"from {resource.source_uri}"
-                )
-                raise ValueError(message)
-            length = response.headers.get("Content-Length")
-            if length is not None and int(length) > self.max_bytes:
-                raise ValueError("full-text response exceeds configured download limit")
-            written = 0
-            with destination.open("wb") as handle:
-                while chunk := response.read(1024 * 1024):
-                    written += len(chunk)
-                    if written > self.max_bytes:
-                        raise ValueError("full-text response exceeds configured download limit")
-                    handle.write(chunk)
-        if written == 0:
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
+                final_url = response.geturl()
+                if not isinstance(final_url, str):
+                    raise TypeError("full-text response URL must be a string")
+                _validate_https_url(final_url)
+
+                # get_content_type() already strips parameters such as charset.
+                content_type = response.headers.get_content_type()
+                if content_type != resource.media_type:
+                    message = (
+                        f"expected {resource.media_type}, received {content_type} "
+                        f"from {resource.source_uri}"
+                    )
+                    raise ValueError(message)
+                length = response.headers.get("Content-Length")
+                if length is not None and int(length) > self.max_bytes:
+                    raise ValueError("full-text response exceeds configured download limit")
+                written = 0
+                with destination.open("wb") as handle:
+                    while chunk := response.read(1024 * 1024):
+                        written += len(chunk)
+                        if written > self.max_bytes:
+                            raise ValueError("full-text response exceeds configured download limit")
+                        handle.write(chunk)
+            if written == 0:
+                raise ValueError("full-text response was empty")
+        except Exception:
             destination.unlink(missing_ok=True)
-            raise ValueError("full-text response was empty")
+            raise
+
+
+def _validate_https_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ValueError(f"full-text URL must use HTTPS with a host: {url}")

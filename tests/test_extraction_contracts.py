@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -53,9 +53,10 @@ def _document(
     return document, passage
 
 
-def _run(*, run_id=None) -> ExtractionRun:
+def _run(document_id: UUID, *, run_id: UUID | None = None) -> ExtractionRun:
     return ExtractionRun(
         run_id=run_id or uuid4(),
+        document_id=document_id,
         extractor_name="fixture-extractor",
         extractor_version="1.0.0",
         model=ModelProvenance(
@@ -66,7 +67,11 @@ def _run(*, run_id=None) -> ExtractionRun:
     )
 
 
-def _provenance(*, run_id=None, confidence: float = 0.93) -> ExtractionProvenance:
+def _provenance(
+    *,
+    run_id: UUID | None = None,
+    confidence: float = 0.93,
+) -> ExtractionProvenance:
     return ExtractionProvenance(
         run_id=run_id or uuid4(),
         confidence=confidence,
@@ -75,7 +80,7 @@ def _provenance(*, run_id=None, confidence: float = 0.93) -> ExtractionProvenanc
 
 def _valid_batch() -> tuple[ExtractionBatch, Evidence, Claim]:
     document, passage = _document()
-    run = _run()
+    run = _run(document.document_id)
     provenance = _provenance(run_id=run.run_id)
     evidence = Evidence.from_passage(
         evidence_id=uuid4(),
@@ -150,7 +155,7 @@ def test_extraction_requires_at_least_one_evidence_reference() -> None:
 
 def test_claim_exposes_typed_kind_and_review_provenance() -> None:
     document, passage = _document()
-    run = _run()
+    run = _run(document.document_id)
     provenance = ExtractionProvenance(
         run_id=run.run_id,
         confidence=1.0,
@@ -205,13 +210,27 @@ def test_author_stated_and_inferred_limitations_are_distinct() -> None:
 def test_extraction_batch_rejects_empty_batch() -> None:
     document, _ = _document()
     with pytest.raises(ValueError, match="at least one evidence"):
-        ExtractionBatch(document=document, run=_run(), evidence=(), extractions=())
+        ExtractionBatch(
+            document=document,
+            run=_run(document.document_id),
+            evidence=(),
+            extractions=(),
+        )
+
+
+def test_extraction_batch_rejects_run_for_another_document() -> None:
+    batch, _, _ = _valid_batch()
+    wrong_document_id = uuid4()
+    wrong_run = replace(batch.run, document_id=wrong_document_id)
+
+    with pytest.raises(ValueError, match="run does not belong"):
+        replace(batch, run=wrong_run)
 
 
 def test_extraction_batch_rejects_evidence_from_another_document() -> None:
-    document, passage = _document()
+    _, passage = _document()
     other_document, _ = _document("Other document")
-    run = _run()
+    run = _run(other_document.document_id)
     evidence = Evidence.from_passage(
         evidence_id=uuid4(),
         passage=passage,
@@ -264,8 +283,7 @@ def test_extraction_batch_rejects_unknown_evidence_reference() -> None:
 
 def test_extraction_batch_rejects_mixed_run_records() -> None:
     batch, evidence, claim = _valid_batch()
-    other_provenance = _provenance()
-    invalid_claim = replace(claim, provenance=other_provenance)
+    invalid_claim = replace(claim, provenance=_provenance())
 
     with pytest.raises(ValueError, match="batch run"):
         ExtractionBatch(

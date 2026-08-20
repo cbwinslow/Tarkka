@@ -76,11 +76,15 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
     external_map = external if isinstance(external, Mapping) else {}
     oa = raw.get("openAccessPdf", {})
     oa_map = oa if isinstance(oa, Mapping) else {}
+    open_access_url = oa_map.get("url") if isinstance(oa_map.get("url"), str) else None
     cited_by = raw.get("citationCount")
     # Canonical external identifiers are strings by domain contract.
     external_ids = {
         str(key): str(value) for key, value in external_map.items() if value is not None
     }
+    metadata: dict[str, str] = {}
+    if open_access_url:
+        metadata["open_access_media_type"] = "application/pdf"
     return DiscoveryRecord(
         provider="semantic-scholar",
         provider_id=paper_id,
@@ -89,7 +93,8 @@ def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
         doi=try_normalize_doi(external_map.get("DOI")),
         abstract=raw.get("abstract") if isinstance(raw.get("abstract"), str) else None,
         landing_page_url=raw.get("url") if isinstance(raw.get("url"), str) else None,
-        open_access_url=oa_map.get("url") if isinstance(oa_map.get("url"), str) else None,
+        open_access_url=open_access_url,
         cited_by_count=cited_by if isinstance(cited_by, int) else None,
         external_ids=external_ids,
+        metadata=metadata,
     )

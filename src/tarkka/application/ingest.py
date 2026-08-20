@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from tarkka.domain.manifest import ResourceManifest, build_document_manifest
@@ -41,15 +42,40 @@ class IngestService:
 
     def ingest(self, source: Path) -> IngestResult:
         source = source.expanduser().resolve()
+        return self.ingest_acquired(
+            source,
+            source_uri=source.as_uri(),
+            original_name=source.name,
+        )
+
+    def ingest_acquired(
+        self,
+        source: Path,
+        *,
+        source_uri: str,
+        original_name: str,
+        acquisition_metadata: Mapping[str, str] | None = None,
+    ) -> IngestResult:
+        source = source.expanduser().resolve()
         if not source.is_file():
             raise FileNotFoundError(source)
+        if not source_uri.strip():
+            raise ValueError("source_uri must not be blank")
+        if not original_name.strip():
+            raise ValueError("original_name must not be blank")
 
-        artifact = self._artifact_store.put_file(source)
+        stored_artifact = self._artifact_store.put_file(source)
+        artifact = replace(
+            stored_artifact,
+            original_name=original_name,
+            source_uri=source_uri,
+        )
         acquisition = Acquisition(
             acquisition_id=new_id(),
             artifact_id=artifact.artifact_id,
-            source_uri=source.as_uri(),
-            original_name=source.name,
+            source_uri=source_uri,
+            original_name=original_name,
+            metadata=dict(acquisition_metadata or {}),
         )
         if self._acquisition_recorder is not None:
             self._acquisition_recorder.record(acquisition)
@@ -60,7 +86,7 @@ class IngestService:
         )
         if parser is None:
             raise UnsupportedDocumentError(
-                f"no parser supports media type {artifact.media_type!r} for {source.name!r}"
+                f"no parser supports media type {artifact.media_type!r} for {original_name!r}"
             )
 
         stored_path = self._artifact_store.path_for(artifact)

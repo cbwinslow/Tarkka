@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from tarkka.application.discover import DiscoveryService
+from tarkka.application.full_text import FullTextAcquisitionService, FullTextNotFoundError
 from tarkka.application.ingest import IngestService, UnsupportedDocumentError
 from tarkka.application.work_selection import (
     SnapshotNotFoundError,
@@ -19,9 +20,13 @@ from tarkka.application.works import WorkCatalogService, WorkEnrichmentError, Wo
 from tarkka.domain.discovery import ProviderMode, ResearchQuery
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Work
+from tarkka.infrastructure.discovery.arxiv import ArxivProvider
 from tarkka.infrastructure.discovery.crossref import CrossrefProvider
 from tarkka.infrastructure.discovery.openalex import OpenAlexProvider
 from tarkka.infrastructure.discovery.semantic_scholar import SemanticScholarProvider
+from tarkka.infrastructure.full_text.arxiv import ArxivFullTextResolver
+from tarkka.infrastructure.full_text.http import UrllibBinaryFetcher
+from tarkka.infrastructure.full_text.source_record import SourceRecordFullTextResolver
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -39,6 +44,7 @@ _PROVIDER_NAMES = (
     OpenAlexProvider.name,
     CrossrefProvider.name,
     SemanticScholarProvider.name,
+    ArxivProvider.name,
 )
 
 
@@ -75,6 +81,7 @@ def _discovery_providers() -> tuple[DiscoveryProvider, ...]:
         OpenAlexProvider(api_key=os.environ.get("TARKKA_OPENALEX_API_KEY")),
         CrossrefProvider(mailto=os.environ.get("TARKKA_CROSSREF_MAILTO")),
         SemanticScholarProvider(api_key=os.environ.get("TARKKA_SEMANTIC_SCHOLAR_API_KEY")),
+        ArxivProvider(),
     )
 
 
@@ -274,6 +281,45 @@ def _cmd_work_enrich(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_work_acquire(args: argparse.Namespace) -> int:
+    store, document_repository, acquisitions = _runtime()
+    work_repository = _work_repository()
+    ingest = IngestService(
+        artifact_store=store,
+        repository=document_repository,
+        acquisition_recorder=acquisitions,
+        parsers=_parsers(),
+    )
+    service = FullTextAcquisitionService(
+        repository=work_repository,
+        resolvers=(ArxivFullTextResolver(), SourceRecordFullTextResolver()),
+        fetcher=UrllibBinaryFetcher(),
+        ingest=ingest,
+    )
+    try:
+        result = service.acquire(args.work_id)
+    except (
+        FullTextNotFoundError,
+        WorkNotFoundError,
+        UnsupportedDocumentError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    payload = {
+        "work_id": str(args.work_id),
+        "provider": result.resource.provider,
+        "source_uri": result.resource.source_uri,
+        "artifact_id": str(result.ingest.artifact.artifact_id),
+        "document_id": str(result.ingest.document.document_id),
+        "manifest": result.ingest.manifest.to_dict(),
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def _cmd_inspect(args: argparse.Namespace) -> int:
     _, repo, _ = _runtime()
     manifest = repo.get_manifest(args.document_id)
@@ -332,7 +378,7 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("--open-access", action="store_true")
     discover.set_defaults(func=_cmd_discover)
 
-    work = sub.add_parser("work", help="persist, inspect, and enrich canonical research works")
+    work = sub.add_parser("work", help="persist, inspect, enrich, and acquire research works")
     work_sub = work.add_subparsers(dest="work_command", required=True)
 
     work_save = work_sub.add_parser("save", help="save one selected discovery result")
@@ -347,6 +393,10 @@ def build_parser() -> argparse.ArgumentParser:
     work_enrich = work_sub.add_parser("enrich", help="enrich a Work by DOI using Crossref")
     work_enrich.add_argument("work_id", type=_parse_work_id)
     work_enrich.set_defaults(func=_cmd_work_enrich)
+
+    work_acquire = work_sub.add_parser("acquire", help="download and normalize available full text")
+    work_acquire.add_argument("work_id", type=_parse_work_id)
+    work_acquire.set_defaults(func=_cmd_work_acquire)
 
     inspect = sub.add_parser("inspect", help="show a compact progressive-disclosure manifest")
     inspect.add_argument("document_id", type=_parse_document_id)

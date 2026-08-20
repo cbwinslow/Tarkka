@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from tarkka.application.identity import CanonicalWorkCandidate
 from tarkka.domain.discovery import DiscoveryRecord
-from tarkka.domain.identifiers import try_normalize_doi
+from tarkka.domain.identifiers import try_normalize_arxiv_id, try_normalize_doi
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.ports.works import WorkMetadataEnricher, WorkRepository
@@ -144,19 +144,30 @@ def _candidate_aliases(candidate: CanonicalWorkCandidate) -> tuple[tuple[str, st
 
 
 def _record_aliases(record: DiscoveryRecord) -> tuple[tuple[str, str], ...]:
-    aliases: list[tuple[str, str]] = [(record.provider.lower(), record.provider_id.strip())]
+    aliases: list[tuple[str, str]] = []
+    provider_scheme = record.provider.strip().lower()
+    provider_value = _normalized_alias_value(provider_scheme, record.provider_id)
+    if provider_value:
+        aliases.append((provider_scheme, provider_value))
     for raw_scheme, raw_value in record.external_ids.items():
         scheme = raw_scheme.strip().lower()
-        value = raw_value.strip()
-        if not scheme or not value:
+        if not scheme:
             continue
-        if scheme == "doi":
-            normalized = try_normalize_doi(value)
-            if normalized:
-                aliases.append((scheme, normalized))
-        else:
+        value = _normalized_alias_value(scheme, raw_value)
+        if value:
             aliases.append((scheme, value))
     return _dedupe_aliases(aliases)
+
+
+def _normalized_alias_value(scheme: str, value: str) -> str | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if scheme == "doi":
+        return try_normalize_doi(stripped)
+    if scheme == "arxiv":
+        return try_normalize_arxiv_id(stripped)
+    return stripped
 
 
 def _dedupe_aliases(aliases: Iterable[tuple[str, str]]) -> tuple[tuple[str, str], ...]:

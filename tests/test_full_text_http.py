@@ -48,7 +48,10 @@ def _resource(source_uri: str = "https://example.test/paper.pdf") -> FullTextRes
     )
 
 
-def test_fetch_accepts_content_type_parameters(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_fetch_accepts_content_type_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     response = _Response()
 
     def fake_urlopen(*args: Any, **kwargs: Any) -> _Response:

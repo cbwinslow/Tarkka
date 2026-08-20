@@ -17,6 +17,15 @@ class ProviderMode(StrEnum):
     ALL = "all"
 
 
+class ResearchIntent(StrEnum):
+    """Provider-neutral intent used by AUTO discovery policy."""
+
+    BROAD = "broad"
+    PREPRINT = "preprint"
+    CITATIONS = "citations"
+    BIBLIOGRAPHIC = "bibliographic"
+
+
 @dataclass(frozen=True, slots=True)
 class ResearchQuery:
     text: str
@@ -25,6 +34,7 @@ class ResearchQuery:
     cursors: Mapping[str, str] = field(default_factory=dict)
     mode: ProviderMode = ProviderMode.AUTO
     providers: tuple[str, ...] = ()
+    intent: ResearchIntent = ResearchIntent.BROAD
     require_open_access: bool = False
     year_from: int | None = None
     year_to: int | None = None

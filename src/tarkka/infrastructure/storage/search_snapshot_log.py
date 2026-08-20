@@ -50,7 +50,8 @@ class JsonlSearchSnapshotLog:
                     if raw.get("snapshot_id") == str(snapshot_id):
                         return _snapshot_from_dict(raw)
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError(f"unable to read Tarkka search snapshots {self.path}: {exc}") from exc
+            message = f"unable to read Tarkka search snapshots {self.path}: {exc}"
+            raise RuntimeError(message) from exc
         return None
 
 
@@ -99,6 +100,10 @@ def _record_to_dict(record: DiscoveryRecord) -> dict[str, Any]:
 
 
 def _record_from_dict(raw: dict[str, Any]) -> DiscoveryRecord:
+    external_ids = {
+        str(key): str(value)
+        for key, value in dict(raw.get("external_ids", {})).items()
+    }
     return DiscoveryRecord(
         provider=str(raw["provider"]),
         provider_id=str(raw["provider_id"]),
@@ -109,17 +114,21 @@ def _record_from_dict(raw: dict[str, Any]) -> DiscoveryRecord:
         landing_page_url=raw.get("landing_page_url"),
         open_access_url=raw.get("open_access_url"),
         cited_by_count=raw.get("cited_by_count"),
-        external_ids={str(key): str(value) for key, value in dict(raw.get("external_ids", {})).items()},
+        external_ids=external_ids,
         metadata=dict(raw.get("metadata", {})),
     )
 
 
 def _snapshot_from_dict(raw: dict[str, Any]) -> SearchSnapshot:
+    next_cursors = {
+        str(key): str(value)
+        for key, value in dict(raw.get("next_cursors", {})).items()
+    }
     return SearchSnapshot(
         snapshot_id=UUID(str(raw["snapshot_id"])),
         created_at=datetime.fromisoformat(str(raw["created_at"])),
         query=_query_from_dict(dict(raw["query"])),
         providers_used=tuple(str(value) for value in raw.get("providers_used", [])),
-        next_cursors={str(key): str(value) for key, value in dict(raw.get("next_cursors", {})).items()},
+        next_cursors=next_cursors,
         records=tuple(_record_from_dict(dict(value)) for value in raw.get("records", [])),
     )

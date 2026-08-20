@@ -41,7 +41,10 @@ class UrllibAtomTransport:
         target = f"{url}?{urlencode(params)}"
         request = Request(target, headers=dict(headers or {}))
         with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
-            return response.read().decode("utf-8")
+            payload = response.read()
+        if not isinstance(payload, bytes):
+            raise TypeError("arXiv API response body must be bytes")
+        return payload.decode("utf-8")
 
 
 class ArxivProvider:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -10,6 +11,7 @@ from tarkka.application.work_selection import (
     SnapshotNotFoundError,
     SnapshotRecordConflictError,
     SnapshotRecordNotFoundError,
+    SnapshotSelectionError,
     WorkSelectionService,
 )
 from tarkka.application.works import WorkCatalogService, WorkIdentityConflictError
@@ -41,6 +43,27 @@ def _snapshot() -> SearchSnapshot:
     )
 
 
+def _snapshot_payload(snapshot: SearchSnapshot, *, mode: str = "auto") -> dict[str, object]:
+    return {
+        "snapshot_id": str(snapshot.snapshot_id),
+        "created_at": snapshot.created_at.isoformat(),
+        "query": {
+            "text": "baseball prediction",
+            "limit": 25,
+            "cursor": None,
+            "cursors": {},
+            "mode": mode,
+            "providers": [],
+            "require_open_access": False,
+            "year_from": None,
+            "year_to": None,
+        },
+        "providers_used": ["openalex"],
+        "next_cursors": {},
+        "records": [],
+    }
+
+
 def test_snapshot_log_round_trips_snapshot(tmp_path: Path) -> None:
     log = JsonlSearchSnapshotLog(tmp_path / "snapshots.jsonl")
     snapshot = _snapshot()
@@ -58,55 +81,31 @@ def test_snapshot_log_round_trips_snapshot(tmp_path: Path) -> None:
 def test_snapshot_log_rejects_corrupt_typed_fields(tmp_path: Path) -> None:
     path = tmp_path / "snapshots.jsonl"
     snapshot = _snapshot()
-    payload = {
-        "snapshot_id": str(snapshot.snapshot_id),
-        "created_at": snapshot.created_at.isoformat(),
-        "query": {
-            "text": "baseball prediction",
-            "limit": 25,
-            "cursor": None,
-            "cursors": {},
-            "mode": "auto",
-            "providers": [],
-            "require_open_access": False,
-            "year_from": None,
-            "year_to": None,
-        },
-        "providers_used": ["openalex"],
-        "next_cursors": {"openalex": None},
-        "records": [],
-    }
+    payload = _snapshot_payload(snapshot)
+    payload["next_cursors"] = {"openalex": None}
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
     with pytest.raises(SnapshotDataError, match="keys and values must be strings"):
         JsonlSearchSnapshotLog(path).get(snapshot.snapshot_id)
 
 
-def test_snapshot_log_reports_invalid_provider_mode_as_corrupt_data(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mode", ["not-a-mode", ""])
+def test_snapshot_log_reports_invalid_provider_mode_as_corrupt_data(
+    tmp_path: Path,
+    mode: str,
+) -> None:
     path = tmp_path / "snapshots.jsonl"
     snapshot = _snapshot()
-    payload = {
-        "snapshot_id": str(snapshot.snapshot_id),
-        "created_at": snapshot.created_at.isoformat(),
-        "query": {
-            "text": "baseball prediction",
-            "limit": 25,
-            "cursor": None,
-            "cursors": {},
-            "mode": "not-a-mode",
-            "providers": [],
-            "require_open_access": False,
-            "year_from": None,
-            "year_to": None,
-        },
-        "providers_used": ["openalex"],
-        "next_cursors": {},
-        "records": [],
-    }
-    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(_snapshot_payload(snapshot, mode=mode)) + "\n", encoding="utf-8")
 
     with pytest.raises(SnapshotDataError, match="invalid snapshot"):
         JsonlSearchSnapshotLog(path).get(snapshot.snapshot_id)
+
+
+def test_snapshot_selection_errors_share_common_base() -> None:
+    assert issubclass(SnapshotNotFoundError, SnapshotSelectionError)
+    assert issubclass(SnapshotRecordNotFoundError, SnapshotSelectionError)
+    assert issubclass(SnapshotRecordConflictError, SnapshotSelectionError)
 
 
 def test_work_selection_persists_explicit_snapshot_result(tmp_path: Path) -> None:
@@ -153,7 +152,8 @@ def test_work_payload_preserves_multiple_values_for_one_identifier_scheme(tmp_pa
         )
 
     payload = _work_payload(saved.work, repository)
-    assert payload["identifiers"]["issn"] == ["1111-2222", "3333-4444"]  # type: ignore[index]
+    identifiers = cast(dict[str, list[str]], payload["identifiers"])
+    assert identifiers["issn"] == ["1111-2222", "3333-4444"]
 
 
 def test_work_selection_rejects_missing_snapshot_and_index(tmp_path: Path) -> None:

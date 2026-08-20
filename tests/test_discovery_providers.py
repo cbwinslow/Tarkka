@@ -60,6 +60,22 @@ def test_openalex_maps_work_cursor_and_caps_page_size() -> None:
     assert transport.last_params["per-page"] == 100
 
 
+def test_openalex_rejects_missing_identity_and_tolerates_bad_doi() -> None:
+    provider = OpenAlexProvider(
+        _Transport(
+            {
+                "meta": {"count": 1},
+                "results": [{"id": "https://openalex.org/W1", "doi": "doi:"}],
+            }
+        )
+    )
+    assert provider.search(ResearchQuery("query")).records[0].doi is None
+
+    missing = OpenAlexProvider(_Transport({"meta": {"count": 1}, "results": [{}]}))
+    with pytest.raises(ValueError, match="include id"):
+        missing.search(ResearchQuery("query"))
+
+
 def test_crossref_maps_metadata_known_identifiers_and_cursor() -> None:
     transport = _Transport(
         {
@@ -89,9 +105,9 @@ def test_crossref_maps_metadata_known_identifiers_and_cursor() -> None:
     record = page.records[0]
     assert record.doi == "10.5555/xyz"
     assert record.year == 2022
-    assert record.external_ids["isbn"] == "9780000000001"
-    assert record.external_ids["issn"] == "1234-5678"
-    assert record.external_ids["alternative-id"] == "LOCAL-1"
+    assert record.external_ids["isbn"] == '["9780000000001"]'
+    assert record.external_ids["issn"] == '["1234-5678"]'
+    assert record.external_ids["alternative-id"] == '["LOCAL-1"]'
     assert transport.last_params["cursor"] == "*"
     assert transport.last_params["mailto"] == "researcher@example.test"
 
@@ -104,6 +120,14 @@ def test_crossref_open_access_uses_verified_free_full_text_filters() -> None:
     filters = str(transport.last_params["filter"])
     assert "assertion:free" in filters
     assert "has-full-text:true" in filters
+
+
+def test_crossref_rejects_record_without_stable_identity() -> None:
+    provider = CrossrefProvider(
+        _Transport({"message": {"total-results": 1, "items": [{"title": ["No ID"]}]}})
+    )
+    with pytest.raises(ValueError, match="DOI or URL"):
+        provider.search(ResearchQuery("query"))
 
 
 def test_semantic_scholar_maps_search_result_and_api_key() -> None:
@@ -133,7 +157,7 @@ def test_semantic_scholar_maps_search_result_and_api_key() -> None:
     assert page.next_cursor == "10"
     assert page.records[0].doi == "10.9999/test"
     assert transport.last_headers["x-api-key"] == "secret"
-    assert transport.last_params["query"] == "win probability"
+    assert transport.last_params["query"] == "win-probability"
     assert transport.last_params["year"] == "2020-2024"
 
 
@@ -162,3 +186,15 @@ def test_semantic_scholar_rejects_missing_paper_id() -> None:
 
     with pytest.raises(ValueError, match="paperId"):
         provider.search(ResearchQuery("query"))
+
+
+def test_semantic_scholar_tolerates_malformed_external_doi() -> None:
+    provider = SemanticScholarProvider(
+        _Transport(
+            {
+                "total": 1,
+                "data": [{"paperId": "S2-1", "externalIds": {"DOI": "doi:"}}],
+            }
+        )
+    )
+    assert provider.search(ResearchQuery("query")).records[0].doi is None

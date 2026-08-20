@@ -308,10 +308,12 @@ class ExtractionBatch:
         if not self.extractions:
             raise ValueError("extraction batch must contain at least one extraction")
 
-        evidence_ids = {item.evidence_id for item in self.evidence}
+        evidence_ids = {evidence_item.evidence_id for evidence_item in self.evidence}
         if len(evidence_ids) != len(self.evidence):
             raise ValueError("extraction batch evidence IDs must be unique")
-        extraction_ids = {item.extraction_id for item in self.extractions}
+        extraction_ids = {
+            extraction_item.extraction_id for extraction_item in self.extractions
+        }
         if len(extraction_ids) != len(self.extractions):
             raise ValueError("extraction batch extraction IDs must be unique")
 
@@ -321,25 +323,27 @@ class ExtractionBatch:
             for passage in section.passages
         }
 
-        for item in self.evidence:
-            if item.provenance.run_id != self.run.run_id:
+        for evidence_item in self.evidence:
+            if evidence_item.provenance.run_id != self.run.run_id:
                 raise ValueError("evidence does not belong to extraction batch run")
-            if item.document_id != self.document_id:
+            if evidence_item.document_id != self.document_id:
                 raise ValueError("evidence does not belong to extraction batch document")
-            passage = passages.get(item.passage_id)
-            if passage is None or passage.section_id != item.section_id:
+            passage = passages.get(evidence_item.passage_id)
+            if passage is None or passage.section_id != evidence_item.section_id:
                 raise ValueError("evidence does not resolve to a normalized passage")
-            if item.passage_char_end > len(passage.text):
+            if evidence_item.passage_char_end > len(passage.text):
                 raise ValueError("evidence range is outside its normalized passage")
-            expected = passage.text[item.passage_char_start : item.passage_char_end]
-            if item.text != expected:
+            expected = passage.text[
+                evidence_item.passage_char_start : evidence_item.passage_char_end
+            ]
+            if evidence_item.text != expected:
                 raise ValueError("evidence text does not match its normalized passage span")
 
-        for item in self.extractions:
-            if item.provenance.run_id != self.run.run_id:
+        for extraction_item in self.extractions:
+            if extraction_item.provenance.run_id != self.run.run_id:
                 raise ValueError("extraction does not belong to extraction batch run")
-            if item.document_id != self.document_id:
+            if extraction_item.document_id != self.document_id:
                 raise ValueError("extraction does not belong to extraction batch document")
-            missing = set(item.evidence_ids) - evidence_ids
+            missing = set(extraction_item.evidence_ids) - evidence_ids
             if missing:
                 raise ValueError("extraction references evidence outside the batch")

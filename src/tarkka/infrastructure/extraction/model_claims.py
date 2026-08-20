@@ -67,13 +67,18 @@ class ModelClaimExtractor:
     def extract(self, document: Document) -> ExtractionBatch:
         passages = tuple(passage for section in document.sections for passage in section.passages)
         requests = _build_requests(document, passages, self.batching)
+        all_passage_ids = {passage.passage_id for passage in passages}
         candidates: list[ModelClaimCandidate] = []
         candidate_index: dict[tuple[object, ...], int] = {}
 
         for request in requests:
             allowed_passage_ids = {passage.passage_id for passage in request.passages}
             for candidate in self.model.extract_claims(request):
-                _validate_candidate_batch_scope(candidate, allowed_passage_ids)
+                _validate_candidate_batch_scope(
+                    candidate,
+                    allowed_passage_ids,
+                    all_passage_ids,
+                )
                 signature = _candidate_signature(candidate)
                 existing_index = candidate_index.get(signature)
                 if existing_index is None:
@@ -199,8 +204,11 @@ def _build_requests(
 def _validate_candidate_batch_scope(
     candidate: ModelClaimCandidate,
     allowed_passage_ids: set[UUID],
+    all_passage_ids: set[UUID],
 ) -> None:
     for selector in candidate.evidence:
+        if selector.passage_id not in all_passage_ids:
+            raise ValueError(f"model evidence references unknown passage: {selector.passage_id}")
         if selector.passage_id not in allowed_passage_ids:
             raise ValueError(
                 f"model evidence references passage outside request batch: {selector.passage_id}"

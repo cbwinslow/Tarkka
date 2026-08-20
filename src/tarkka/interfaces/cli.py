@@ -23,7 +23,11 @@ from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
 
-_PROVIDER_NAMES = ("openalex", "crossref", "semantic-scholar")
+_PROVIDER_NAMES = (
+    OpenAlexProvider.name,
+    CrossrefProvider.name,
+    SemanticScholarProvider.name,
+)
 
 
 def _home() -> Path:

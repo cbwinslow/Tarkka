@@ -38,15 +38,23 @@ class Workspace:
 
 @dataclass(frozen=True, slots=True)
 class Work:
+    """Canonical intellectual/research object independent of provider/file identity."""
+
     work_id: UUID
     title: str
     publication_type: str = "unknown"
     language: str | None = None
     external_ids: Mapping[str, str] = field(default_factory=dict)
+    publication_year: int | None = None
+    abstract: str | None = None
+    venue: str | None = None
+    created_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
         if not self.title.strip():
             raise ValueError("work title must not be blank")
+        if self.publication_year is not None and self.publication_year < 0:
+            raise ValueError("publication_year must be non-negative")
         object.__setattr__(self, "external_ids", MappingProxyType(dict(self.external_ids)))
 
 

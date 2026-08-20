@@ -2,7 +2,9 @@
 
 ## Current stage
 
-The project is documentation-first. Implement the first vertical slice only after the foundation documents are reviewed.
+Tarkka has moved beyond the documentation-only foundation. The core local ingestion kernel and the first scholarly-discovery slice are implemented. Development should now preserve existing contracts while completing scholarly identity/enrichment and then moving into structured research extraction.
+
+Read `AGENTS.md` before substantial changes. It is the shared coding-agent instruction file for Claude, Codex, and other repository-aware agents. `CLAUDE.md` adds Claude-specific context-loading guidance without duplicating the shared rules.
 
 ## Engineering goals
 
@@ -10,59 +12,46 @@ The project is documentation-first. Implement the first vertical slice only afte
 - strong typing
 - explicit interfaces/protocols
 - dependency inversion around external providers
-- PostgreSQL as reference system of record
+- PostgreSQL as the reference metadata system of record
 - deterministic/replayable pipelines
-- structured logging
-- observability-ready code
-- robust tests
+- structured logging and observability-ready boundaries
+- robust network-free unit/contract tests
 - local developer ergonomics
-- no mandatory cloud services for the base profile
+- no mandatory cloud services or LLMs for the base profile
+- progressive disclosure for agent-facing data and tools
 
-## Proposed Python baseline
+## Current Python baseline
 
-Exact package choices should be validated during implementation, but the initial stack should evaluate:
+The repository currently targets Python 3.11–3.13 in CI and uses:
 
-- Python 3.12+
-- `uv` for environment/package management
-- `pydantic` for boundary/config schemas where appropriate
-- standard library dataclasses or focused domain types internally when they reduce coupling
-- SQLAlchemy 2.x + Alembic, or carefully justified direct PostgreSQL tooling
-- `psycopg` for PostgreSQL access where direct operations are useful
-- FastAPI for REST only after application services exist
-- Typer or Click for CLI
+- standard-library-first domain/application code where practical
+- `psycopg` as an optional PostgreSQL integration
+- optional Docling rich-document parsing behind `DocumentParser`
 - pytest
 - Ruff
-- mypy or pyright
-- structlog or standard structured logging
+- strict mypy
 
-Do not adopt these merely because they are listed here; record architectural deviations and reasons.
+Future dependencies should be adopted only when they materially improve the implementation and remain replaceable behind a narrow contract where appropriate.
 
-## Package layout target
+## Package layout
 
-The final project name is unresolved; `research_platform` is a neutral placeholder.
+The implementation namespace is stable:
 
 ```text
-src/research_platform/
+src/tarkka/
   domain/
   application/
   ports/
-  adapters/
-    discovery/
-    acquisition/
-    parsing/
-    extraction/
-    retrieval/
-    reporting/
   infrastructure/
+    discovery/
+    storage/
     postgres/
-    artifacts/
   interfaces/
-    cli/
-    api/
-    mcp/
 ```
 
-Keep domain models separate from ORM models when doing so prevents persistence details from infecting core contracts.
+As additional stages arrive, add focused modules such as extraction, retrieval, reporting, API, or MCP only when the corresponding application contracts exist. Do not create speculative empty framework layers.
+
+Keep domain models separate from provider, parser, database, transport, CLI, and model-vendor details.
 
 ## Configuration
 
@@ -72,15 +61,20 @@ Target precedence:
 defaults < config file < environment < CLI/runtime override
 ```
 
-Use a clear prefix after final naming, e.g. `PROJECT_...` initially.
+Machine-facing naming:
 
-Secrets should be referenced through environment/secret providers, not stored in ordinary YAML.
+- Python package: `tarkka`
+- CLI: `tarkka`
+- environment prefix: `TARKKA_`
+- future configuration files: prefer `tarkka.*`
+
+Secrets belong in environment/secret providers, not ordinary project manifests.
 
 ## Error model
 
-Use typed application/domain errors with stable error codes at interface boundaries.
+Use typed application/domain errors with actionable interface messages.
 
-Distinguish:
+Distinguish at least:
 
 - invalid user input
 - provider unavailable
@@ -93,84 +87,95 @@ Distinguish:
 - verification uncertainty
 - persistence/infrastructure failure
 
+External provider data is untrusted. Validate at adapter boundaries and preserve failure context without leaking secrets.
+
 ## Logging
 
-Structured logs should include correlation identifiers:
+Structured logs should eventually include useful correlation identifiers such as workspace ID, run/snapshot ID, provider, work/artifact ID, stage, duration, and outcome.
 
-- workspace ID
-- job/run ID
-- provider
-- work/artifact ID
-- stage
-- duration
-- outcome
-
-Do not log full private source contents by default.
+Do not log full private source contents, API keys, signed URLs, or other secrets by default.
 
 ## Testing strategy
 
 ### Unit tests
 
 - domain invariants
-- identity normalization
-- cache keys
-- rights policy
-- extraction contract validation
+- identity/identifier normalization
+- provider selection and result budgeting
+- retry/cursor behavior
+- rights/policy logic as it is introduced
+- extraction contract validation in Phase 3
 
 ### Contract tests
 
-Every plugin/adapter interface should have shared contract tests.
+Every replaceable parser/provider/store interface should gain shared behavior tests where practical.
 
 ### Integration tests
 
-- PostgreSQL repositories
-- artifact store
+- PostgreSQL repositories and migrations
+- artifact storage
 - provider fixture normalization
-- parser fixture integration
+- Docling adapter integration
 
 ### End-to-end tests
 
-Use small deterministic corpora and mocked/network-recorded provider fixtures.
+Use small deterministic corpora and fixture transports. Normal CI must not depend on live external scholarly APIs.
 
-Initial golden flow:
+Existing golden flows include:
 
 ```text
 local file
- -> hash/store artifact
- -> parse
+ -> SHA-256 artifact
+ -> acquisition provenance
  -> normalized document
- -> section/passage persistence
- -> manifest retrieval
+ -> section/passage
+ -> compact manifest
+ -> retrieve on demand
+```
+
+and:
+
+```text
+research query
+ -> provider selection
+ -> provider result pages
+ -> SearchSnapshot
+ -> DOI-first identity grouping
 ```
 
 ## Reproducibility
 
-Where practical, tests and research workflows should record versions/configuration. Avoid live-network dependencies in normal unit/CI test suites.
+Research workflows should preserve versions, parameters, provider selections, cursors, timestamps, and source identities when those details affect later interpretation.
+
+SearchSnapshots and raw artifacts are audit/reproducibility boundaries. Do not silently mutate historical records that are documented as append-only/immutable.
 
 ## Database migrations
 
-Migrations are append-only historical artifacts after release. Avoid rewriting published migration history.
+Treat migrations as append-only historical artifacts after merge/release. Avoid rewriting published migration history.
 
 Migration design should preserve:
 
 - referential integrity
 - explicit uniqueness
-- time/version metadata
-- efficient common retrieval paths
-- ability to store source-attributed conflicting observations
+- version/time metadata
+- common retrieval paths
+- provenance
+- conflicting source observations
+- append-only guarantees where promised
 
 ## Performance philosophy
 
-Optimize after instrumenting, except for architectural choices that would make efficient operation impossible.
+Optimize after measuring, except where a boundary would make efficient operation impossible.
 
-Measure:
+Measure over time:
 
 - documents/minute
 - parser latency
+- discovery latency per provider
+- provider error/retry rates
+- deduplication/identity match rates
 - extraction latency/cost
-- database query latency
-- vector search latency
-- cache hit rate
+- database/retrieval latency
 - artifact deduplication rate
 - agent context bytes/tokens per task
 
@@ -178,37 +183,31 @@ Measure:
 
 Each nontrivial PR should state:
 
-- problem
+- problem and scope
 - design/approach
 - affected contracts
-- tests
+- tests/validation
 - migration implications
-- security/rights implications
-- observability implications
-- compatibility concerns
+- security/rights implications where relevant
+- compatibility/failure behavior
+- context/token impact for agent-facing changes
+
+Address substantive review comments before merge, but verify reviewer claims against current upstream documentation instead of applying automated suggestions blindly.
 
 ## Dependency policy
 
-Prefer existing mature assets over custom implementations, but keep them behind ports/adapters when they are external architectural choices.
+Prefer mature external assets over unnecessary custom reimplementation, but adopt them behind replaceable boundaries when they are architectural choices.
 
-For large dependencies, document:
+For substantial dependencies, record:
 
 - why needed
 - license
 - alternatives
 - transitive/security impact
-- external network behavior
+- external network/data behavior
 - replacement boundary
+- test strategy
 
 ## Definition of done
 
-A feature is not done because the happy path runs. It should include appropriate:
-
-- input validation
-- failure behavior
-- tests
-- logging/metrics hooks
-- docs
-- provenance/version metadata
-- migration strategy
-- token/context impact for agent-facing changes
+A feature is not done because the happy path runs. Include appropriate validation, explicit failure behavior, tests, docs, provenance/version metadata, migration behavior, and agent-context considerations.

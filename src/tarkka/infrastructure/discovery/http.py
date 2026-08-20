@@ -68,12 +68,14 @@ class UrllibJsonTransport:
         deadline = self._monotonic() + self.total_timeout_seconds
         last_error: Exception | None = None
 
-        for attempt in range(self.max_retries + 1):
+        attempt = 0
+        while attempt <= self.max_retries:
             remaining = deadline - self._monotonic()
             if remaining <= 0:
-                raise TimeoutError(f"scholarly API request exceeded total timeout: {target}") from last_error
+                _raise_total_timeout(target, last_error)
             try:
-                with urlopen(request, timeout=min(self.timeout_seconds, remaining)) as response:  # noqa: S310
+                per_attempt_timeout = min(self.timeout_seconds, remaining)
+                with urlopen(request, timeout=per_attempt_timeout) as response:  # noqa: S310
                     payload: Any = json.load(response)
                 if not isinstance(payload, dict):
                     raise ValueError("scholarly API response must be a JSON object")
@@ -94,7 +96,7 @@ class UrllibJsonTransport:
                     raise
                 last_error = exc
                 delay = _jittered_backoff(attempt, self.backoff_seconds, self._jitter)
-            except (json.JSONDecodeError, ValueError) as exc:
+            except ValueError as exc:
                 if attempt >= self.max_retries:
                     raise
                 last_error = exc
@@ -102,11 +104,16 @@ class UrllibJsonTransport:
 
             remaining = deadline - self._monotonic()
             if remaining <= 0:
-                raise TimeoutError(f"scholarly API request exceeded total timeout: {target}") from last_error
+                _raise_total_timeout(target, last_error)
             self._sleep(min(delay, remaining))
+            attempt += 1
 
         assert last_error is not None
         raise last_error
+
+
+def _raise_total_timeout(target: str, cause: Exception | None) -> None:
+    raise TimeoutError(f"scholarly API request exceeded total timeout: {target}") from cause
 
 
 def _retryable_status(status: int) -> bool:

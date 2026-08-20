@@ -72,6 +72,9 @@ class IdentityReviewService:
             snapshot_id=snapshot_id,
             left_index=left_index,
             right_index=right_index,
+            confidence=candidate.confidence,
+            evidence=candidate.evidence,
+            matcher_version=candidate.matcher_version,
             actor=actor,
             rationale=rationale,
         )

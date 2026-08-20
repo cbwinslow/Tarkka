@@ -104,19 +104,27 @@ Goal: turn normalized documents into reusable research objects.
 Foundation deliverables:
 
 - typed Evidence contract with exact passage-local spans
-- extraction provenance and model metadata
+- immutable extraction-run metadata separated from record-level confidence/review provenance
 - human review state
 - author-stated vs inferred attribution
 - typed Claim, Hypothesis, Method, Dataset, Variable, Model, Metric, Result, and Limitation contracts
-- provider/model-neutral `StructuredExtractor` port
-- `ExtractionRepository` persistence port
-- PostgreSQL reference schema
+- provider/model-neutral `StructuredExtractor` port and postcondition validation
+- `ExtractionRepository` persistence port with run-scoped reads and atomic/idempotent write semantics
+- PostgreSQL reference schema with lineage constraints and evidence validation
 - extraction contract tests
+
+The supported foundation workflow, failure behavior, debugging steps, and current non-goals are documented in [`MILESTONE_4.md`](MILESTONE_4.md). The focused validation command is:
+
+```bash
+pytest -q tests/test_extraction_contracts.py tests/test_extraction_schema.py
+```
+
+Agents must return evidence-backed records and only concise visible reasoning summaries where useful. Hidden chain-of-thought is never persisted. The current foundation intentionally contains no LLM SDK, production prompt, concrete extraction repository adapter, or automatic extraction workflow.
 
 Next:
 
 1. deterministic claim-extraction vertical slice
-2. local JSON extraction repository for offline workflows
+2. local JSON extraction repository for offline workflows with idempotency/atomicity tests
 3. CLI evidence/claim inspection
 4. one replaceable model-assisted extractor adapter
 5. schema-constrained extraction for methods/models, variables, metrics, datasets, hypotheses, results, and limitations

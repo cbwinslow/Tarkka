@@ -51,15 +51,15 @@ class IdentityReviewService:
         snapshot = self._snapshots.get(snapshot_id)
         if snapshot is None:
             raise IdentitySnapshotNotFoundError(f"snapshot not found: {snapshot_id}")
+        if left_index < 0 or right_index < 0 or left_index == right_index:
+            raise IdentityCandidateNotFoundError(
+                "identity candidate requires two different non-negative indexes"
+            )
         try:
             left = snapshot.records[left_index]
             right = snapshot.records[right_index]
         except IndexError as exc:
             raise IdentityCandidateNotFoundError("identity candidate index out of range") from exc
-        if left_index < 0 or right_index < 0 or left_index == right_index:
-            raise IdentityCandidateNotFoundError(
-                "identity candidate requires two different indexes"
-            )
 
         candidate = self._matcher.compare(left, right)
         if candidate is None:

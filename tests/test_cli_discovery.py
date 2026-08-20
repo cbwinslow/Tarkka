@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tarkka.domain.discovery import ProviderMode
+from tarkka.domain.discovery import ProviderMode, ResearchIntent
 from tarkka.interfaces.cli import _provider_cursors, _provider_policy, build_parser
 
 
@@ -38,3 +38,15 @@ def test_discover_cli_exposes_provider_keyed_cursor_option() -> None:
         ]
     )
     assert args.cursor == ["openalex=cursor-1"]
+
+
+def test_discover_cli_exposes_research_intent() -> None:
+    args = build_parser().parse_args(
+        ["discover", "baseball prediction", "--intent", "preprint"]
+    )
+    assert ResearchIntent(args.intent) is ResearchIntent.PREPRINT
+
+
+def test_discover_cli_defaults_to_broad_intent() -> None:
+    args = build_parser().parse_args(["discover", "baseball prediction"])
+    assert ResearchIntent(args.intent) is ResearchIntent.BROAD

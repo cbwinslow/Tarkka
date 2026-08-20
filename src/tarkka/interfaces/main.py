@@ -15,6 +15,11 @@ from tarkka.application.identity_review import (
 )
 from tarkka.domain.extraction import Claim, ResearchObjectKind
 from tarkka.domain.identity_candidates import IdentityDecision
+from tarkka.infrastructure.extraction.model_claims import (
+    ModelClaimExtractor,
+    NoModelClaimsFoundError,
+)
+from tarkka.infrastructure.extraction.openai_compatible import OpenAICompatibleClaimModel
 from tarkka.infrastructure.extraction.rule_claims import (
     NoClaimsFoundError,
     RuleBasedClaimExtractor,
@@ -30,6 +35,7 @@ from tarkka.infrastructure.storage.search_snapshot_log import (
     SnapshotDataError,
 )
 from tarkka.interfaces.cli import main as legacy_main
+from tarkka.ports.extraction import StructuredExtractor
 
 
 def _home() -> Path:
@@ -78,6 +84,27 @@ def _extraction_repository() -> JsonExtractionRepository:
 
 def _document_repository() -> JsonResearchRepository:
     return JsonResearchRepository(_home() / "catalog.json")
+
+
+def _configured_claim_extractor(name: str) -> StructuredExtractor:
+    if name == "rule":
+        return RuleBasedClaimExtractor()
+    if name != "model":
+        raise ValueError(f"unknown claim extractor: {name}")
+    base_url = os.environ.get("TARKKA_MODEL_BASE_URL")
+    model_name = os.environ.get("TARKKA_MODEL_NAME")
+    if not base_url:
+        raise ValueError("TARKKA_MODEL_BASE_URL is required for model extraction")
+    if not model_name:
+        raise ValueError("TARKKA_MODEL_NAME is required for model extraction")
+    model = OpenAICompatibleClaimModel(
+        base_url=base_url,
+        model_name=model_name,
+        api_key=os.environ.get("TARKKA_MODEL_API_KEY"),
+        provider=os.environ.get("TARKKA_MODEL_PROVIDER", "openai-compatible"),
+        model_version=os.environ.get("TARKKA_MODEL_VERSION"),
+    )
+    return ModelClaimExtractor(model)
 
 
 def _cmd_suggest(args: argparse.Namespace) -> int:
@@ -154,25 +181,34 @@ def _cmd_extract_claims(args: argparse.Namespace) -> int:
         return 2
     repository = _extraction_repository()
     try:
-        batch = ExtractionService(repository).extract(document, RuleBasedClaimExtractor())
-    except (NoClaimsFoundError, ExtractionConflictError, OSError, RuntimeError, ValueError) as exc:
+        extractor = _configured_claim_extractor(args.extractor)
+        batch = ExtractionService(repository).extract(document, extractor)
+    except (
+        NoClaimsFoundError,
+        NoModelClaimsFoundError,
+        ExtractionConflictError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(
-        json.dumps(
-            {
-                "document_id": str(batch.document_id),
-                "run_id": str(batch.run.run_id),
-                "extractor": batch.run.extractor_name,
-                "extractor_version": batch.run.extractor_version,
-                "claims": len(batch.extractions),
-                "evidence": len(batch.evidence),
-                "claim_ids": [str(item.extraction_id) for item in batch.extractions],
-            },
-            indent=2,
-            sort_keys=True,
-        )
-    )
+    payload: dict[str, object] = {
+        "document_id": str(batch.document_id),
+        "run_id": str(batch.run.run_id),
+        "extractor": batch.run.extractor_name,
+        "extractor_version": batch.run.extractor_version,
+        "claims": len(batch.extractions),
+        "evidence": len(batch.evidence),
+        "claim_ids": [str(item.extraction_id) for item in batch.extractions],
+    }
+    if batch.run.model is not None:
+        payload["model"] = {
+            "provider": batch.run.model.provider,
+            "name": batch.run.model.name,
+            "version": batch.run.model.version,
+        }
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
@@ -261,8 +297,14 @@ def _identity_parser() -> argparse.ArgumentParser:
 def _extract_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tarkka extract", description="extract research objects")
     sub = parser.add_subparsers(dest="extract_command", required=True)
-    claims = sub.add_parser("claims", help="extract deterministic evidence-backed claims")
+    claims = sub.add_parser("claims", help="extract evidence-backed claims")
     claims.add_argument("document_id", type=_parse_document_id)
+    claims.add_argument(
+        "--extractor",
+        choices=("rule", "model"),
+        default="rule",
+        help="claim extractor; model uses TARKKA_MODEL_* configuration",
+    )
     claims.set_defaults(func=_cmd_extract_claims)
     return parser
 

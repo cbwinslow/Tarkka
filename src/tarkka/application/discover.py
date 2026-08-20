@@ -81,7 +81,8 @@ class DiscoveryService:
         selected_names = [provider.name for provider in selected]
         unknown = sorted({name for name in selected_names if name not in self._providers})
         if unknown:
-            raise ValueError(f"AUTO provider selector returned unknown provider(s): {', '.join(unknown)}")
+            joined = ", ".join(unknown)
+            raise ValueError(f"AUTO provider selector returned unknown provider(s): {joined}")
         duplicates = sorted({name for name in selected_names if selected_names.count(name) > 1})
         if duplicates:
             raise ValueError(

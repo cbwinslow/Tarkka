@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -20,40 +22,57 @@ class JsonWorkRepository:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._transaction_data: dict[str, Any] | None = None
         if not self.path.exists():
             self._write({"schema_version": 1, "works": {}, "identifiers": {}, "source_records": {}})
 
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        if self._transaction_data is not None:
+            raise RuntimeError("nested Work repository transactions are not supported")
+        with exclusive_lock(self.path):
+            self._transaction_data = self._read()
+            try:
+                yield
+            except BaseException:
+                raise
+            else:
+                self._write(self._transaction_data)
+            finally:
+                self._transaction_data = None
+
     def save_work(self, work: Work) -> None:
+        if self._transaction_data is not None:
+            self._transaction_data["works"][str(work.work_id)] = _work_to_dict(work)
+            return
         with exclusive_lock(self.path):
             data = self._read()
             data["works"][str(work.work_id)] = _work_to_dict(work)
             self._write(data)
 
     def get_work(self, work_id: UUID) -> Work | None:
-        payload = self._read()["works"].get(str(work_id))
+        payload = self._data()["works"].get(str(work_id))
         return _work_from_dict(payload) if payload else None
 
     def find_work_by_identifier(self, scheme: str, value: str) -> Work | None:
         key = _identifier_key(scheme, value)
-        payload = self._read()["identifiers"].get(key)
+        payload = self._data()["identifiers"].get(key)
         if not payload:
             return None
         return self.get_work(UUID(payload["work_id"]))
 
     def save_identifier(self, identifier: WorkIdentifier) -> None:
         key = _identifier_key(identifier.scheme, identifier.value)
+        if self._transaction_data is not None:
+            self._save_identifier_into(self._transaction_data, key, identifier)
+            return
         with exclusive_lock(self.path):
             data = self._read()
-            existing = data["identifiers"].get(key)
-            if existing and existing["work_id"] != str(identifier.work_id):
-                raise ValueError(
-                    f"identifier {identifier.scheme}:{identifier.value} belongs to another work"
-                )
-            data["identifiers"][key] = _identifier_to_dict(identifier)
+            self._save_identifier_into(data, key, identifier)
             self._write(data)
 
     def list_identifiers(self, work_id: UUID) -> tuple[WorkIdentifier, ...]:
-        values = self._read()["identifiers"].values()
+        values = self._data()["identifiers"].values()
         identifiers = (
             _identifier_from_dict(raw)
             for raw in values
@@ -63,22 +82,49 @@ class JsonWorkRepository:
 
     def save_source_record(self, source_record: WorkSourceRecord) -> None:
         key = f"{source_record.provider}:{source_record.provider_id}"
+        if self._transaction_data is not None:
+            self._save_source_record_into(self._transaction_data, key, source_record)
+            return
         with exclusive_lock(self.path):
             data = self._read()
-            existing = data["source_records"].get(key)
-            if existing and existing["work_id"] != str(source_record.work_id):
-                raise ValueError(f"source record {key} belongs to another work")
-            data["source_records"][key] = _source_record_to_dict(source_record)
+            self._save_source_record_into(data, key, source_record)
             self._write(data)
 
     def list_source_records(self, work_id: UUID) -> tuple[WorkSourceRecord, ...]:
-        values = self._read()["source_records"].values()
+        values = self._data()["source_records"].values()
         records = (
             _source_record_from_dict(raw)
             for raw in values
             if raw.get("work_id") == str(work_id)
         )
         return tuple(sorted(records, key=lambda item: (item.provider, item.provider_id)))
+
+    def _data(self) -> dict[str, Any]:
+        return self._transaction_data if self._transaction_data is not None else self._read()
+
+    @staticmethod
+    def _save_identifier_into(
+        data: dict[str, Any],
+        key: str,
+        identifier: WorkIdentifier,
+    ) -> None:
+        existing = data["identifiers"].get(key)
+        if existing and existing["work_id"] != str(identifier.work_id):
+            raise ValueError(
+                f"identifier {identifier.scheme}:{identifier.value} belongs to another work"
+            )
+        data["identifiers"][key] = _identifier_to_dict(identifier)
+
+    @staticmethod
+    def _save_source_record_into(
+        data: dict[str, Any],
+        key: str,
+        source_record: WorkSourceRecord,
+    ) -> None:
+        existing = data["source_records"].get(key)
+        if existing and existing["work_id"] != str(source_record.work_id):
+            raise ValueError(f"source record {key} belongs to another work")
+        data["source_records"][key] = _source_record_to_dict(source_record)
 
     def _read(self) -> dict[str, Any]:
         try:

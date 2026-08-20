@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+import unicodedata
 from difflib import SequenceMatcher
 from itertools import combinations
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -8,8 +8,6 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.identifiers import try_normalize_arxiv_id, try_normalize_doi
 from tarkka.domain.identity_candidates import IdentityCandidate, IdentityEvidence
-
-_TITLE_TOKEN_RE = re.compile(r"[^a-z0-9]+")
 
 
 class FuzzyIdentityMatcher:
@@ -95,7 +93,9 @@ class FuzzyIdentityMatcher:
 
 
 def _normalize_title(title: str) -> str:
-    return " ".join(_TITLE_TOKEN_RE.sub(" ", title.lower()).split())
+    normalized = unicodedata.normalize("NFKC", title).casefold()
+    tokenized = "".join(character if character.isalnum() else " " for character in normalized)
+    return " ".join(tokenized.split())
 
 
 def _strong_identity_relation(left: DiscoveryRecord, right: DiscoveryRecord) -> str:

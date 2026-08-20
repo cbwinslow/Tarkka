@@ -149,6 +149,9 @@ def _provider_cursors(raw: list[str] | None) -> dict[str, str]:
 
 def _work_payload(work: Work, repository: JsonWorkRepository) -> dict[str, object]:
     identifiers = repository.list_identifiers(work.work_id)
+    identifier_map: dict[str, list[str]] = {}
+    for identifier in identifiers:
+        identifier_map.setdefault(identifier.scheme, []).append(identifier.value)
     sources = repository.list_source_records(work.work_id)
     return {
         "work_id": str(work.work_id),
@@ -158,7 +161,7 @@ def _work_payload(work: Work, repository: JsonWorkRepository) -> dict[str, objec
         "venue": work.venue,
         "language": work.language,
         "abstract_available": work.abstract is not None,
-        "identifiers": {identifier.scheme: identifier.value for identifier in identifiers},
+        "identifiers": identifier_map,
         "source_count": len(sources),
         "source_providers": sorted({source.provider for source in sources}),
     }

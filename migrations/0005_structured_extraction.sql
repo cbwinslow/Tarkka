@@ -9,9 +9,6 @@ CREATE TABLE IF NOT EXISTS tarkka.extraction_run (
     model_provider text,
     model_name text,
     model_version text,
-    confidence double precision NOT NULL CHECK (confidence >= 0.0 AND confidence <= 1.0),
-    human_review_state text NOT NULL,
-    reasoning_summary text,
     extracted_at timestamptz NOT NULL,
     CHECK ((model_provider IS NULL AND model_name IS NULL AND model_version IS NULL)
         OR (model_provider IS NOT NULL AND model_name IS NOT NULL))
@@ -26,6 +23,11 @@ CREATE TABLE IF NOT EXISTS tarkka.evidence (
     passage_char_start integer NOT NULL CHECK (passage_char_start >= 0),
     passage_char_end integer NOT NULL CHECK (passage_char_end > passage_char_start),
     text text NOT NULL CHECK (length(text) > 0),
+    confidence double precision NOT NULL CHECK (confidence >= 0.0 AND confidence <= 1.0),
+    human_review_state text NOT NULL CHECK (human_review_state IN (
+        'unreviewed', 'verified', 'corrected', 'rejected'
+    )),
+    reasoning_summary text,
     UNIQUE (run_id, passage_id, passage_char_start, passage_char_end)
 );
 
@@ -40,6 +42,11 @@ CREATE TABLE IF NOT EXISTS tarkka.research_extraction (
     attribution text NOT NULL CHECK (attribution IN (
         'author_stated', 'extractor_inferred', 'synthesis'
     )),
+    confidence double precision NOT NULL CHECK (confidence >= 0.0 AND confidence <= 1.0),
+    human_review_state text NOT NULL CHECK (human_review_state IN (
+        'unreviewed', 'verified', 'corrected', 'rejected'
+    )),
+    reasoning_summary text,
     payload jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );

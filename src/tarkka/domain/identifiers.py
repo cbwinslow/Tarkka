@@ -51,7 +51,7 @@ def normalize_arxiv_id(value: str) -> str:
         if lowered.startswith(prefix):
             arxiv_id = arxiv_id[len(prefix) :].strip()
             break
-    if arxiv_id.lower().endswith(".pdf"):
+    if arxiv_id.endswith(".pdf"):
         arxiv_id = arxiv_id[:-4]
     arxiv_id = _ARXIV_VERSION_RE.sub("", arxiv_id)
     if not arxiv_id or not _ARXIV_RE.fullmatch(arxiv_id):

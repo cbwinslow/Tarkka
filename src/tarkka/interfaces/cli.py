@@ -9,16 +9,28 @@ from uuid import UUID
 
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.ingest import IngestService, UnsupportedDocumentError
+from tarkka.application.work_selection import (
+    SnapshotNotFoundError,
+    SnapshotRecordConflictError,
+    SnapshotRecordNotFoundError,
+    WorkSelectionService,
+)
+from tarkka.application.works import WorkCatalogService, WorkEnrichmentError, WorkNotFoundError
 from tarkka.domain.discovery import ProviderMode, ResearchQuery
 from tarkka.domain.manifest import ResourceManifest
+from tarkka.domain.models import Work
 from tarkka.infrastructure.discovery.crossref import CrossrefProvider
 from tarkka.infrastructure.discovery.openalex import OpenAlexProvider
 from tarkka.infrastructure.discovery.semantic_scholar import SemanticScholarProvider
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
-from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog
+from tarkka.infrastructure.storage.search_snapshot_log import (
+    JsonlSearchSnapshotLog,
+    SnapshotDataError,
+)
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
@@ -43,6 +55,14 @@ def _runtime() -> tuple[LocalArtifactStore, JsonResearchRepository, JsonlAcquisi
     )
 
 
+def _work_repository() -> JsonWorkRepository:
+    return JsonWorkRepository(_home() / "works.json")
+
+
+def _snapshot_log() -> JsonlSearchSnapshotLog:
+    return JsonlSearchSnapshotLog(_home() / "search_snapshots.jsonl")
+
+
 def _parsers() -> tuple[DocumentParser, ...]:
     parsers: list[DocumentParser] = [PlainTextParser()]
     if DoclingParser.is_available():
@@ -56,6 +76,10 @@ def _discovery_providers() -> tuple[DiscoveryProvider, ...]:
         CrossrefProvider(mailto=os.environ.get("TARKKA_CROSSREF_MAILTO")),
         SemanticScholarProvider(api_key=os.environ.get("TARKKA_SEMANTIC_SCHOLAR_API_KEY")),
     )
+
+
+def _crossref() -> CrossrefProvider:
+    return CrossrefProvider(mailto=os.environ.get("TARKKA_CROSSREF_MAILTO"))
 
 
 def _manifest_yaml(manifest: ResourceManifest) -> str:
@@ -78,6 +102,22 @@ def _parse_document_id(raw: str) -> UUID:
         return UUID(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid document id: {raw}") from exc
+
+
+def _parse_work_id(raw: str) -> UUID:
+    value = raw.removeprefix("work:")
+    try:
+        return UUID(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid work id: {raw}") from exc
+
+
+def _parse_snapshot_id(raw: str) -> UUID:
+    value = raw.removeprefix("snapshot:")
+    try:
+        return UUID(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid snapshot id: {raw}") from exc
 
 
 def _provider_policy(raw: list[str] | None) -> tuple[ProviderMode, tuple[str, ...]]:
@@ -105,6 +145,26 @@ def _provider_cursors(raw: list[str] | None) -> dict[str, str]:
             raise ValueError(f"duplicate cursor for provider: {provider}")
         cursors[provider] = cursor
     return cursors
+
+
+def _work_payload(work: Work, repository: JsonWorkRepository) -> dict[str, object]:
+    identifiers = repository.list_identifiers(work.work_id)
+    identifier_map: dict[str, list[str]] = {}
+    for identifier in identifiers:
+        identifier_map.setdefault(identifier.scheme, []).append(identifier.value)
+    sources = repository.list_source_records(work.work_id)
+    return {
+        "work_id": str(work.work_id),
+        "title": work.title,
+        "publication_year": work.publication_year,
+        "publication_type": work.publication_type,
+        "venue": work.venue,
+        "language": work.language,
+        "abstract_available": work.abstract is not None,
+        "identifiers": identifier_map,
+        "source_count": len(sources),
+        "source_providers": sorted({source.provider for source in sources}),
+    }
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -137,9 +197,8 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             year_from=args.year_from,
             year_to=args.year_to,
         )
-        snapshots = JsonlSearchSnapshotLog(_home() / "search_snapshots.jsonl")
         result = DiscoveryService(
-            _discovery_providers(), snapshot_recorder=snapshots
+            _discovery_providers(), snapshot_recorder=_snapshot_log()
         ).discover(query)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -153,6 +212,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         "next_cursors": dict(result.next_cursors),
         "results": [
             {
+                "index": index,
                 "provider": record.provider,
                 "provider_id": record.provider_id,
                 "title": record.title,
@@ -161,10 +221,56 @@ def _cmd_discover(args: argparse.Namespace) -> int:
                 "cited_by_count": record.cited_by_count,
                 "open_access_url": record.open_access_url,
             }
-            for record in result.records
+            for index, record in enumerate(result.records)
         ],
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_work_save(args: argparse.Namespace) -> int:
+    repository = _work_repository()
+    service = WorkSelectionService(
+        snapshots=_snapshot_log(),
+        catalog=WorkCatalogService(repository),
+    )
+    try:
+        selection = service.save_snapshot_result(args.snapshot_id, args.index)
+    except SnapshotRecordConflictError as exc:
+        print(f"error: identity conflict: {exc}", file=sys.stderr)
+        return 3
+    except SnapshotDataError as exc:
+        print(f"error: corrupted snapshot data: {exc}", file=sys.stderr)
+        return 2
+    except (SnapshotNotFoundError, SnapshotRecordNotFoundError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    payload = _work_payload(selection.work, repository)
+    payload["snapshot_id"] = str(selection.snapshot_id)
+    payload["result_index"] = selection.result_index
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_work_show(args: argparse.Namespace) -> int:
+    repository = _work_repository()
+    work = repository.get_work(args.work_id)
+    if work is None:
+        print(f"error: work not found: {args.work_id}", file=sys.stderr)
+        return 2
+    print(json.dumps(_work_payload(work, repository), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_work_enrich(args: argparse.Namespace) -> int:
+    repository = _work_repository()
+    service = WorkCatalogService(repository)
+    try:
+        work = service.enrich_by_doi(args.work_id, _crossref())
+    except (WorkNotFoundError, WorkEnrichmentError, OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(_work_payload(work, repository), indent=2, sort_keys=True))
     return 0
 
 
@@ -225,6 +331,22 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("--year-to", type=int)
     discover.add_argument("--open-access", action="store_true")
     discover.set_defaults(func=_cmd_discover)
+
+    work = sub.add_parser("work", help="persist, inspect, and enrich canonical research works")
+    work_sub = work.add_subparsers(dest="work_command", required=True)
+
+    work_save = work_sub.add_parser("save", help="save one selected discovery result")
+    work_save.add_argument("--snapshot", dest="snapshot_id", type=_parse_snapshot_id, required=True)
+    work_save.add_argument("--index", type=int, required=True)
+    work_save.set_defaults(func=_cmd_work_save)
+
+    work_show = work_sub.add_parser("show", help="show compact canonical Work metadata")
+    work_show.add_argument("work_id", type=_parse_work_id)
+    work_show.set_defaults(func=_cmd_work_show)
+
+    work_enrich = work_sub.add_parser("enrich", help="enrich a Work by DOI using Crossref")
+    work_enrich.add_argument("work_id", type=_parse_work_id)
+    work_enrich.set_defaults(func=_cmd_work_enrich)
 
     inspect = sub.add_parser("inspect", help="show a compact progressive-disclosure manifest")
     inspect.add_argument("document_id", type=_parse_document_id)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -75,6 +76,30 @@ def test_persist_candidate_is_idempotent_and_preserves_source_records(tmp_path: 
     assert ("openalex", "W1") in identifiers
     assert ("semantic-scholar", "S2-1") in identifiers
     assert len(repo.list_source_records(first.work_id)) == 2
+
+
+def test_persist_candidate_rolls_back_partial_local_catalog_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "works.json"
+    repo = JsonWorkRepository(path)
+    service = WorkCatalogService(repo)
+    candidate = CanonicalIdentityResolver().resolve(
+        (_record("openalex", "W1", doi="10.1234/abc"),)
+    )[0]
+
+    def _fail_identifier(*args: object, **kwargs: object) -> None:
+        raise ValueError("simulated alias conflict")
+
+    monkeypatch.setattr(repo, "save_identifier", _fail_identifier)
+    with pytest.raises(ValueError, match="simulated alias conflict"):
+        service.persist_candidate(candidate)
+
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["works"] == {}
+    assert stored["identifiers"] == {}
+    assert stored["source_records"] == {}
 
 
 def test_enrichment_fills_missing_metadata_without_overwriting_existing_values(

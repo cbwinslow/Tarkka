@@ -84,9 +84,17 @@ tarkka discover "baseball forecasting" --provider all \
   --cursor semantic-scholar='100'
 ```
 
-The first response remains compact: snapshot ID, title, year, provider identity, DOI, citation count,
-and open-access URL. Abstracts, persisted Work state, enrichment, and full records should be expanded
-or invoked only when useful.
+The first response remains compact: snapshot ID, stable result index, title, year, provider identity,
+DOI, citation count, and open-access URL. Abstracts, persisted Work state, enrichment, and full
+records should be expanded or invoked only when useful.
+
+A selected result is persisted explicitly and reproducibly:
+
+```bash
+tarkka work save --snapshot <snapshot-id> --index <result-index>
+tarkka work show <work-id>
+tarkka work enrich <work-id>
+```
 
 ## Reliability
 
@@ -101,6 +109,10 @@ Every discovery result receives a stable snapshot UUID. The local runtime append
 compact result set, provider policy, filters, and provider-keyed continuation cursors to
 `~/.tarkka/search_snapshots.jsonl`. Local appends are inter-process locked and durable for supported
 local filesystems.
+
+Snapshot reads acquire the same local inter-process lock as appends. Deserialization is strict:
+malformed UUIDs, provider modes, typed identifier maps, cursor maps, or other persisted field types
+fail with a dedicated snapshot-data error rather than being silently coerced.
 
 The PostgreSQL reference schema includes `tarkka.search_snapshot`, targeted indexes, and append-only
 protection against update/delete/truncate operations.
@@ -139,6 +151,7 @@ Invariants:
 - provider records remain distinct source observations
 - identifiers discovered during enrichment are added as aliases
 - conflicting strong identifiers fail closed instead of silently reassigning identity
+- explicit snapshot selection promotes identity conflicts to a dedicated actionable error
 
 The local/offline profile uses a durable JSON Work repository; PostgreSQL has dedicated `work`,
 `work_identifier`, and `work_source_record` tables for the reference production model.
@@ -167,6 +180,8 @@ provider selection
 discovery
       ↓
 SearchSnapshot
+      ↓
+explicit result selection
       ↓
 identity candidate resolution
       ↓
@@ -200,15 +215,18 @@ services where policy, cost, retries, provenance, and conflicts can be controlle
 16. durable local Work repository and PostgreSQL Work identity schema
 17. Crossref single-DOI metadata enrichment
 18. idempotence/conflict/non-destructive enrichment tests
+19. explicit snapshot-result selection into canonical Works
+20. compact `work save`, `work show`, and `work enrich` CLI workflow
+21. locked and strictly validated snapshot replay
+22. actionable selected-result identity conflict errors
 
 ## Remaining Milestone 3 work
 
-1. expose selected Work persistence/enrichment through a small user/agent-facing workflow
-2. add richer query intent/capability routing
-3. add arXiv as a specialized provider without changing the core contract
-4. add explicit fuzzy identity candidates with confidence/evidence
-5. decide/measure automatic versus explicit enrichment policy
-6. add PostgreSQL Work repository implementation when the production persistence path is exercised
+1. add richer query intent/capability routing
+2. add arXiv as a specialized provider without changing the core contract
+3. add explicit fuzzy identity candidates with confidence/evidence
+4. decide/measure automatic versus explicit enrichment policy
+5. add PostgreSQL Work repository implementation when the production persistence path is exercised
 
 ## Invariant
 

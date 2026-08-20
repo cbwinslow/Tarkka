@@ -36,7 +36,8 @@ class IdentityCandidate:
     confidence: float
     evidence: tuple[IdentityEvidence, ...]
     matcher_version: str = "title-year-v1"
-    review_required: bool = True
+    left_index: int | None = None
+    right_index: int | None = None
 
     def __post_init__(self) -> None:
         if not self.left_provider.strip() or not self.right_provider.strip():
@@ -49,8 +50,18 @@ class IdentityCandidate:
             raise ValueError("identity candidate must include evidence")
         if not self.matcher_version.strip():
             raise ValueError("identity matcher version must not be blank")
-        if not self.review_required:
-            raise ValueError("fuzzy identity candidates must require review")
+        if (self.left_index is None) != (self.right_index is None):
+            raise ValueError("candidate indexes must be supplied together")
+        if self.left_index is not None and self.right_index is not None:
+            if self.left_index < 0 or self.right_index < 0:
+                raise ValueError("candidate indexes must be non-negative")
+            if self.left_index == self.right_index:
+                raise ValueError("candidate indexes must be different")
+
+    @property
+    def review_required(self) -> bool:
+        """Fuzzy candidates are always review-only."""
+        return True
 
 
 @dataclass(frozen=True, slots=True)

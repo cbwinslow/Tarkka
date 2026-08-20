@@ -15,7 +15,8 @@ from tarkka.domain.models import Document
 _TARKKA_CLAIM_NAMESPACE = UUID("a86ad31c-8f5b-5fe7-9c8a-59b0bfad7ac7")
 _SENTENCE_RE = re.compile(r"[^.!?\n]+(?:[.!?]+|$)")
 _CLAIM_CUE_RE = re.compile(
-    r"\b(?:shows?|finds?|found|demonstrates?|indicates?|suggests?|reports?|"
+    r"\b(?:shows?|showed|finds?|found|demonstrates?|indicates?|suggests?|reports?|"
+    r"observed|revealed|confirmed|validated|established|determined|identified|"
     r"improves?|improved|increases?|increased|decreases?|decreased|reduces?|reduced|"
     r"predicts?|predicted|outperforms?|outperformed|associated\s+with|correlates?\s+with)\b",
     re.IGNORECASE,
@@ -30,7 +31,7 @@ class RuleBasedClaimExtractor:
     """Conservative deterministic baseline for sentence-level claim extraction."""
 
     name = "rule-claims"
-    version = "1.0.0"
+    version = "1.1.0"
 
     def extract(self, document: Document) -> ExtractionBatch:
         run_id = uuid4()
@@ -88,9 +89,9 @@ def _claim_spans(text: str) -> tuple[tuple[int, int, str], ...]:
     for match in _SENTENCE_RE.finditer(text):
         raw = match.group(0)
         left = len(raw) - len(raw.lstrip())
-        right = len(raw.rstrip())
+        content_length = len(raw.rstrip())
         start = match.start() + left
-        end = match.start() + right
+        end = match.start() + content_length
         if end <= start:
             continue
         sentence = text[start:end]

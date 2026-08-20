@@ -52,6 +52,7 @@ class ExtractionRun:
     """Immutable metadata shared by every record produced by one extractor call."""
 
     run_id: UUID
+    document_id: UUID
     extractor_name: str
     extractor_version: str
     contract_version: str = "1"
@@ -300,6 +301,8 @@ class ExtractionBatch:
         return self.document.document_id
 
     def __post_init__(self) -> None:
+        if self.run.document_id != self.document_id:
+            raise ValueError("extraction run does not belong to extraction batch document")
         if not self.evidence:
             raise ValueError("extraction batch must contain at least one evidence item")
         if not self.extractions:

@@ -26,7 +26,12 @@ class FuzzyIdentityMatcher:
             for left, right in combinations(records, 2)
             if (candidate := self.compare(left, right)) is not None
         ]
-        return tuple(sorted(candidates, key=lambda item: (-item.confidence, str(item.candidate_id))))
+        return tuple(
+            sorted(
+                candidates,
+                key=lambda item: (-item.confidence, str(item.candidate_id)),
+            )
+        )
 
     def compare(
         self,

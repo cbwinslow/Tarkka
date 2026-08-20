@@ -15,6 +15,11 @@ class GoldEvidenceSpan:
     char_end: int
 
     def __post_init__(self) -> None:
+        """Validate the evidence span's character range.
+        
+        Raises:
+            ValueError: If the start is negative or the end does not follow the start.
+        """
         if self.char_start < 0 or self.char_end <= self.char_start:
             raise ValueError("invalid gold evidence character range")
 
@@ -27,6 +32,12 @@ class GoldClaim:
     attribution: AttributionKind = AttributionKind.AUTHOR_STATED
 
     def __post_init__(self) -> None:
+        """Validate that the gold claim contains unique evidence spans.
+        
+        Raises:
+            ValueError: If the claim contains no evidence or contains duplicate
+                evidence spans.
+        """
         if not self.evidence:
             raise ValueError("gold claim must contain evidence")
         if len(set(self.evidence)) != len(self.evidence):
@@ -56,12 +67,19 @@ def evaluate_claims(
     batch: ExtractionBatch,
     gold: tuple[GoldClaim, ...],
 ) -> ClaimEvaluationReport:
-    """Evaluate claim detection by exact evidence-set matching.
-
-    Claim wording is intentionally excluded from matching so deterministic
-    extracts and model paraphrases can be compared using the same source-grounded
-    labels. Each gold item can match at most one prediction; duplicate predictions
-    therefore count as false positives.
+    """Evaluate claim predictions against gold labels using exact evidence-set matching.
+    
+    Claim wording is excluded from matching, and each gold claim can match at most one
+    prediction. Unmatched predictions count as false positives, while unmatched gold
+    claims count as false negatives.
+    
+    Args:
+        batch: Extraction results containing predicted claims and their evidence.
+        gold: Gold claims with passage-local evidence spans and attribution labels.
+    
+    Returns:
+        A report containing detection counts, precision, recall, F1, and attribution
+        accuracy. Attribution accuracy is ``None`` when no claims are matched.
     """
     predictions = _claim_predictions(batch)
     unmatched_gold = list(gold)
@@ -97,6 +115,14 @@ def evaluate_claims(
 
 
 def _claim_predictions(batch: ExtractionBatch) -> tuple[_PredictedClaim, ...]:
+    """Build predicted claim records from an extraction batch.
+    
+    Args:
+        batch: Extraction batch containing claims and their referenced evidence.
+    
+    Returns:
+        A tuple of predicted claims with resolved passage-local evidence spans.
+    """
     evidence_by_id = {item.evidence_id: item for item in batch.evidence}
     predictions: list[_PredictedClaim] = []
     for extraction in batch.extractions:
@@ -118,6 +144,15 @@ def _find_gold_match(
     prediction: _PredictedClaim,
     gold: list[GoldClaim],
 ) -> int | None:
+    """Find the first gold claim whose evidence spans exactly match the prediction.
+    
+    Args:
+        prediction: Predicted claim with its normalized evidence-span set.
+        gold: Gold claims to search.
+    
+    Returns:
+        The index of the first matching gold claim, or `None` if no claim matches.
+    """
     for index, expected in enumerate(gold):
         if prediction.evidence == frozenset(expected.evidence):
             return index
@@ -125,8 +160,28 @@ def _find_gold_match(
 
 
 def _ratio(numerator: int, denominator: int) -> float:
+    """
+    Calculate the ratio of two integers.
+    
+    Args:
+        numerator: The value to divide.
+        denominator: The divisor.
+    
+    Returns:
+        The quotient, or `0.0` when the denominator is zero.
+    """
     return numerator / denominator if denominator else 0.0
 
 
 def _f1(precision: float, recall: float) -> float:
+    """
+    Compute the F1 score from precision and recall.
+    
+    Args:
+        precision: The precision score.
+        recall: The recall score.
+    
+    Returns:
+        The harmonic mean of precision and recall, or 0.0 when both are zero.
+    """
     return 2 * precision * recall / (precision + recall) if precision + recall else 0.0

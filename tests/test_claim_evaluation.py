@@ -19,10 +19,27 @@ class _FixtureModel:
     model_version: str | None = "1"
 
     def extract_claims(self, request: ModelClaimRequest) -> tuple[ModelClaimCandidate, ...]:
+        """Return the predefined claim candidates for the model request.
+        
+        Args:
+            request: Model claim extraction request.
+        
+        Returns:
+            The configured model claim candidates.
+        """
         return self.candidates
 
 
 def _document(text: str) -> Document:
+    """
+    Create a single-section document fixture containing the provided passage text.
+    
+    Args:
+        text: The text to place in the document's only passage.
+    
+    Returns:
+        A document with generated identifiers and character offsets spanning the passage.
+    """
     document_id = uuid4()
     section_id = uuid4()
     passage = Passage(
@@ -53,6 +70,19 @@ def _document(text: str) -> Document:
 
 
 def _gold(document: Document, text: str) -> GoldClaim:
+    """
+    Create a gold claim whose evidence span covers the first occurrence of the given text.
+    
+    Args:
+        document: The document containing the passage to search.
+        text: The text whose first occurrence defines the evidence span.
+    
+    Returns:
+        A gold claim containing the matching evidence span.
+    
+    Raises:
+        ValueError: If the text does not occur in the first passage.
+    """
     passage = document.sections[0].passages[0]
     start = passage.text.index(text)
     return GoldClaim(

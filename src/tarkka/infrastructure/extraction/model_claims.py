@@ -20,6 +20,7 @@ from tarkka.ports.model_claims import (
 )
 
 _TARKKA_MODEL_CLAIM_NAMESPACE = UUID("bb6f9fbd-b8d0-577f-b165-c954466634d4")
+_CandidateSignature = tuple[str, str, str, tuple[tuple[str, int, int], ...]]
 
 
 class NoModelClaimsFoundError(ValueError):
@@ -28,7 +29,12 @@ class NoModelClaimsFoundError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ModelBatchingPolicy:
-    """Deterministic request bounds for model-assisted extraction."""
+    """Deterministic request bounds for model-assisted extraction.
+
+    Example: use smaller windows for a model with a tighter context budget::
+
+        ModelBatchingPolicy(max_chars=12_000, max_passages=12, overlap_passages=1)
+    """
 
     max_chars: int = 40_000
     max_passages: int = 32
@@ -57,6 +63,7 @@ class ModelClaimExtractor:
         *,
         batching: ModelBatchingPolicy | None = None,
     ) -> None:
+        # Validate eagerly so bad provider configuration fails before any model request.
         if not model.provider.strip() or not model.model_name.strip():
             raise ValueError("model provider/name must not be blank")
         if model.model_version is not None and not model.model_version.strip():
@@ -69,7 +76,7 @@ class ModelClaimExtractor:
         requests = _build_requests(document, passages, self.batching)
         all_passage_ids = {passage.passage_id for passage in passages}
         candidates: list[ModelClaimCandidate] = []
-        candidate_index: dict[tuple[object, ...], int] = {}
+        candidate_index: dict[_CandidateSignature, int] = {}
 
         for request in requests:
             allowed_passage_ids = {passage.passage_id for passage in request.passages}
@@ -189,6 +196,7 @@ def _build_requests(
         if cursor >= len(model_passages):
             break
         next_start = cursor - policy.overlap_passages
+        # The floor guarantees forward progress even when overlap reaches back to start.
         start = max(start + 1, next_start)
 
     return tuple(
@@ -215,7 +223,7 @@ def _validate_candidate_batch_scope(
             )
 
 
-def _candidate_signature(candidate: ModelClaimCandidate) -> tuple[object, ...]:
+def _candidate_signature(candidate: ModelClaimCandidate) -> _CandidateSignature:
     evidence = tuple(
         sorted(
             (

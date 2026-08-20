@@ -97,7 +97,7 @@ def _external_ids(raw: Mapping[str, Any], doi: str | None) -> dict[str, str]:
         elif isinstance(value, list):
             values = [str(item) for item in value if isinstance(item, (str, int))]
             if values:
-                # The domain contract stores external IDs as strings; JSON preserves list boundaries.
+                # External IDs are strings; JSON preserves list boundaries.
                 identifiers[key.lower()] = json.dumps(values, separators=(",", ":"))
     return identifiers
 

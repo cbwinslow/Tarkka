@@ -89,6 +89,8 @@ def _document_repository() -> JsonResearchRepository:
 def _configured_claim_extractor(name: str) -> StructuredExtractor:
     if name == "rule":
         return RuleBasedClaimExtractor()
+    if name != "model":
+        raise ValueError(f"unknown claim extractor: {name}")
     base_url = os.environ.get("TARKKA_MODEL_BASE_URL")
     model_name = os.environ.get("TARKKA_MODEL_NAME")
     if not base_url:

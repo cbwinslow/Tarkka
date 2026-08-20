@@ -22,6 +22,12 @@ class JsonlIdentityDecisionLog:
             "snapshot_id": str(decision.snapshot_id),
             "left_index": decision.left_index,
             "right_index": decision.right_index,
+            "confidence": decision.confidence,
+            "matcher_version": decision.matcher_version,
+            "evidence": [
+                {"signal": item.signal, "score": item.score, "detail": item.detail}
+                for item in decision.evidence
+            ],
             "actor": decision.actor,
             "rationale": decision.rationale,
             "decided_at": decision.decided_at.isoformat(),

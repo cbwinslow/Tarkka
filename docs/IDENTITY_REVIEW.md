@@ -12,19 +12,20 @@ as fuzzy matches.
 
 Fuzzy matching produces **review-only candidates**. It never merges Works.
 
-The initial matcher is intentionally conservative and dependency-free:
+The initial `title-year-v1` matcher is intentionally conservative and dependency-free:
 
 - compare records from different providers
-- normalize titles before comparison
+- normalize titles with Unicode NFKC normalization and case folding
 - use `difflib.SequenceMatcher` for title similarity
 - require a default confidence of at least `0.90`
 - reward matching publication years
 - allow a one-year preprint/publication difference with a lower year score
 - reject records more than one publication year apart when both years are known
 - exclude pairs with matching or conflicting strong identifiers from the fuzzy path
+- reject titles that cannot produce meaningful normalized text
 
-Each candidate stores the signals, scores, and human-readable details used to produce its confidence.
-The candidate ID is deterministic for the same provider-record pair.
+Each candidate stores the matcher version, signals, scores, and human-readable details used to
+produce its confidence. The candidate ID is deterministic for the same provider-record pair.
 
 Author, venue, and other evidence should only be added after those fields become normalized,
 provider-neutral data rather than being inferred from provider-specific metadata.
@@ -42,8 +43,9 @@ tarkka identity decide \
   --rationale "same study after review"
 ```
 
-Decisions are appended to `~/.tarkka/identity_decisions.jsonl` with the candidate ID, source snapshot,
-record indexes, actor, rationale, and timestamp.
+Decisions are appended to `~/.tarkka/identity_decisions.jsonl`. Each audit event preserves the
+candidate ID, source snapshot, record indexes, matcher version, confidence, evidence, actor,
+rationale, and timestamp so the decision remains explainable even after later matcher revisions.
 
 An `accept` decision means only that the reviewer considers the two observations to represent the
 same research work. **It does not merge or mutate canonical Works.** A future reconciliation workflow

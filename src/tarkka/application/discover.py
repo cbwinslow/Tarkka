@@ -12,9 +12,11 @@ from tarkka.domain.discovery import (
     ResearchQuery,
     SearchSnapshot,
 )
-from tarkka.domain.identifiers import normalize_doi
+from tarkka.domain.identifiers import try_normalize_doi
 from tarkka.ports.discovery import DiscoveryProvider, ProviderSelector
 from tarkka.ports.snapshots import SearchSnapshotRecorder
+
+_MAX_CONCURRENT_PROVIDERS = 8
 
 
 class UnknownProviderError(ValueError):
@@ -33,7 +35,9 @@ class DefaultProviderSelector:
         query: ResearchQuery,
         providers: Mapping[str, DiscoveryProvider],
     ) -> tuple[DiscoveryProvider, ...]:
-        del query
+        # The initial policy is intentionally narrow; query-aware strategies plug in via the port.
+        if query.require_open_access and "openalex" in providers:
+            return (providers["openalex"],)
         if "openalex" in providers:
             return (providers["openalex"],)
         return (providers[sorted(providers)[0]],)
@@ -96,7 +100,7 @@ class DiscoveryService:
         result = DiscoveryResult(
             query=query,
             providers_used=tuple(page.provider for page in pages),
-            records=records,
+            records=records[: query.limit],
             next_cursors=cursors,
         )
         if self._snapshot_recorder is not None:
@@ -129,6 +133,7 @@ def _provider_searches(
         provider_cursor = query.cursors.get(provider.name)
         if provider_cursor is None and count == 1:
             provider_cursor = query.cursor
+        # A sub-query receives only the cursor belonging to its provider.
         searches.append(
             (
                 provider,
@@ -138,29 +143,44 @@ def _provider_searches(
     return tuple(searches)
 
 
+def _run_provider(provider: DiscoveryProvider, query: ResearchQuery) -> DiscoveryPage:
+    page = provider.search(query)
+    if page.provider != provider.name:
+        raise ValueError(
+            f"provider {provider.name!r} returned page for {page.provider!r}"
+        )
+    if len(page.records) > query.limit:
+        raise ValueError(
+            f"provider {provider.name!r} returned {len(page.records)} records "
+            f"for limit {query.limit}"
+        )
+    return page
+
+
 def _search_selected(
     searches: tuple[tuple[DiscoveryProvider, ResearchQuery], ...],
 ) -> tuple[DiscoveryPage, ...]:
     if len(searches) == 1:
         provider, query = searches[0]
-        return (provider.search(query),)
+        return (_run_provider(provider, query),)
 
     pages: dict[str, DiscoveryPage] = {}
-    errors: dict[str, Exception] = {}
-    with ThreadPoolExecutor(max_workers=len(searches)) as executor:
+    errors: dict[str, OSError | ValueError] = {}
+    with ThreadPoolExecutor(max_workers=min(len(searches), _MAX_CONCURRENT_PROVIDERS)) as executor:
         futures = {
-            executor.submit(provider.search, query): provider.name
+            executor.submit(_run_provider, provider, query): provider.name
             for provider, query in searches
         }
         for future in as_completed(futures):
             name = futures[future]
             try:
                 pages[name] = future.result()
-            except Exception as exc:
+            except (OSError, ValueError) as exc:
                 errors[name] = exc
     if errors:
         details = "; ".join(f"{name}: {error}" for name, error in sorted(errors.items()))
-        raise DiscoveryProviderError(f"discovery provider failure(s): {details}")
+        causes = ExceptionGroup("provider failures", list(errors.values()))
+        raise DiscoveryProviderError(f"discovery provider failure(s): {details}") from causes
     return tuple(pages[provider.name] for provider, _ in searches)
 
 
@@ -168,9 +188,10 @@ def _deduplicate(records: Iterable[DiscoveryRecord]) -> tuple[DiscoveryRecord, .
     seen: set[tuple[str, str]] = set()
     output: list[DiscoveryRecord] = []
     for record in records:
+        doi = try_normalize_doi(record.doi)
         key = (
-            ("doi", normalize_doi(record.doi))
-            if record.doi
+            ("doi", doi)
+            if doi
             else ("provider", f"{record.provider}:{record.provider_id}")
         )
         if key in seen:

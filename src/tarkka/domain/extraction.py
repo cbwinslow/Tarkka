@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import TypeAlias
 from uuid import UUID
 
-from tarkka.domain.models import Passage, utc_now
+from tarkka.domain.models import Document, Passage, utc_now
 
 
 class HumanReviewState(StrEnum):
@@ -48,15 +48,14 @@ class ModelProvenance:
 
 
 @dataclass(frozen=True, slots=True)
-class ExtractionProvenance:
+class ExtractionRun:
+    """Immutable metadata shared by every record produced by one extractor call."""
+
     run_id: UUID
     extractor_name: str
     extractor_version: str
     contract_version: str = "1"
     model: ModelProvenance | None = None
-    confidence: float = 1.0
-    human_review_state: HumanReviewState = HumanReviewState.UNREVIEWED
-    reasoning_summary: str | None = None
     extracted_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
@@ -64,6 +63,18 @@ class ExtractionProvenance:
             raise ValueError("extractor name/version must not be blank")
         if not self.contract_version.strip():
             raise ValueError("extraction contract version must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionProvenance:
+    """Record-level confidence/review metadata tied to an extraction run."""
+
+    run_id: UUID
+    confidence: float = 1.0
+    human_review_state: HumanReviewState = HumanReviewState.UNREVIEWED
+    reasoning_summary: str | None = None
+
+    def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("extraction confidence must be between 0 and 1")
         if self.reasoning_summary is not None and not self.reasoning_summary.strip():
@@ -99,6 +110,7 @@ class Evidence:
         passage_char_end: int,
         provenance: ExtractionProvenance,
     ) -> Evidence:
+        """Construct evidence by slicing an exact normalized passage span."""
         if passage_char_start < 0 or passage_char_end > len(passage.text):
             raise ValueError("evidence range must be contained within the passage")
         if passage_char_end <= passage_char_start:
@@ -268,6 +280,7 @@ class Limitation(ResearchExtractionBase):
         return ResearchObjectKind.LIMITATION
 
 
+# TypeAlias remains necessary while Tarkka supports Python 3.11.
 ResearchExtraction: TypeAlias = (
     Claim | Hypothesis | Method | Dataset | Variable | Model | Metric | Result | Limitation
 )
@@ -275,33 +288,55 @@ ResearchExtraction: TypeAlias = (
 
 @dataclass(frozen=True, slots=True)
 class ExtractionBatch:
-    document_id: UUID
+    """One validated, non-empty extraction run over one normalized document."""
+
+    document: Document
+    run: ExtractionRun
     evidence: tuple[Evidence, ...]
     extractions: tuple[ResearchExtraction, ...]
 
+    @property
+    def document_id(self) -> UUID:
+        return self.document.document_id
+
     def __post_init__(self) -> None:
-        evidence_ids = {evidence_item.evidence_id for evidence_item in self.evidence}
+        if not self.evidence:
+            raise ValueError("extraction batch must contain at least one evidence item")
+        if not self.extractions:
+            raise ValueError("extraction batch must contain at least one extraction")
+
+        evidence_ids = {item.evidence_id for item in self.evidence}
         if len(evidence_ids) != len(self.evidence):
             raise ValueError("extraction batch evidence IDs must be unique")
-        extraction_ids = {
-            extraction_item.extraction_id for extraction_item in self.extractions
-        }
+        extraction_ids = {item.extraction_id for item in self.extractions}
         if len(extraction_ids) != len(self.extractions):
             raise ValueError("extraction batch extraction IDs must be unique")
 
-        run_ids = {evidence_item.provenance.run_id for evidence_item in self.evidence}
-        run_ids.update(
-            extraction_item.provenance.run_id for extraction_item in self.extractions
-        )
-        if len(run_ids) > 1:
-            raise ValueError("extraction batch must contain exactly one extraction run")
+        passages = {
+            passage.passage_id: passage
+            for section in self.document.sections
+            for passage in section.passages
+        }
 
-        for evidence_item in self.evidence:
-            if evidence_item.document_id != self.document_id:
+        for item in self.evidence:
+            if item.provenance.run_id != self.run.run_id:
+                raise ValueError("evidence does not belong to extraction batch run")
+            if item.document_id != self.document_id:
                 raise ValueError("evidence does not belong to extraction batch document")
-        for extraction_item in self.extractions:
-            if extraction_item.document_id != self.document_id:
+            passage = passages.get(item.passage_id)
+            if passage is None or passage.section_id != item.section_id:
+                raise ValueError("evidence does not resolve to a normalized passage")
+            if item.passage_char_end > len(passage.text):
+                raise ValueError("evidence range is outside its normalized passage")
+            expected = passage.text[item.passage_char_start : item.passage_char_end]
+            if item.text != expected:
+                raise ValueError("evidence text does not match its normalized passage span")
+
+        for item in self.extractions:
+            if item.provenance.run_id != self.run.run_id:
+                raise ValueError("extraction does not belong to extraction batch run")
+            if item.document_id != self.document_id:
                 raise ValueError("extraction does not belong to extraction batch document")
-            missing = set(extraction_item.evidence_ids) - evidence_ids
+            missing = set(item.evidence_ids) - evidence_ids
             if missing:
                 raise ValueError("extraction references evidence outside the batch")

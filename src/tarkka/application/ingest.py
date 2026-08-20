@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from tarkka.domain.manifest import ResourceManifest, build_document_manifest
@@ -64,7 +64,12 @@ class IngestService:
         if not original_name.strip():
             raise ValueError("original_name must not be blank")
 
-        artifact = self._artifact_store.put_file(source)
+        stored_artifact = self._artifact_store.put_file(source)
+        artifact = replace(
+            stored_artifact,
+            original_name=original_name,
+            source_uri=source_uri,
+        )
         acquisition = Acquisition(
             acquisition_id=new_id(),
             artifact_id=artifact.artifact_id,

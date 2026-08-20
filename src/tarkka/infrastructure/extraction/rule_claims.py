@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from uuid import UUID, uuid5
+from uuid import UUID, uuid4, uuid5
 
 from tarkka.domain.extraction import (
     Claim,
@@ -33,10 +33,7 @@ class RuleBasedClaimExtractor:
     version = "1.0.0"
 
     def extract(self, document: Document) -> ExtractionBatch:
-        run_id = uuid5(
-            _TARKKA_CLAIM_NAMESPACE,
-            f"run:{document.document_id}:{self.name}:{self.version}:contract-1",
-        )
+        run_id = uuid4()
         run = ExtractionRun(
             run_id=run_id,
             document_id=document.document_id,

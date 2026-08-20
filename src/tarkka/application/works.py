@@ -33,11 +33,11 @@ class WorkCatalogService:
     def persist_candidate(self, candidate: CanonicalWorkCandidate) -> Work:
         with self._repository.transaction():
             aliases = _candidate_aliases(candidate)
-            matched = {
-                work.work_id: work
-                for alias in aliases
-                if (work := self._repository.find_work_by_identifier(alias[0], alias[1])) is not None
-            }
+            matched: dict[UUID, Work] = {}
+            for scheme, value in aliases:
+                existing_match = self._repository.find_work_by_identifier(scheme, value)
+                if existing_match is not None:
+                    matched[existing_match.work_id] = existing_match
             if len(matched) > 1:
                 raise WorkIdentityConflictError(
                     "candidate identifiers resolve to multiple canonical Works: "

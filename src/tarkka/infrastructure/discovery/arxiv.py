@@ -78,7 +78,10 @@ class ArxivProvider:
             params=params,
             headers={"User-Agent": self._user_agent},
         )
-        root = ElementTree.fromstring(payload)
+        try:
+            root = ElementTree.fromstring(payload)
+        except ElementTree.ParseError as exc:
+            raise ValueError("arXiv API returned malformed XML") from exc
         total = _int_text(root.find(f"{_OPENSEARCH}totalResults"))
         records = tuple(_record(entry) for entry in root.findall(f"{_ATOM}entry"))
         consumed = start + len(records)

@@ -13,7 +13,7 @@ from tarkka.application.identity_review import (
     IdentityReviewService,
     IdentitySnapshotNotFoundError,
 )
-from tarkka.domain.extraction import Claim, IdentityError if False else ResearchObjectKind
+from tarkka.domain.extraction import Claim, ResearchObjectKind
 from tarkka.domain.identity_candidates import IdentityDecision
 from tarkka.infrastructure.extraction.rule_claims import (
     NoClaimsFoundError,

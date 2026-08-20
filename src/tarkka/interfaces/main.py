@@ -14,7 +14,10 @@ from tarkka.application.identity_review import (
 )
 from tarkka.domain.identity_candidates import IdentityDecision
 from tarkka.infrastructure.storage.identity_decision_log import JsonlIdentityDecisionLog
-from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog, SnapshotDataError
+from tarkka.infrastructure.storage.search_snapshot_log import (
+    JsonlSearchSnapshotLog,
+    SnapshotDataError,
+)
 from tarkka.interfaces.cli import main as legacy_main
 
 

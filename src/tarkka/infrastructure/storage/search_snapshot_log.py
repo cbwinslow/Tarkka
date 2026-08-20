@@ -16,6 +16,10 @@ from tarkka.domain.discovery import (
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
+class SnapshotDataError(RuntimeError):
+    """Raised when persisted SearchSnapshot data is malformed or inconsistent."""
+
+
 class JsonlSearchSnapshotLog:
     """Append-only durable local log of scholarly discovery snapshots."""
 
@@ -42,16 +46,29 @@ class JsonlSearchSnapshotLog:
         if not self.path.exists():
             return None
         try:
-            with self.path.open("r", encoding="utf-8") as handle:
-                for line in handle:
+            with exclusive_lock(self.path), self.path.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
                     if not line.strip():
                         continue
-                    raw = json.loads(line)
+                    try:
+                        raw = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise SnapshotDataError(
+                            f"invalid JSON in Tarkka snapshot log {self.path} at line {line_number}"
+                        ) from exc
+                    if not isinstance(raw, dict):
+                        raise SnapshotDataError(
+                            f"invalid snapshot record at line {line_number}: expected object"
+                        )
                     if raw.get("snapshot_id") == str(snapshot_id):
-                        return _snapshot_from_dict(raw)
-        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            message = f"unable to read Tarkka search snapshots {self.path}: {exc}"
-            raise RuntimeError(message) from exc
+                        try:
+                            return _snapshot_from_dict(raw)
+                        except (KeyError, TypeError, ValueError) as exc:
+                            raise SnapshotDataError(
+                                f"invalid snapshot {snapshot_id} in {self.path}: {exc}"
+                            ) from exc
+        except OSError as exc:
+            raise RuntimeError(f"unable to read Tarkka search snapshots {self.path}: {exc}") from exc
         return None
 
 
@@ -71,15 +88,15 @@ def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:
 
 def _query_from_dict(raw: dict[str, Any]) -> ResearchQuery:
     return ResearchQuery(
-        text=str(raw["text"]),
-        limit=int(raw.get("limit", 25)),
-        cursor=raw.get("cursor"),
-        cursors={str(key): str(value) for key, value in dict(raw.get("cursors", {})).items()},
-        mode=ProviderMode(str(raw.get("mode", ProviderMode.AUTO.value))),
-        providers=tuple(str(value) for value in raw.get("providers", [])),
-        require_open_access=bool(raw.get("require_open_access", False)),
-        year_from=raw.get("year_from"),
-        year_to=raw.get("year_to"),
+        text=_required_str(raw, "text"),
+        limit=_optional_int(raw, "limit", 25),
+        cursor=_optional_str(raw, "cursor"),
+        cursors=_string_mapping(raw.get("cursors", {}), "query.cursors"),
+        mode=ProviderMode(_optional_str(raw, "mode") or ProviderMode.AUTO.value),
+        providers=_string_tuple(raw.get("providers", []), "query.providers"),
+        require_open_access=_optional_bool(raw, "require_open_access", False),
+        year_from=_optional_int(raw, "year_from", None),
+        year_to=_optional_int(raw, "year_to", None),
     )
 
 
@@ -100,35 +117,82 @@ def _record_to_dict(record: DiscoveryRecord) -> dict[str, Any]:
 
 
 def _record_from_dict(raw: dict[str, Any]) -> DiscoveryRecord:
-    external_ids = {
-        str(key): str(value)
-        for key, value in dict(raw.get("external_ids", {})).items()
-    }
+    metadata = raw.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise TypeError("record.metadata must be an object")
     return DiscoveryRecord(
-        provider=str(raw["provider"]),
-        provider_id=str(raw["provider_id"]),
-        title=str(raw["title"]),
-        year=raw.get("year"),
-        doi=raw.get("doi"),
-        abstract=raw.get("abstract"),
-        landing_page_url=raw.get("landing_page_url"),
-        open_access_url=raw.get("open_access_url"),
-        cited_by_count=raw.get("cited_by_count"),
-        external_ids=external_ids,
-        metadata=dict(raw.get("metadata", {})),
+        provider=_required_str(raw, "provider"),
+        provider_id=_required_str(raw, "provider_id"),
+        title=_required_str(raw, "title"),
+        year=_optional_int(raw, "year", None),
+        doi=_optional_str(raw, "doi"),
+        abstract=_optional_str(raw, "abstract"),
+        landing_page_url=_optional_str(raw, "landing_page_url"),
+        open_access_url=_optional_str(raw, "open_access_url"),
+        cited_by_count=_optional_int(raw, "cited_by_count", None),
+        external_ids=_string_mapping(raw.get("external_ids", {}), "record.external_ids"),
+        metadata=dict(metadata),
     )
 
 
 def _snapshot_from_dict(raw: dict[str, Any]) -> SearchSnapshot:
-    next_cursors = {
-        str(key): str(value)
-        for key, value in dict(raw.get("next_cursors", {})).items()
-    }
+    query = raw.get("query")
+    if not isinstance(query, dict):
+        raise TypeError("snapshot.query must be an object")
+    records = raw.get("records", [])
+    if not isinstance(records, list) or any(not isinstance(value, dict) for value in records):
+        raise TypeError("snapshot.records must be a list of objects")
     return SearchSnapshot(
-        snapshot_id=UUID(str(raw["snapshot_id"])),
-        created_at=datetime.fromisoformat(str(raw["created_at"])),
-        query=_query_from_dict(dict(raw["query"])),
-        providers_used=tuple(str(value) for value in raw.get("providers_used", [])),
-        next_cursors=next_cursors,
-        records=tuple(_record_from_dict(dict(value)) for value in raw.get("records", [])),
+        snapshot_id=UUID(_required_str(raw, "snapshot_id")),
+        created_at=datetime.fromisoformat(_required_str(raw, "created_at")),
+        query=_query_from_dict(query),
+        providers_used=_string_tuple(raw.get("providers_used", []), "snapshot.providers_used"),
+        next_cursors=_string_mapping(raw.get("next_cursors", {}), "snapshot.next_cursors"),
+        records=tuple(_record_from_dict(value) for value in records),
     )
+
+
+def _required_str(raw: dict[str, Any], key: str) -> str:
+    value = raw[key]
+    if not isinstance(value, str) or not value:
+        raise TypeError(f"{key} must be a non-empty string")
+    return value
+
+
+def _optional_str(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{key} must be a string or null")
+    return value
+
+
+def _optional_int(raw: dict[str, Any], key: str, default: int | None) -> int | None:
+    value = raw.get(key, default)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{key} must be an integer or null")
+    return value
+
+
+def _optional_bool(raw: dict[str, Any], key: str, default: bool) -> bool:
+    value = raw.get(key, default)
+    if not isinstance(value, bool):
+        raise TypeError(f"{key} must be a boolean")
+    return value
+
+
+def _string_mapping(value: Any, field: str) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise TypeError(f"{field} must be an object")
+    if any(not isinstance(key, str) or not isinstance(item, str) for key, item in value.items()):
+        raise TypeError(f"{field} keys and values must be strings")
+    return dict(value)
+
+
+def _string_tuple(value: Any, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise TypeError(f"{field} must be a list of strings")
+    return tuple(value)

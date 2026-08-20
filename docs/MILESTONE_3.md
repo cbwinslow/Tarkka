@@ -37,6 +37,8 @@ and produces another provider observation rather than making Crossref the canoni
 
 Available for relevance-ranked search plus citation, abstract, and open-access signals. Provider
 responses without a stable `paperId` are rejected rather than assigned a fabricated identity.
+Semantic Scholar `openAccessPdf` observations are explicitly typed as PDF representations so they
+can participate in the generic full-text acquisition path.
 
 ### arXiv
 
@@ -71,7 +73,9 @@ providers before requests are made. Tarkka therefore never fetches a provider pa
 records because of a later global truncation, and then advances past those records with its cursor.
 The global limit must be at least the number of selected providers.
 
-Independent provider requests execute concurrently. Output ordering remains deterministic.
+Independent provider requests execute concurrently. Output ordering remains deterministic. `all` is
+strict: if any selected provider fails, Tarkka reports the aggregated provider failures rather than
+silently returning a partial result set.
 
 ## CLI
 
@@ -88,7 +92,7 @@ tarkka discover 'baseball "win probability"' --provider arxiv
 # Explicit multi-provider search
 tarkka discover "MLB betting models" --provider openalex --provider crossref
 
-# Exhaustive fan-out
+# Exhaustive strict fan-out
 tarkka discover "baseball forecasting" --provider all
 
 # Continue provider-specific pages
@@ -119,9 +123,15 @@ representation, downloads it over bounded HTTPS, preserves the remote source URI
 provenance, stores the bytes as an immutable content-addressed Artifact, and then runs the existing
 normalization pipeline.
 
-In this milestone, the CLI configures **only `ArxivFullTextResolver`**. A Work therefore needs a valid
-arXiv alias for `work acquire` to succeed today. DOI-only/Crossref/other-provider acquisition will be
-added by registering additional resolver adapters; providers do not call one another.
+The CLI currently registers two resolver paths:
+
+- `ArxivFullTextResolver` resolves a canonical arXiv alias to the arXiv PDF endpoint.
+- `SourceRecordFullTextResolver` reuses provider observations only when they explicitly declare a
+  downloadable media type. Semantic Scholar `openAccessPdf` records currently provide this signal.
+
+Tarkka deliberately does not guess that an arbitrary open-access or landing-page URL is a PDF. New
+providers can participate by supplying explicit representation metadata or a dedicated resolver;
+providers still do not call one another.
 
 Downloaded PDFs require the optional Docling parser because acquisition means acquire **and
 normalize**, not download-only staging.
@@ -131,7 +141,8 @@ normalize**, not download-only staging.
 The shared stdlib HTTP transport has configurable per-attempt and total timeouts, retries transient
 network failures and 429/5xx responses, honors numeric and HTTP-date `Retry-After`, and applies
 jittered exponential backoff otherwise. Provider failures are isolated while concurrent calls settle
-and are then reported together with useful exception context.
+and are then reported together with useful exception context. Malformed arXiv XML is translated into
+the same provider error channel rather than escaping as a parser-specific exception.
 
 Full-text downloads are size-bounded, HTTPS-only (including the final redirect target), validate the
 expected media type, reject unsafe filesystem names, clean partial files on failure, and run inside a
@@ -261,7 +272,8 @@ controlled explicitly.
 22. actionable selected-result identity conflict errors
 23. provider-neutral full-text resolver/fetcher contracts
 24. arXiv PDF resolution and `work acquire`
-25. remote acquisition provenance through the existing normalization pipeline
+25. typed source-record full-text resolution for explicit provider representations
+26. remote acquisition provenance through the existing normalization pipeline
 
 ## Remaining Milestone 3 work
 

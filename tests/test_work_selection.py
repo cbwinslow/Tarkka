@@ -15,7 +15,10 @@ from tarkka.application.work_selection import (
 from tarkka.application.works import WorkCatalogService, WorkIdentityConflictError
 from tarkka.domain.discovery import DiscoveryRecord, ResearchQuery, SearchSnapshot
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
-from tarkka.infrastructure.storage.search_snapshot_log import JsonlSearchSnapshotLog, SnapshotDataError
+from tarkka.infrastructure.storage.search_snapshot_log import (
+    JsonlSearchSnapshotLog,
+    SnapshotDataError,
+)
 from tarkka.interfaces.cli import build_parser
 
 
@@ -134,7 +137,10 @@ def test_work_selection_rejects_missing_snapshot_and_index(tmp_path: Path) -> No
         service.save_snapshot_result(snapshot.snapshot_id, 2)
 
 
-def test_work_selection_promotes_identity_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_work_selection_promotes_identity_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     snapshots = JsonlSearchSnapshotLog(tmp_path / "snapshots.jsonl")
     snapshot = _snapshot()
     snapshots.record(snapshot)

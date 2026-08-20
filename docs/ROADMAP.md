@@ -10,10 +10,10 @@ Milestone numbers in implementation PRs map to the phases below; the phase names
 
 - Phase 0 — Foundation: **complete**
 - Phase 1 — Core local vertical slice: **substantially complete**
-- Phase 2 — Scholarly discovery and identity: **in progress**
-- Phase 3 — Structured research extraction: **next major phase**
+- Phase 2 — Scholarly discovery and identity: **complete for the local/offline workflow**
+- Phase 3 — Structured research extraction: **in progress**
 
-The merged implementation already includes the typed core, content-addressed local artifacts, normalized documents, Docling adapter, acquisition provenance, CLI, CI, provider-neutral discovery, OpenAlex/Crossref/Semantic Scholar adapters, provider selection, pagination, resilient HTTP behavior, SearchSnapshots, and conservative DOI-first identity grouping.
+The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, and review-only fuzzy identity candidates.
 
 ## Phase 0 — Foundation
 
@@ -55,7 +55,7 @@ Delivered:
 - parser contract/integration tests
 - Ruff, strict mypy, pytest, and Docling CI
 
-Remaining Phase 1 work that can proceed when required by downstream features:
+Remaining Phase 1 work can proceed only when required by downstream features:
 
 - PostgreSQL repositories for the full canonical model
 - structured logging/observability hooks
@@ -64,62 +64,68 @@ Remaining Phase 1 work that can proceed when required by downstream features:
 
 ## Phase 2 — Scholarly discovery and identity
 
-Status: **in progress**
+Status: **complete for the local/offline workflow**
 
 Goal: build reproducible research collections from topics rather than manual files only.
 
 Delivered:
 
 - provider-neutral discovery contracts
-- replaceable `ProviderSelector`
+- replaceable capability-aware `ProviderSelector`
 - `auto`, explicit-provider, and `all` modes
-- OpenAlex discovery adapter
-- Crossref discovery adapter
-- Semantic Scholar discovery adapter
-- bounded concurrent fan-out
+- `broad`, `preprint`, `citations`, and `bibliographic` research intents
+- OpenAlex, Crossref, Semantic Scholar, and arXiv discovery adapters
+- bounded concurrent fan-out and provider-specific continuation cursors
 - resilient HTTP retries/rate-limit handling
-- provider-specific continuation cursors
-- SearchSnapshots
-- shared DOI normalization/validation
-- conservative DOI-first canonical identity grouping
-- `tarkka discover`
+- reproducible SearchSnapshots
+- DOI/arXiv normalization and deterministic strong-ID identity
+- persistent canonical Work identity with aliases and provider observations
+- Crossref DOI enrichment
+- generic full-text acquisition with arXiv and typed provider representations
+- explicit fuzzy identity candidates with auditable accept/reject decisions
+- `tarkka discover`, `work save/show/enrich/acquire`, and `identity suggest/decide`
 
-Next:
+Deferred by design until measured workflows justify them:
 
-1. persistent canonical `Work` identity
-2. external-ID aliases and provenance per work
-3. Crossref DOI enrichment service
-4. arXiv specialized discovery/full-text adapter
-5. richer query-intent/capability routing
-6. explicit fuzzy identity candidates with confidence/evidence; never silent fuzzy merges
+- automatic enrichment policy
+- additional full-text resolvers
+- PostgreSQL Work repository implementation
+- provider-health/cost-aware routing
+- accepted-candidate reconciliation/merge workflow
 
-Exit criteria:
-
-- a discovered work can be persisted once while retaining aliases/observations from multiple providers
-- enrichment can add or reconcile metadata without providers calling one another directly
-- discovery can be replayed/audited from snapshots
-- ambiguous identity is represented explicitly rather than silently collapsed
+Exit criteria are met for the local/offline profile: discovery is replayable, selected works have Tarkka-owned identity, provider observations remain separate, enrichment does not couple providers, and ambiguous identity is represented explicitly rather than silently collapsed.
 
 ## Phase 3 — Structured research extraction
 
+Status: **in progress**
+
 Goal: turn normalized documents into reusable research objects.
 
-Deliverables:
+Foundation deliverables:
 
-- extraction-contract format
-- schema-constrained extractor interface
-- deterministic extraction stages where possible
-- one cloud-model adapter and one OpenAI-compatible/local path
-- claims
-- methods/models
-- variables
-- metrics
-- datasets/software
-- hypotheses
-- experiments/results
-- limitations
-- extraction provenance/versioning
+- typed Evidence contract with exact passage-local spans
+- extraction provenance and model metadata
 - human review state
+- author-stated vs inferred attribution
+- typed Claim, Hypothesis, Method, Dataset, Variable, Model, Metric, Result, and Limitation contracts
+- provider/model-neutral `StructuredExtractor` port
+- `ExtractionRepository` persistence port
+- PostgreSQL reference schema
+- extraction contract tests
+
+Next:
+
+1. deterministic claim-extraction vertical slice
+2. local JSON extraction repository for offline workflows
+3. CLI evidence/claim inspection
+4. one replaceable model-assisted extractor adapter
+5. schema-constrained extraction for methods/models, variables, metrics, datasets, hypotheses, results, and limitations
+6. extraction evaluation fixtures and precision/recall measurements
+
+Later in this phase:
+
+- software and experiment contracts where the first workflows require them
+- cloud-model and OpenAI-compatible/local adapters without making either mandatory
 
 ## Phase 4 — Evidence verification
 

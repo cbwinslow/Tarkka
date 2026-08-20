@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from typing import Any, Protocol, cast
 from urllib.parse import urlparse
@@ -163,13 +164,16 @@ def _parse_candidate(raw: Any) -> ModelClaimCandidate:
     confidence = raw.get("confidence")
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         raise ValueError("model claim confidence must be numeric")
+    confidence_value = float(confidence)
+    if not math.isfinite(confidence_value):
+        raise ValueError("model claim confidence must be finite")
     reasoning = raw.get("reasoning_summary")
     if reasoning is not None and not isinstance(reasoning, str):
         raise ValueError("model reasoning summary must be text when provided")
     return ModelClaimCandidate(
         text=_json_text(raw, "text"),
         evidence=tuple(_parse_selector(item) for item in evidence_raw),
-        confidence=float(confidence),
+        confidence=confidence_value,
         claim_type=_json_text(raw, "claim_type", default="proposition"),
         attribution=AttributionKind(_json_text(raw, "attribution", default="author_stated")),
         reasoning_summary=reasoning,

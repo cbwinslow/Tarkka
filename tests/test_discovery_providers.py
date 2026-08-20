@@ -112,6 +112,34 @@ def test_crossref_maps_metadata_known_identifiers_and_cursor() -> None:
     assert transport.last_params["mailto"] == "researcher@example.test"
 
 
+def test_crossref_lookup_by_doi_maps_single_work_metadata() -> None:
+    transport = _Transport(
+        {
+            "message": {
+                "DOI": "10.5555/XYZ",
+                "title": ["Canonical metadata"],
+                "URL": "https://doi.org/10.5555/XYZ",
+                "published-online": {"date-parts": [[2023, 4, 5]]},
+                "abstract": "Crossref abstract",
+                "type": "journal-article",
+                "container-title": ["Journal of Metadata"],
+                "ISSN": ["1234-5678"],
+            }
+        }
+    )
+
+    record = CrossrefProvider(transport, mailto="researcher@example.test").lookup_by_doi(
+        "https://doi.org/10.5555/xyz"
+    )
+
+    assert record.doi == "10.5555/xyz"
+    assert record.year == 2023
+    assert record.metadata["publication_type"] == "journal-article"
+    assert record.metadata["venue"] == "Journal of Metadata"
+    assert transport.last_url.endswith("/works/10.5555%2Fxyz")
+    assert transport.last_params["mailto"] == "researcher@example.test"
+
+
 def test_crossref_open_access_uses_verified_free_full_text_filters() -> None:
     transport = _Transport({"message": {"total-results": 0, "items": []}})
 

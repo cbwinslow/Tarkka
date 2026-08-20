@@ -26,6 +26,7 @@ from tarkka.infrastructure.discovery.openalex import OpenAlexProvider
 from tarkka.infrastructure.discovery.semantic_scholar import SemanticScholarProvider
 from tarkka.infrastructure.full_text.arxiv import ArxivFullTextResolver
 from tarkka.infrastructure.full_text.http import UrllibBinaryFetcher
+from tarkka.infrastructure.full_text.source_record import SourceRecordFullTextResolver
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -291,7 +292,7 @@ def _cmd_work_acquire(args: argparse.Namespace) -> int:
     )
     service = FullTextAcquisitionService(
         repository=work_repository,
-        resolvers=(ArxivFullTextResolver(),),
+        resolvers=(ArxivFullTextResolver(), SourceRecordFullTextResolver()),
         fetcher=UrllibBinaryFetcher(),
         ingest=ingest,
     )

@@ -35,6 +35,8 @@ class DefaultProviderSelector:
         query: ResearchQuery,
         providers: Mapping[str, DiscoveryProvider],
     ) -> tuple[DiscoveryProvider, ...]:
+        if not providers:
+            raise ValueError("provider selector requires at least one provider")
         # The initial policy is intentionally narrow; query-aware strategies plug in via the port.
         if query.require_open_access and "openalex" in providers:
             return (providers["openalex"],)

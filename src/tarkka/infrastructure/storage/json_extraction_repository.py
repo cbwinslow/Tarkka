@@ -38,8 +38,11 @@ class JsonExtractionRepository:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self._write({"schema_version": 1, "batches": {}})
+        if self.path.exists() and self.path.is_dir():
+            raise ValueError(f"extraction catalog path is a directory: {self.path}")
+        with exclusive_lock(self.path):
+            if not self.path.exists():
+                self._write({"schema_version": 1, "batches": {}})
 
     def save_batch(self, batch: ExtractionBatch) -> None:
         key = _batch_key(batch.document_id, batch.run.run_id)

@@ -20,7 +20,7 @@ export TARKKA_MODEL_PROVIDER="litellm"
 export TARKKA_MODEL_VERSION="server-or-model-version"
 ```
 
-`TARKKA_MODEL_BASE_URL` may use HTTP for local services or HTTPS for remote services. API keys are never persisted into extraction records.
+`TARKKA_MODEL_BASE_URL` may use HTTP for trusted local services or HTTPS for remote services. Do not send bearer credentials over untrusted plaintext HTTP. API keys are never persisted into extraction records.
 
 ## CLI
 
@@ -46,7 +46,9 @@ Model mode fails before making a request when `TARKKA_MODEL_BASE_URL` or `TARKKA
 
 ## Contract
 
-The adapter sends normalized passages with stable passage IDs and asks for one JSON object containing a `claims` array. Each candidate must provide:
+The adapter sends normalized passages with stable passage IDs and asks for one JSON object containing a `claims` array. Source document fields and passage text are treated as **untrusted data**. The system instruction explicitly tells the model not to follow commands or requests embedded inside source material.
+
+Each candidate must provide:
 
 - claim text
 - confidence in `[0, 1]`
@@ -62,6 +64,8 @@ Each evidence selector contains:
 - end-exclusive `char_end`
 
 The provider response does **not** become a Tarkka domain record directly. `ModelClaimExtractor` resolves every selector against the normalized `Document`, reconstructs exact evidence text, records model provenance, and rejects invalid spans or unknown passages before persistence.
+
+Prompt instructions are defense in depth rather than a trust boundary. Exact evidence resolution and domain validation remain authoritative even if a model ignores the prompt.
 
 ## Compatibility
 

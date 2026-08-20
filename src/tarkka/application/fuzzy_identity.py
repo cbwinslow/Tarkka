@@ -2,12 +2,24 @@ from __future__ import annotations
 
 import unicodedata
 from difflib import SequenceMatcher
+from enum import StrEnum
 from itertools import combinations
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.identifiers import try_normalize_arxiv_id, try_normalize_doi
 from tarkka.domain.identity_candidates import IdentityCandidate, IdentityEvidence
+
+_IDENTITY_NAMESPACE = uuid5(
+    NAMESPACE_URL,
+    "https://github.com/cbwinslow/Tarkka/identity-candidate",
+)
+
+
+class StrongIdentityRelation(StrEnum):
+    NONE = "none"
+    SAME = "same"
+    CONFLICT = "conflict"
 
 
 class FuzzyIdentityMatcher:
@@ -19,10 +31,19 @@ class FuzzyIdentityMatcher:
         self.minimum_confidence = minimum_confidence
 
     def find(self, records: tuple[DiscoveryRecord, ...]) -> tuple[IdentityCandidate, ...]:
+        indexed = tuple(enumerate(records))
         candidates = [
             candidate
-            for left, right in combinations(records, 2)
-            if (candidate := self.compare(left, right)) is not None
+            for (left_index, left), (right_index, right) in combinations(indexed, 2)
+            if (
+                candidate := self.compare(
+                    left,
+                    right,
+                    left_index=left_index,
+                    right_index=right_index,
+                )
+            )
+            is not None
         ]
         return tuple(
             sorted(
@@ -35,10 +56,14 @@ class FuzzyIdentityMatcher:
         self,
         left: DiscoveryRecord,
         right: DiscoveryRecord,
+        *,
+        left_index: int | None = None,
+        right_index: int | None = None,
     ) -> IdentityCandidate | None:
         if left.provider == right.provider:
             return None
-        if _strong_identity_relation(left, right) != "none":
+        # Matching strong IDs belong to deterministic resolution; conflicting strong IDs fail closed.
+        if _strong_identity_relation(left, right) is not StrongIdentityRelation.NONE:
             return None
 
         left_title = _normalize_title(left.title)
@@ -89,6 +114,8 @@ class FuzzyIdentityMatcher:
             right_provider_id=right.provider_id,
             confidence=confidence,
             evidence=tuple(evidence),
+            left_index=left_index,
+            right_index=right_index,
         )
 
 
@@ -98,17 +125,24 @@ def _normalize_title(title: str) -> str:
     return " ".join(tokenized.split())
 
 
-def _strong_identity_relation(left: DiscoveryRecord, right: DiscoveryRecord) -> str:
+def _strong_identity_relation(
+    left: DiscoveryRecord,
+    right: DiscoveryRecord,
+) -> StrongIdentityRelation:
     left_doi = try_normalize_doi(left.doi)
     right_doi = try_normalize_doi(right.doi)
     if left_doi and right_doi:
-        return "same" if left_doi == right_doi else "conflict"
+        if left_doi == right_doi:
+            return StrongIdentityRelation.SAME
+        return StrongIdentityRelation.CONFLICT
 
     left_arxiv = _arxiv_id(left)
     right_arxiv = _arxiv_id(right)
     if left_arxiv and right_arxiv:
-        return "same" if left_arxiv == right_arxiv else "conflict"
-    return "none"
+        if left_arxiv == right_arxiv:
+            return StrongIdentityRelation.SAME
+        return StrongIdentityRelation.CONFLICT
+    return StrongIdentityRelation.NONE
 
 
 def _arxiv_id(record: DiscoveryRecord) -> str | None:
@@ -130,4 +164,4 @@ def _candidate_id(left: DiscoveryRecord, right: DiscoveryRecord) -> UUID:
             f"{right.provider}:{right.provider_id}",
         )
     )
-    return uuid5(NAMESPACE_URL, "tarkka:identity-candidate:" + "|".join(identities))
+    return uuid5(_IDENTITY_NAMESPACE, "|".join(identities))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Protocol
@@ -13,6 +14,7 @@ from tarkka.domain.identifiers import normalize_arxiv_id, try_normalize_doi
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _OPENSEARCH = "{http://a9.com/-/spec/opensearch/1.1/}"
 _ARXIV = "{http://arxiv.org/schemas/atom}"
+_QUERY_TERM_RE = re.compile(r'"([^"]+)"|(\S+)')
 
 
 class AtomTransport(Protocol):
@@ -90,8 +92,7 @@ class ArxivProvider:
 
 
 def _search_query(query: ResearchQuery) -> str:
-    text = " ".join(query.text.split()).replace('"', "")
-    expression = f'all:"{text}"'
+    expression = _all_fields_expression(query.text)
     if query.year_from is None and query.year_to is None:
         return expression
     lower_year = query.year_from or 1900
@@ -100,6 +101,18 @@ def _search_query(query: ResearchQuery) -> str:
         f"{expression} AND submittedDate:"
         f"[{lower_year:04d}01010000 TO {upper_year:04d}12312359]"
     )
+
+
+def _all_fields_expression(text: str) -> str:
+    normalized = " ".join(text.split())
+    clauses: list[str] = []
+    for match in _QUERY_TERM_RE.finditer(normalized):
+        value = (match.group(1) or match.group(2) or "").strip().replace('"', "")
+        if value:
+            clauses.append(f'all:"{value}"')
+    if not clauses:
+        raise ValueError("arXiv search query must contain at least one term")
+    return " AND ".join(clauses)
 
 
 def _cursor_start(cursor: str | None) -> int:

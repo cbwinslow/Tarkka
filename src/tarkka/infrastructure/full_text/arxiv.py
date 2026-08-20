@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tarkka.domain.identifiers import normalize_arxiv_id
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.ports.full_text import FullTextResource
@@ -15,19 +16,17 @@ class ArxivFullTextResolver:
         source_records: tuple[WorkSourceRecord, ...],
     ) -> FullTextResource | None:
         del work, source_records
-        arxiv_id = next(
+        raw_id = next(
             (identifier.value for identifier in identifiers if identifier.scheme == "arxiv"),
             None,
         )
-        if arxiv_id is None:
+        if raw_id is None:
             return None
-        safe_id = arxiv_id.strip().removeprefix("arXiv:")
-        if not safe_id or "/" in safe_id and ".." in safe_id:
-            raise ValueError("invalid arXiv identifier")
+        arxiv_id = normalize_arxiv_id(raw_id)
         return FullTextResource(
             provider=self.name,
-            source_uri=f"https://arxiv.org/pdf/{safe_id}",
+            source_uri=f"https://arxiv.org/pdf/{arxiv_id}",
             media_type="application/pdf",
-            filename=f"{safe_id.replace('/', '_')}.pdf",
-            metadata={"arxiv_id": safe_id},
+            filename=f"{arxiv_id.replace('/', '_')}.pdf",
+            metadata={"arxiv_id": arxiv_id},
         )

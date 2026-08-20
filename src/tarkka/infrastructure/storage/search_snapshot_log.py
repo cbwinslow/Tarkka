@@ -68,7 +68,8 @@ class JsonlSearchSnapshotLog:
                                 f"invalid snapshot {snapshot_id} in {self.path}: {exc}"
                             ) from exc
         except OSError as exc:
-            raise RuntimeError(f"unable to read Tarkka search snapshots {self.path}: {exc}") from exc
+            message = f"unable to read Tarkka search snapshots {self.path}: {exc}"
+            raise RuntimeError(message) from exc
         return None
 
 
@@ -89,7 +90,7 @@ def _query_to_dict(query: ResearchQuery) -> dict[str, Any]:
 def _query_from_dict(raw: dict[str, Any]) -> ResearchQuery:
     return ResearchQuery(
         text=_required_str(raw, "text"),
-        limit=_optional_int(raw, "limit", 25),
+        limit=_int_with_default(raw, "limit", 25),
         cursor=_optional_str(raw, "cursor"),
         cursors=_string_mapping(raw.get("cursors", {}), "query.cursors"),
         mode=ProviderMode(_optional_str(raw, "mode") or ProviderMode.AUTO.value),
@@ -177,6 +178,13 @@ def _optional_int(raw: dict[str, Any], key: str, default: int | None) -> int | N
     return value
 
 
+def _int_with_default(raw: dict[str, Any], key: str, default: int) -> int:
+    value = _optional_int(raw, key, default)
+    if value is None:
+        raise TypeError(f"{key} must be an integer")
+    return value
+
+
 def _optional_bool(raw: dict[str, Any], key: str, default: bool) -> bool:
     value = raw.get(key, default)
     if not isinstance(value, bool):
@@ -187,7 +195,10 @@ def _optional_bool(raw: dict[str, Any], key: str, default: bool) -> bool:
 def _string_mapping(value: Any, field: str) -> dict[str, str]:
     if not isinstance(value, dict):
         raise TypeError(f"{field} must be an object")
-    if any(not isinstance(key, str) or not isinstance(item, str) for key, item in value.items()):
+    invalid = any(
+        not isinstance(key, str) or not isinstance(item, str) for key, item in value.items()
+    )
+    if invalid:
         raise TypeError(f"{field} keys and values must be strings")
     return dict(value)
 

@@ -12,14 +12,14 @@ CREATE TABLE IF NOT EXISTS tarkka.search_snapshot (
 CREATE INDEX IF NOT EXISTS search_snapshot_created_at_idx
     ON tarkka.search_snapshot (created_at DESC);
 
-CREATE INDEX IF NOT EXISTS search_snapshot_query_gin_idx
-    ON tarkka.search_snapshot USING gin (query);
+CREATE INDEX IF NOT EXISTS search_snapshot_query_text_idx
+    ON tarkka.search_snapshot ((query->>'text'));
 
 CREATE INDEX IF NOT EXISTS search_snapshot_providers_gin_idx
     ON tarkka.search_snapshot USING gin (providers_used);
 
-CREATE INDEX IF NOT EXISTS search_snapshot_records_gin_idx
-    ON tarkka.search_snapshot USING gin (records);
+-- Do not GIN-index the full records payload: stable DOI/external-ID lookup belongs in canonical
+-- Work/alias tables rather than an immutable audit snapshot blob.
 
 CREATE OR REPLACE FUNCTION tarkka.reject_search_snapshot_mutation()
 RETURNS trigger

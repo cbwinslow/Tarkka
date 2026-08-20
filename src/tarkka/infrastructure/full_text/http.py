@@ -29,9 +29,11 @@ class UrllibBinaryFetcher:
         with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
             content_type = response.headers.get_content_type()
             if content_type != resource.media_type:
-                raise ValueError(
-                    f"expected {resource.media_type}, received {content_type} from {resource.source_uri}"
+                message = (
+                    f"expected {resource.media_type}, received {content_type} "
+                    f"from {resource.source_uri}"
                 )
+                raise ValueError(message)
             length = response.headers.get("Content-Length")
             if length is not None and int(length) > self.max_bytes:
                 raise ValueError("full-text response exceeds configured download limit")

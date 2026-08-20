@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any
 
 from tarkka.domain.discovery import DiscoveryPage, DiscoveryRecord, ResearchQuery
-from tarkka.domain.identifiers import normalize_doi
+from tarkka.domain.identifiers import try_normalize_doi
 from tarkka.infrastructure.discovery.http import JsonTransport, UrllibJsonTransport
 
 
@@ -60,8 +61,7 @@ class CrossrefProvider:
 
 
 def _record(raw: Mapping[str, Any]) -> DiscoveryRecord:
-    doi = raw.get("DOI")
-    doi_text = normalize_doi(doi) if isinstance(doi, str) and doi.strip() else None
+    doi_text = try_normalize_doi(raw.get("DOI"))
     title = raw.get("title", [])
     title_text = (
         title[0]
@@ -97,7 +97,8 @@ def _external_ids(raw: Mapping[str, Any], doi: str | None) -> dict[str, str]:
         elif isinstance(value, list):
             values = [str(item) for item in value if isinstance(item, (str, int))]
             if values:
-                identifiers[key.lower()] = ",".join(values)
+                # The domain contract stores external IDs as strings; JSON preserves list boundaries.
+                identifiers[key.lower()] = json.dumps(values, separators=(",", ":"))
     return identifiers
 
 

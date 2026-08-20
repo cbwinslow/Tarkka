@@ -5,8 +5,13 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
+
 from tarkka.application.fuzzy_identity import FuzzyIdentityMatcher
-from tarkka.application.identity_review import IdentityReviewService
+from tarkka.application.identity_review import (
+    IdentityCandidateNotFoundError,
+    IdentityReviewService,
+)
 from tarkka.domain.discovery import DiscoveryRecord, ResearchQuery, SearchSnapshot
 from tarkka.domain.identity_candidates import IdentityDecision
 from tarkka.infrastructure.storage.identity_decision_log import JsonlIdentityDecisionLog
@@ -33,6 +38,18 @@ def _record(
         title=title,
         year=year,
         doi=doi,
+    )
+
+
+def _snapshot() -> SearchSnapshot:
+    return SearchSnapshot(
+        snapshot_id=uuid4(),
+        query=ResearchQuery("baseball prediction"),
+        providers_used=("openalex", "semantic-scholar"),
+        records=(
+            _record("openalex", "W1", "Machine Learning for Baseball Win Prediction"),
+            _record("semantic-scholar", "S1", "Machine Learning for Baseball Win Prediction"),
+        ),
     )
 
 
@@ -72,16 +89,17 @@ def test_years_more_than_one_apart_are_rejected() -> None:
     assert candidate is None
 
 
+def test_titles_that_normalize_to_empty_are_rejected() -> None:
+    matcher = FuzzyIdentityMatcher()
+
+    assert matcher.compare(
+        _record("openalex", "W1", "---"),
+        _record("semantic-scholar", "S1", "..."),
+    ) is None
+
+
 def test_accept_records_auditable_decision_without_merging(tmp_path: Path) -> None:
-    snapshot = SearchSnapshot(
-        snapshot_id=uuid4(),
-        query=ResearchQuery("baseball prediction"),
-        providers_used=("openalex", "semantic-scholar"),
-        records=(
-            _record("openalex", "W1", "Machine Learning for Baseball Win Prediction"),
-            _record("semantic-scholar", "S1", "Machine Learning for Baseball Win Prediction"),
-        ),
-    )
+    snapshot = _snapshot()
     path = tmp_path / "identity_decisions.jsonl"
     service = IdentityReviewService(
         snapshots=_Snapshots(snapshot),
@@ -103,3 +121,14 @@ def test_accept_records_auditable_decision_without_merging(tmp_path: Path) -> No
     payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     assert payload["decision"] == "accept"
     assert payload["rationale"] == "same study after review"
+
+
+def test_negative_identity_indexes_are_rejected_before_lookup(tmp_path: Path) -> None:
+    snapshot = _snapshot()
+    service = IdentityReviewService(
+        snapshots=_Snapshots(snapshot),
+        decisions=JsonlIdentityDecisionLog(tmp_path / "identity_decisions.jsonl"),
+    )
+
+    with pytest.raises(IdentityCandidateNotFoundError, match="non-negative"):
+        service.decide(snapshot.snapshot_id, -1, 0, IdentityDecision.REJECT)

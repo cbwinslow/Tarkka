@@ -35,7 +35,11 @@ class JsonSourceObservationRepository:
                 self._write(_empty_catalog())
 
     def save_observation(self, observation: SourceObservation) -> None:
-        self._save("observations", observation.observation_id, _observation_to_dict(observation))
+        self._save(
+            "observations",
+            observation.observation_id,
+            _observation_to_dict(observation),
+        )
 
     def save_resource_link(self, link: ResourceLinkObservation) -> None:
         self._save("resource_links", link.link_id, _resource_link_to_dict(link))
@@ -44,13 +48,17 @@ class JsonSourceObservationRepository:
         payload = self._read()["observations"].get(str(observation_id))
         return _observation_from_dict(payload) if payload is not None else None
 
-    def list_resource_links(self, observation_id: UUID) -> tuple[ResourceLinkObservation, ...]:
+    def list_resource_links(
+        self, observation_id: UUID
+    ) -> tuple[ResourceLinkObservation, ...]:
         values = [
             _resource_link_from_dict(item)
             for item in self._read()["resource_links"].values()
             if item["observation_id"] == str(observation_id)
         ]
-        values.sort(key=lambda item: (item.relation.value, item.target_uri, str(item.link_id)))
+        values.sort(
+            key=lambda item: (item.relation.value, item.target_uri, str(item.link_id))
+        )
         return tuple(values)
 
     def _save(self, bucket: str, stable_id: UUID, payload: dict[str, Any]) -> None:
@@ -62,7 +70,7 @@ class JsonSourceObservationRepository:
                 if existing == payload:
                     return
                 raise SourceObservationConflictError(
-                    f"conflicting {bucket[:-1]} for stable ID {key}"
+                    f"conflicting {bucket} entry for stable ID {key}"
                 )
             data[bucket][key] = payload
             self._write(data)
@@ -85,11 +93,17 @@ class JsonSourceObservationRepository:
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
-        fd, temp_name = tempfile.mkstemp(prefix=".tarkka-source-observations-", dir=self.path.parent)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=".tarkka-source-observations-",
+            dir=self.path.parent,
+        )
         os.close(fd)
         temp_path = Path(temp_name)
         try:
-            temp_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+            temp_path.write_text(
+                json.dumps(data, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
             with temp_path.open("rb") as handle:
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
@@ -108,7 +122,9 @@ def _json_value(value: Any) -> Any:
         return {str(key): _json_value(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
         return [_json_value(item) for item in value]
-    raise ValueError(f"unsupported source observation metadata value: {type(value).__name__}")
+    raise ValueError(
+        f"unsupported source observation metadata value: {type(value).__name__}"
+    )
 
 
 def _observation_to_dict(value: SourceObservation) -> dict[str, Any]:
@@ -119,7 +135,9 @@ def _observation_to_dict(value: SourceObservation) -> dict[str, Any]:
         "source_version": value.source_version,
         "provider_record_id": value.provider_record_id,
         "media_type": value.media_type,
-        "native_artifact_id": str(value.native_artifact_id) if value.native_artifact_id else None,
+        "native_artifact_id": (
+            str(value.native_artifact_id) if value.native_artifact_id else None
+        ),
         "metadata": _json_value(value.metadata),
         "observed_at": value.observed_at.isoformat(),
     }

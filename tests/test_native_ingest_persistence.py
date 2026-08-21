@@ -29,7 +29,7 @@ class _FailOneResourceLink:
     def save_resource_link(self, link: ResourceLinkObservation) -> None:
         if not self.failed:
             self.failed = True
-            raise RuntimeError("simulated interrupted resource-link write")
+            raise OSError("simulated interrupted resource-link write")
         self.delegate.save_resource_link(link)
 
     def get_observation(self, observation_id: UUID) -> SourceObservation | None:

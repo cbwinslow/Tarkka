@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -85,7 +87,7 @@ def test_translates_mixed_structured_research_response() -> None:
         ]
     }
     transport = FakeTransport(
-        {"choices": [{"message": {"content": __import__("json").dumps(content)}}]}
+        {"choices": [{"message": {"content": json.dumps(content)}}]}
     )
     model = OpenAICompatibleResearchModel(
         base_url="http://localhost:4000/v1",

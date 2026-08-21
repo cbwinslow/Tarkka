@@ -19,7 +19,9 @@ class ModelMethodCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("method", self.name, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "method", self.name, self.evidence, self.confidence, self.reasoning_summary
+        )
         _validate_optional("model method description", self.description)
 
 
@@ -33,7 +35,9 @@ class ModelDatasetCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("dataset", self.name, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "dataset", self.name, self.evidence, self.confidence, self.reasoning_summary
+        )
         _validate_optional("model dataset description", self.description)
 
 
@@ -47,7 +51,9 @@ class ModelVariableCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("variable", self.name, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "variable", self.name, self.evidence, self.confidence, self.reasoning_summary
+        )
         _validate_optional("model variable role", self.role)
 
 
@@ -61,7 +67,9 @@ class ModelModelCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("model", self.name, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "model", self.name, self.evidence, self.confidence, self.reasoning_summary
+        )
         _validate_optional("model family", self.family)
 
 
@@ -76,7 +84,9 @@ class ModelMetricCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("metric", self.name, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "metric", self.name, self.evidence, self.confidence, self.reasoning_summary
+        )
         _validate_optional("model metric value_text", self.value_text)
         _validate_optional("model metric unit", self.unit)
 
@@ -90,7 +100,9 @@ class ModelHypothesisCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("hypothesis", self.text, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "hypothesis", self.text, self.evidence, self.confidence, self.reasoning_summary
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +115,9 @@ class ModelResultCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("result", self.text, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "result", self.text, self.evidence, self.confidence, self.reasoning_summary
+        )
         _validate_optional("model result direction", self.direction)
 
 
@@ -116,7 +130,9 @@ class ModelLimitationCandidate:
     reasoning_summary: str | None = None
 
     def __post_init__(self) -> None:
-        _validate_candidate("limitation", self.text, self.evidence, self.confidence, self.reasoning_summary)
+        _validate_candidate(
+            "limitation", self.text, self.evidence, self.confidence, self.reasoning_summary
+        )
 
 
 ModelResearchCandidate: TypeAlias = (

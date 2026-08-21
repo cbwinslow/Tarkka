@@ -23,6 +23,7 @@ Load additional docs only when the task touches them:
 | current implementation sequence/status | `docs/ROADMAP.md`, latest `docs/MILESTONE_*.md` |
 | core/domain design | `docs/CANONICAL_DATA_MODEL.md` |
 | service/module boundaries | `docs/ARCHITECTURE.md` |
+| source/document preservation, formats, crawling, citations | `docs/SOURCE_DOCUMENT_PRESERVATION.md` |
 | ingestion/workflows | `docs/RESEARCH_PIPELINE.md` |
 | plugins/adapters | `docs/CONNECTOR_PLUGIN_SPEC.md` |
 | MCP/agent APIs | `docs/AGENT_INTERFACE.md`, `docs/CONTEXT_EFFICIENCY.md` |
@@ -41,6 +42,12 @@ Do not violate these without an explicit architecture decision:
 
 - Domain core is independent of specific research providers, parsers, LLM vendors, web frameworks, and databases.
 - External systems are accessed through narrow adapters/ports.
+- **Preserve native structure first; normalize second; infer last.**
+- Source-native facts, parser-reconstructed observations, and model/OCR/vision inferences are distinct layers and must not overwrite one another.
+- Adapters must not silently discard provider-native information merely because Tarkka has not promoted it to a canonical typed field yet; preserve a bounded native observation or immutable artifact reference.
+- Application orchestration should select replaceable adapters by capability/contract rather than provider-name branching when a capability contract exists.
+- Crawlers discover/acquire resources and preserve resource relationships; they do not create canonical research identity or embed parser/research semantics directly.
+- Citation mentions, bibliography entries, resolved citations, claims, and evidence are separate concepts.
 - PostgreSQL is the reference metadata system of record; pgvector is the initial vector strategy when vector retrieval is implemented.
 - Raw artifacts are content-addressed and separate from normalized research records.
 - Acquisition/source provenance is separate from artifact content identity.
@@ -62,8 +69,9 @@ Do not violate these without an explicit architecture decision:
 3. Identify the correct layer: domain, application, port, infrastructure/adapter, or interface.
 4. Check the current roadmap/milestone rather than starting speculative future layers.
 5. Check whether the change affects provenance, rights, identity, caching/versioning, pagination, or agent context cost.
-6. Add or update tests with the implementation.
-7. Update architecture/milestone docs when behavior or contracts materially change.
+6. For provider/parser/crawler changes, inventory what the external source exposes before choosing normalized mappings; explicitly consider identifiers, references/citations, alternate/full-text/supplement links, versions/corrections/retractions, rights, and native structure.
+7. Add or update tests with the implementation.
+8. Update architecture/milestone docs when behavior or contracts materially change.
 
 ## Canonical development workflow
 
@@ -142,6 +150,8 @@ Use the smallest appropriate level:
 - deterministic end-to-end fixtures for pipeline slices
 
 Do not depend on live external APIs in normal unit/CI tests. External provider responses are untrusted fixture boundaries and should include malformed/edge cases where relevant.
+
+For source/document adapters, tests should assert **preservation**, not merely successful parsing. Representative fixtures should catch silent loss of identifiers, bibliography, citation anchors, figures, tables, equations, supplements/resource links, and provider-specific observations as those capabilities are implemented.
 
 ## Scope discipline
 

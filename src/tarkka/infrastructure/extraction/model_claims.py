@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from uuid import UUID, uuid4, uuid5
 
 from tarkka.domain.extraction import (
@@ -12,12 +11,12 @@ from tarkka.domain.extraction import (
     ModelProvenance,
 )
 from tarkka.domain.models import Document, Passage
-from tarkka.ports.model_claims import (
-    ModelClaimCandidate,
-    ModelClaimRequest,
-    ModelPassage,
-    StructuredClaimModel,
+from tarkka.infrastructure.extraction.model_batching import (
+    ModelBatchingPolicy,
+    build_model_requests,
+    validate_candidate_batch_scope,
 )
+from tarkka.ports.model_claims import ModelClaimCandidate, StructuredClaimModel
 
 _TARKKA_MODEL_CLAIM_NAMESPACE = UUID("bb6f9fbd-b8d0-577f-b165-c954466634d4")
 _CandidateSignature = tuple[str, str, str, tuple[tuple[str, int, int], ...]]
@@ -27,35 +26,11 @@ class NoModelClaimsFoundError(ValueError):
     """Raised when a model returns no structured claim candidates."""
 
 
-@dataclass(frozen=True, slots=True)
-class ModelBatchingPolicy:
-    """Deterministic request bounds for model-assisted extraction.
-
-    Example: use smaller windows for a model with a tighter context budget::
-
-        ModelBatchingPolicy(max_chars=12_000, max_passages=12, overlap_passages=1)
-    """
-
-    max_chars: int = 40_000
-    max_passages: int = 32
-    overlap_passages: int = 1
-
-    def __post_init__(self) -> None:
-        if self.max_chars <= 0:
-            raise ValueError("model batch max_chars must be positive")
-        if self.max_passages <= 0:
-            raise ValueError("model batch max_passages must be positive")
-        if self.overlap_passages < 0:
-            raise ValueError("model batch overlap_passages must be non-negative")
-        if self.overlap_passages >= self.max_passages:
-            raise ValueError("model batch overlap_passages must be less than max_passages")
-
-
 class ModelClaimExtractor:
     """Convert bounded structured model responses into evidence-backed claims."""
 
     name = "model-claims"
-    version = "1.1.0"
+    version = "1.2.0"
 
     def __init__(
         self,
@@ -63,7 +38,6 @@ class ModelClaimExtractor:
         *,
         batching: ModelBatchingPolicy | None = None,
     ) -> None:
-        # Validate eagerly so bad provider configuration fails before any model request.
         if not model.provider.strip() or not model.model_name.strip():
             raise ValueError("model provider/name must not be blank")
         if model.model_version is not None and not model.model_version.strip():
@@ -73,7 +47,7 @@ class ModelClaimExtractor:
 
     def extract(self, document: Document) -> ExtractionBatch:
         passages = tuple(passage for section in document.sections for passage in section.passages)
-        requests = _build_requests(document, passages, self.batching)
+        requests = build_model_requests(document, passages, self.batching)
         all_passage_ids = {passage.passage_id for passage in passages}
         candidates: list[ModelClaimCandidate] = []
         candidate_index: dict[_CandidateSignature, int] = {}
@@ -81,7 +55,7 @@ class ModelClaimExtractor:
         for request in requests:
             allowed_passage_ids = {passage.passage_id for passage in request.passages}
             for candidate in self.model.extract_claims(request):
-                _validate_candidate_batch_scope(
+                validate_candidate_batch_scope(
                     candidate,
                     allowed_passage_ids,
                     all_passage_ids,
@@ -160,67 +134,6 @@ class ModelClaimExtractor:
             evidence=tuple(evidence),
             extractions=tuple(claims),
         )
-
-
-def _build_requests(
-    document: Document,
-    passages: tuple[Passage, ...],
-    policy: ModelBatchingPolicy,
-) -> tuple[ModelClaimRequest, ...]:
-    model_passages = tuple(
-        ModelPassage(
-            passage_id=passage.passage_id,
-            section_id=passage.section_id,
-            ordinal=passage.ordinal,
-            text=passage.text,
-        )
-        for passage in passages
-    )
-    batches: list[tuple[ModelPassage, ...]] = []
-    start = 0
-    while start < len(model_passages):
-        batch: list[ModelPassage] = []
-        char_count = 0
-        cursor = start
-        while cursor < len(model_passages) and len(batch) < policy.max_passages:
-            passage = model_passages[cursor]
-            next_count = char_count + len(passage.text)
-            if batch and next_count > policy.max_chars:
-                break
-            batch.append(passage)
-            char_count = next_count
-            cursor += 1
-        if not batch:
-            raise RuntimeError("model batching failed to make progress")
-        batches.append(tuple(batch))
-        if cursor >= len(model_passages):
-            break
-        next_start = cursor - policy.overlap_passages
-        # The floor guarantees forward progress even when overlap reaches back to start.
-        start = max(start + 1, next_start)
-
-    return tuple(
-        ModelClaimRequest(
-            document_id=document.document_id,
-            title=document.title,
-            passages=batch,
-        )
-        for batch in batches
-    )
-
-
-def _validate_candidate_batch_scope(
-    candidate: ModelClaimCandidate,
-    allowed_passage_ids: set[UUID],
-    all_passage_ids: set[UUID],
-) -> None:
-    for selector in candidate.evidence:
-        if selector.passage_id not in all_passage_ids:
-            raise ValueError(f"model evidence references unknown passage: {selector.passage_id}")
-        if selector.passage_id not in allowed_passage_ids:
-            raise ValueError(
-                f"model evidence references passage outside request batch: {selector.passage_id}"
-            )
 
 
 def _candidate_signature(candidate: ModelClaimCandidate) -> _CandidateSignature:

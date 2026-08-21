@@ -30,7 +30,11 @@ from tarkka.infrastructure.full_text.source_record import SourceRecordFullTextRe
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.jats_parser import JatsParser
+from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+from tarkka.infrastructure.storage.json_source_observation_repository import (
+    JsonSourceObservationRepository,
+)
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.search_snapshot_log import (
@@ -65,6 +69,14 @@ def _runtime() -> tuple[LocalArtifactStore, JsonResearchRepository, JsonlAcquisi
 
 def _work_repository() -> JsonWorkRepository:
     return JsonWorkRepository(_home() / "works.json")
+
+
+def _citation_repository() -> JsonCitationRepository:
+    return JsonCitationRepository(_home() / "citations.json")
+
+
+def _source_observation_repository() -> JsonSourceObservationRepository:
+    return JsonSourceObservationRepository(_home() / "source_observations.json")
 
 
 def _snapshot_log() -> JsonlSearchSnapshotLog:
@@ -176,14 +188,24 @@ def _work_payload(work: Work, repository: JsonWorkRepository) -> dict[str, objec
     }
 
 
-def _cmd_ingest(args: argparse.Namespace) -> int:
-    store, repo, acquisitions = _runtime()
-    service = IngestService(
+def _ingest_service(
+    store: LocalArtifactStore,
+    repository: JsonResearchRepository,
+    acquisitions: JsonlAcquisitionLog,
+) -> IngestService:
+    return IngestService(
         artifact_store=store,
-        repository=repo,
+        repository=repository,
         acquisition_recorder=acquisitions,
         parsers=_parsers(),
+        citation_repository=_citation_repository(),
+        source_observation_repository=_source_observation_repository(),
     )
+
+
+def _cmd_ingest(args: argparse.Namespace) -> int:
+    store, repo, acquisitions = _runtime()
+    service = _ingest_service(store, repo, acquisitions)
     try:
         result = service.ingest(Path(args.path))
     except (FileNotFoundError, UnsupportedDocumentError, UnicodeDecodeError, RuntimeError) as exc:
@@ -288,12 +310,7 @@ def _cmd_work_enrich(args: argparse.Namespace) -> int:
 def _cmd_work_acquire(args: argparse.Namespace) -> int:
     store, document_repository, acquisitions = _runtime()
     work_repository = _work_repository()
-    ingest = IngestService(
-        artifact_store=store,
-        repository=document_repository,
-        acquisition_recorder=acquisitions,
-        parsers=_parsers(),
-    )
+    ingest = _ingest_service(store, document_repository, acquisitions)
     service = FullTextAcquisitionService(
         repository=work_repository,
         resolvers=(ArxivFullTextResolver(), SourceRecordFullTextResolver()),

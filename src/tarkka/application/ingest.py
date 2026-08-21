@@ -8,12 +8,14 @@ from tarkka.domain.manifest import ResourceManifest, build_document_manifest
 from tarkka.domain.models import Acquisition, Artifact, Document, new_id
 from tarkka.ports.acquisitions import AcquisitionRecorder
 from tarkka.ports.artifacts import ArtifactStore
+from tarkka.ports.citations import CitationRepository
 from tarkka.ports.parsing import (
     DocumentParser,
     NativeDocumentParseResult,
     NativeStructureParser,
 )
 from tarkka.ports.repositories import ResearchRepository
+from tarkka.ports.source_observations import SourceObservationRepository
 
 
 class UnsupportedDocumentError(ValueError):
@@ -37,6 +39,8 @@ class IngestService:
         repository: ResearchRepository,
         parsers: tuple[DocumentParser, ...],
         acquisition_recorder: AcquisitionRecorder | None = None,
+        citation_repository: CitationRepository | None = None,
+        source_observation_repository: SourceObservationRepository | None = None,
     ) -> None:
         if not parsers:
             raise ValueError("at least one document parser is required")
@@ -44,6 +48,8 @@ class IngestService:
         self._repository = repository
         self._parsers = parsers
         self._acquisition_recorder = acquisition_recorder
+        self._citation_repository = citation_repository
+        self._source_observation_repository = source_observation_repository
 
     def ingest(self, source: Path) -> IngestResult:
         source = source.expanduser().resolve()
@@ -85,6 +91,8 @@ class IngestService:
         if self._acquisition_recorder is not None:
             self._acquisition_recorder.record(acquisition)
 
+        # Parser registration order is meaningful: the first matching parser wins. Native
+        # structure parsers should therefore precede generic reconstruction parsers.
         parser = next(
             (candidate for candidate in self._parsers if candidate.supports(artifact)),
             None,
@@ -102,8 +110,12 @@ class IngestService:
         else:
             document = parser.parse(artifact, stored_path)
         manifest = build_document_manifest(document, artifact)
+
         self._repository.save_artifact(artifact)
         self._repository.save_document(document, manifest)
+        if native_parse is not None:
+            self._persist_native_parse(native_parse)
+
         return IngestResult(
             artifact=artifact,
             acquisition=acquisition,
@@ -111,3 +123,14 @@ class IngestService:
             manifest=manifest,
             native_parse=native_parse,
         )
+
+    def _persist_native_parse(self, native_parse: NativeDocumentParseResult) -> None:
+        if self._source_observation_repository is not None:
+            self._source_observation_repository.save_observation(native_parse.observation)
+            for link in native_parse.resource_links:
+                self._source_observation_repository.save_resource_link(link)
+        if self._citation_repository is not None:
+            for reference in native_parse.references:
+                self._citation_repository.save_reference(reference)
+            for mention in native_parse.mentions:
+                self._citation_repository.save_mention(mention)

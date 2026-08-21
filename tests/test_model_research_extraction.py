@@ -114,6 +114,7 @@ def test_extracts_complete_research_vocabulary_in_one_run() -> None:
                 ),
                 ModelDatasetCandidate(
                     name="Statcast",
+                    description="MLB tracking data",
                     evidence=first_span,
                     confidence=0.98,
                 ),
@@ -132,6 +133,7 @@ def test_extracts_complete_research_vocabulary_in_one_run() -> None:
                 ModelMetricCandidate(
                     name="log loss",
                     value_text="0.57",
+                    unit="dimensionless",
                     evidence=second_span,
                     confidence=0.99,
                 ),
@@ -162,6 +164,26 @@ def test_extracts_complete_research_vocabulary_in_one_run() -> None:
         Result,
         Limitation,
     ]
+    hypothesis, method, dataset, variable, model_record, metric, result, limitation = (
+        batch.extractions
+    )
+    assert isinstance(hypothesis, Hypothesis)
+    assert hypothesis.text == "starter rest would improve outcomes"
+    assert isinstance(method, Method)
+    assert method.description == "Tree boosting"
+    assert isinstance(dataset, Dataset)
+    assert dataset.description == "MLB tracking data"
+    assert isinstance(variable, Variable)
+    assert variable.role == "predictor"
+    assert isinstance(model_record, Model)
+    assert model_record.family == "tree ensemble"
+    assert isinstance(metric, Metric)
+    assert metric.value_text == "0.57"
+    assert metric.unit == "dimensionless"
+    assert isinstance(result, Result)
+    assert result.direction == "improved"
+    assert isinstance(limitation, Limitation)
+    assert limitation.text == "the sample was limited to one season"
     assert len(batch.evidence) == 8
     assert {item.provenance.run_id for item in batch.extractions} == {batch.run.run_id}
     assert batch.run.model is not None
@@ -197,6 +219,40 @@ def test_bounded_research_extraction_deduplicates_overlap_by_exact_signature() -
     assert model.requests[1].passages[0].passage_id == shared.passage_id
     assert len(batch.extractions) == 1
     assert batch.extractions[0].provenance.confidence == 0.9
+
+
+def test_overlap_dedup_preserves_distinct_candidate_specific_fields() -> None:
+    document = _document()
+    shared = document.sections[0].passages[1]
+    evidence = (EvidenceSelector(shared.passage_id, 0, len(shared.text)),)
+    before = ModelMetricCandidate(
+        name="log loss",
+        value_text="0.61",
+        unit="dimensionless",
+        evidence=evidence,
+        confidence=0.95,
+    )
+    after = ModelMetricCandidate(
+        name="log loss",
+        value_text="0.57",
+        unit="dimensionless",
+        evidence=evidence,
+        confidence=0.90,
+    )
+    model = RecordingResearchModel(responses=[(before,), (after,)])
+
+    batch = ModelResearchExtractor(
+        model,
+        batching=ModelBatchingPolicy(
+            max_chars=300,
+            max_passages=2,
+            overlap_passages=1,
+        ),
+    ).extract(document)
+
+    metrics = [item for item in batch.extractions if isinstance(item, Metric)]
+    assert [item.value_text for item in metrics] == ["0.61", "0.57"]
+    assert [item.unit for item in metrics] == ["dimensionless", "dimensionless"]
 
 
 def test_rejects_candidate_evidence_outside_current_batch() -> None:

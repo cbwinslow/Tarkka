@@ -11,9 +11,11 @@ Milestone numbers in implementation PRs map to the phases below; the phase names
 - Phase 0 — Foundation: **complete**
 - Phase 1 — Core local vertical slice: **substantially complete**
 - Phase 2 — Scholarly discovery and identity: **complete for the local/offline workflow**
-- Phase 3 — Structured research extraction: **in progress**
+- Phase 3 — Structured research extraction: **text-grounded vocabulary substantially complete; source/document intelligence in progress**
 
-The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, evidence-backed claim extraction, model-assisted extraction, evaluation fixtures, and bounded model requests.
+The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, generalized evidence locators, first-class Figure/Table/Equation source artifacts, evidence-backed claim extraction, the full first-pass research object vocabulary, model-assisted extraction, evaluation fixtures, and bounded model requests.
+
+The immediate architecture focus is now preserving richer source/document structure so future JATS, EPUB, HTML, PDF, crawler, citation, supplement, and provider integrations remain additive rather than forcing rewrites.
 
 ## Phase 0 — Foundation
 
@@ -50,6 +52,7 @@ Delivered:
 - plain-text/Markdown parser
 - optional Docling rich-document adapter
 - canonical `Artifact -> Document -> Section -> Passage` normalization
+- generalized Figure/Table/Equation document source artifacts
 - progressive resource manifests
 - `tarkka ingest`, `tarkka inspect`, and `tarkka read`
 - parser contract/integration tests
@@ -95,51 +98,93 @@ Deferred by design until measured workflows justify them:
 
 Exit criteria are met for the local/offline profile: discovery is replayable, selected works have Tarkka-owned identity, provider observations remain separate, enrichment does not couple providers, and ambiguous identity is represented explicitly rather than silently collapsed.
 
-## Phase 3 — Structured research extraction
+## Phase 3 — Structured research extraction and source intelligence
 
 Status: **in progress**
 
-Goal: turn normalized documents into reusable research objects.
+Goal: turn research sources into reusable, evidence-grounded research objects without losing native document/provider structure.
 
-Foundation deliverables:
+### Delivered extraction foundation
 
-- typed Evidence contract with exact passage-local spans
+- generalized Evidence contract with passage, figure, table-cell, and equation locators
 - immutable extraction-run metadata separated from record-level confidence/review provenance
 - human review state
 - author-stated vs inferred attribution
 - typed Claim, Hypothesis, Method, Dataset, Variable, Model, Metric, Result, and Limitation contracts
-- provider/model-neutral `StructuredExtractor` port and postcondition validation
+- provider/model-neutral structured extraction ports and postcondition validation
 - `ExtractionRepository` persistence port with run-scoped reads and atomic/idempotent write semantics
-- PostgreSQL reference schema with lineage constraints and evidence validation
-- extraction contract tests
-
-Delivered vertical slices now also include:
-
+- PostgreSQL reference schema with lineage/evidence validation
 - deterministic claim extraction
 - local JSON extraction repository
 - claim/evidence CLI inspection
 - provider-neutral structured model boundary
-- OpenAI-compatible model adapter
+- OpenAI-compatible claim and research adapters
 - extraction evaluation fixtures and claim precision/recall metrics
-- bounded model requests with request-local evidence validation and overlap deduplication
+- bounded model requests with request-local evidence validation and semantic overlap deduplication
+- property-based batching tests and explicit testing taxonomy
 
-The supported foundation workflow, failure behavior, debugging steps, and current non-goals are documented in [`MILESTONE_4.md`](MILESTONE_4.md).
+### Source/document intelligence — current sequence
 
-Next:
+The governing rule is:
 
-1. generalize bounded structured extraction beyond claims
-2. add schema-constrained extraction for Method, Dataset, and Result first
-3. expand to Variable, Model, Metric, Limitation, and Hypothesis
-4. introduce generalized evidence locators for textual and multimodal source objects
-5. add first-class Figure, Table, and Equation document artifacts without requiring OCR/vision
-6. add optional native-structure, OCR, and vision adapters behind explicit contracts
-7. link figure/table interpretations to source artifacts without overwriting immutable source facts
+> **Preserve native structure first; normalize second; infer last.**
 
-Multimodal source artifacts should preserve layers explicitly:
+See [`SOURCE_DOCUMENT_PRESERVATION.md`](SOURCE_DOCUMENT_PRESERVATION.md).
+
+1. **#25 — preservation/capability contracts**
+   - generic immutable SourceObservation
+   - native/reconstructed/inferred distinction
+   - capability manifests for providers/parsers/crawlers/enrichers
+   - generic ResourceLinkObservation
+   - additive migration path from existing source-record/full-text contracts
+2. **#26 — bibliography/citation model**
+   - BibliographicReference
+   - CitationMention / CitationContext
+   - resolved citation identity
+   - provenance-backed WorkRelation
+   - bounded cited/citing traversal policy
+3. **#27 — native document structure adapters**
+   - JATS XML first-class structure
+   - Docling/PDF native/reconstructed figures/tables/equations/layout
+   - EPUB and semantic HTML
+   - LaTeX/source bundles where practical
+   - deterministic format-preservation fixture corpus
+4. **#28 — bounded web/resource discovery**
+   - HTTP/source observations
+   - sitemap/feed/link discovery
+   - resource/media routing
+   - resumable bounded crawl policy
+   - no research semantics embedded in crawler code
+5. **Research packages / supplements**
+   - link article representations, supplements, datasets, and software/code
+   - prefer source-linked raw data over chart pixel reconstruction where available
+6. **Optional OCR/vision/chart reconstruction**
+   - remain replaceable reconstructed/inferred adapters
+   - never overwrite immutable source-native observations
+
+### Source/provider audit workstream
+
+Before adding or upgrading a connector, inventory the upstream source's:
+
+- stable identifiers
+- native metadata
+- references/citations
+- full-text/alternate/supplement/dataset/software links
+- author/organization/funder/award/license data
+- versions/corrections/retractions
+- pagination/rate/update behavior
+- rights/access constraints
+- source-native vs provider-inferred fields
+
+Representative native payloads should become deterministic preservation fixtures.
+
+Likely future source additions after the contracts are exercised include DataCite, PubMed/PubMed Central, ORCID/ROR enrichment, Zenodo/OSF/Figshare, and institutional repositories. Add them based on concrete workflows rather than source-count goals.
+
+### Multimodal truth layers
 
 ```text
-immutable Figure/Table/Equation artifact
-    -> observed structure/text/value
+native Figure/Table/Equation or source artifact
+    -> reconstructed observation (only when necessary)
     -> optional interpretation
     -> Result / Claim / other research object
 ```
@@ -148,12 +193,6 @@ OCR, vision, chart digitization, and embeddings are optional adapters. They are 
 
 Agents must return evidence-backed records and only concise visible reasoning summaries where useful. Hidden chain-of-thought is never persisted.
 
-Later in this phase:
-
-- software and experiment contracts where the first workflows require them
-- richer table/figure reconstruction when native source data are unavailable
-- links from figures to supplementary/raw datasets where available
-
 ## Phase 4 — Evidence verification
 
 Goal: distinguish citation from actual support.
@@ -161,10 +200,11 @@ Goal: distinguish citation from actual support.
 Deliverables:
 
 - claim/evidence relationships
-- verification workflow
+- citation-context-aware verification workflow
 - support/contradiction/qualification labels
 - confidence and review state
 - source passage/figure/table expansion
+- cited-source traversal where bounded and permitted
 - deterministic evaluation fixtures
 
 ## Phase 5 — Agent-first serving
@@ -199,7 +239,7 @@ Deliverables:
 - bibliography generation
 - evidence-linked reports
 - research snapshot manifests
-- JSON/JSONL and BibTeX/RIS export
+- JSON/JSONL and BibTeX/RIS/CSL-JSON export
 
 ## Phase 7 — First domain pack: Baseball
 
@@ -269,9 +309,11 @@ The default CI profile remains network-free and credential-free. External databa
 
 Coverage is measured with branch coverage as a diagnostic. Repository-wide thresholds are deferred until a stable baseline is known; critical contracts should be covered behaviorally rather than optimized for a vanity percentage.
 
+For provider/document adapters, tests should verify preservation of source-native fields/structure rather than only successful parsing.
+
 ### Evaluation
 
-Measure parser quality, identity precision/recall, extraction accuracy, evidence verification, retrieval quality, context/token efficiency, latency, and cost.
+Measure parser preservation quality, identity precision/recall, extraction accuracy, evidence verification, citation resolution quality, retrieval quality, context/token efficiency, latency, and cost.
 
 ### Documentation
 

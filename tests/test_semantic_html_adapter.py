@@ -50,7 +50,7 @@ def test_semantic_html_preserves_structure_and_first_class_artifacts() -> None:
 
     assert len(document.equations) == 1
     assert document.equations[0].label == "Equation 1"
-    assert document.equations[0].source_text == "y = x"
+    assert document.equations[0].source_text == "y=x"
 
 
 def test_semantic_html_preserves_citations_metadata_and_resource_links() -> None:

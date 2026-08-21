@@ -9,7 +9,8 @@ from tarkka.ports.model_claims import EvidenceSelector, ModelClaimRequest, Model
 
 
 class EvidenceGroundedCandidate(Protocol):
-    evidence: tuple[EvidenceSelector, ...]
+    @property
+    def evidence(self) -> tuple[EvidenceSelector, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)

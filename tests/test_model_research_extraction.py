@@ -40,6 +40,7 @@ def _document() -> Document:
     texts = (
         "We trained gradient boosted trees on Statcast data.",
         "The model reduced log loss from 0.61 to 0.57.",
+        "Additional discussion followed the reported result.",
     )
     offset = 0
     passages = []
@@ -76,7 +77,7 @@ def _document() -> Document:
 
 def test_extracts_method_dataset_and_result_in_one_run() -> None:
     document = _document()
-    first, second = document.sections[0].passages
+    first, second, _ = document.sections[0].passages
     model = RecordingResearchModel(
         responses=[
             (
@@ -112,38 +113,40 @@ def test_extracts_method_dataset_and_result_in_one_run() -> None:
 
 def test_bounded_research_extraction_deduplicates_overlap_by_exact_signature() -> None:
     document = _document()
-    first = document.sections[0].passages[0]
+    shared = document.sections[0].passages[1]
     low = ModelMethodCandidate(
         name="gradient boosted trees",
-        evidence=(EvidenceSelector(first.passage_id, 3, 32),),
+        evidence=(EvidenceSelector(shared.passage_id, 4, 9),),
         confidence=0.6,
     )
     high = ModelMethodCandidate(
         name="Gradient Boosted Trees",
-        evidence=(EvidenceSelector(first.passage_id, 3, 32),),
+        evidence=(EvidenceSelector(shared.passage_id, 4, 9),),
         confidence=0.9,
     )
     model = RecordingResearchModel(responses=[(low,), (high,)])
 
     batch = ModelResearchExtractor(
         model,
-        batching=ModelBatchingPolicy(max_chars=55, max_passages=1, overlap_passages=0),
+        batching=ModelBatchingPolicy(max_chars=200, max_passages=2, overlap_passages=1),
     ).extract(document)
 
     assert len(model.requests) == 2
+    assert model.requests[0].passages[1].passage_id == shared.passage_id
+    assert model.requests[1].passages[0].passage_id == shared.passage_id
     assert len(batch.extractions) == 1
     assert batch.extractions[0].provenance.confidence == 0.9
 
 
 def test_rejects_candidate_evidence_outside_current_batch() -> None:
     document = _document()
-    second = document.sections[0].passages[1]
+    third = document.sections[0].passages[2]
     model = RecordingResearchModel(
         responses=[
             (
                 ModelResultCandidate(
                     text="Out of scope",
-                    evidence=(EvidenceSelector(second.passage_id, 0, 3),),
+                    evidence=(EvidenceSelector(third.passage_id, 0, 3),),
                     confidence=0.5,
                 ),
             )
@@ -153,7 +156,7 @@ def test_rejects_candidate_evidence_outside_current_batch() -> None:
     with pytest.raises(ValueError, match="outside request batch"):
         ModelResearchExtractor(
             model,
-            batching=ModelBatchingPolicy(max_chars=55, max_passages=1, overlap_passages=0),
+            batching=ModelBatchingPolicy(max_chars=200, max_passages=2, overlap_passages=1),
         ).extract(document)
 
 

@@ -121,9 +121,21 @@ class DoclingParser:
             parser_version=self.version,
             title=str(title),
         )
-        figures = _docling_figures(docling_document, document.document_id)
-        tables = _docling_tables(docling_document, document.document_id)
-        equations = _docling_equations(docling_document, document.document_id)
+        figures = _docling_figures(
+            docling_document,
+            document_id=document.document_id,
+            artifact_id=artifact.artifact_id,
+        )
+        tables = _docling_tables(
+            docling_document,
+            document_id=document.document_id,
+            artifact_id=artifact.artifact_id,
+        )
+        equations = _docling_equations(
+            docling_document,
+            document_id=document.document_id,
+            artifact_id=artifact.artifact_id,
+        )
         document = replace(document, figures=figures, tables=tables, equations=equations)
         observation = SourceObservation(
             observation_id=_stable_id(artifact.artifact_id, "docling-observation"),
@@ -145,12 +157,17 @@ class DoclingParser:
         return NativeDocumentParseResult(document=document, observation=observation)
 
 
-def _docling_figures(document: Any, document_id: UUID) -> tuple[Figure, ...]:
+def _docling_figures(
+    document: Any,
+    *,
+    document_id: UUID,
+    artifact_id: UUID,
+) -> tuple[Figure, ...]:
     values: list[Figure] = []
     for ordinal, item in enumerate(getattr(document, "pictures", ()) or ()):
         values.append(
             Figure(
-                figure_id=_stable_id(document_id, f"figure:{ordinal}"),
+                figure_id=_stable_id(artifact_id, f"docling-figure:{ordinal}"),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),
@@ -162,13 +179,18 @@ def _docling_figures(document: Any, document_id: UUID) -> tuple[Figure, ...]:
     return tuple(values)
 
 
-def _docling_tables(document: Any, document_id: UUID) -> tuple[Table, ...]:
+def _docling_tables(
+    document: Any,
+    *,
+    document_id: UUID,
+    artifact_id: UUID,
+) -> tuple[Table, ...]:
     values: list[Table] = []
     for ordinal, item in enumerate(getattr(document, "tables", ()) or ()):
         data = getattr(item, "data", None)
         values.append(
             Table(
-                table_id=_stable_id(document_id, f"table:{ordinal}"),
+                table_id=_stable_id(artifact_id, f"docling-table:{ordinal}"),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),
@@ -181,7 +203,12 @@ def _docling_tables(document: Any, document_id: UUID) -> tuple[Table, ...]:
     return tuple(values)
 
 
-def _docling_equations(document: Any, document_id: UUID) -> tuple[Equation, ...]:
+def _docling_equations(
+    document: Any,
+    *,
+    document_id: UUID,
+    artifact_id: UUID,
+) -> tuple[Equation, ...]:
     values: list[Equation] = []
     for item in getattr(document, "texts", ()) or ():
         label = str(getattr(item, "label", "")).lower()
@@ -193,7 +220,7 @@ def _docling_equations(document: Any, document_id: UUID) -> tuple[Equation, ...]
             continue
         values.append(
             Equation(
-                equation_id=_stable_id(document_id, f"equation:{ordinal}"),
+                equation_id=_stable_id(artifact_id, f"docling-equation:{ordinal}"),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),

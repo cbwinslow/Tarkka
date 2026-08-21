@@ -22,6 +22,10 @@ class UnsupportedDocumentError(ValueError):
     pass
 
 
+class NativePersistenceError(RuntimeError):
+    """Transient native persistence interruption that can be resumed by retrying."""
+
+
 @dataclass(frozen=True, slots=True)
 class IngestResult:
     artifact: Artifact
@@ -114,7 +118,14 @@ class IngestService:
         self._repository.save_artifact(artifact)
         self._repository.save_document(document, manifest)
         if native_parse is not None:
-            self._persist_native_parse(native_parse)
+            try:
+                self._persist_native_parse(native_parse)
+            except OSError as exc:
+                # Deterministic record IDs and idempotent writes make transient filesystem
+                # interruptions resumable. Validation/conflict errors intentionally pass through.
+                raise NativePersistenceError(
+                    "native parse persistence was interrupted; retry the same source to resume"
+                ) from exc
 
         return IngestResult(
             artifact=artifact,

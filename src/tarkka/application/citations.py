@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.domain.citations import (
@@ -30,12 +30,13 @@ class CitationIdentityResolver:
     def resolve(self, reference: BibliographicReference) -> CitationResolution:
         matches: dict[UUID, str] = {}
         for scheme, raw_value in reference.identifiers.items():
-            value = _normalize_identifier(scheme, raw_value)
+            normalized_scheme = scheme.strip().lower()
+            value = _normalize_identifier(normalized_scheme, raw_value)
             if value is None:
                 continue
-            work = self._repository.find_work_by_identifier(scheme.strip().lower(), value)
+            work = self._repository.find_work_by_identifier(normalized_scheme, value)
             if work is not None:
-                matches[work.work_id] = f"{scheme.strip().lower()}:{value}"
+                matches[work.work_id] = f"{normalized_scheme}:{value}"
 
         resolution_id = self._id_factory(f"citation-resolution:{reference.reference_id}")
         if not matches:
@@ -74,11 +75,15 @@ class CitationIdentityResolver:
     ) -> WorkRelation:
         if resolution.reference_id != reference.reference_id:
             raise ValueError("citation resolution does not belong to reference")
-        if resolution.status is not CitationResolutionStatus.RESOLVED or resolution.work_id is None:
+        if (
+            resolution.status is not CitationResolutionStatus.RESOLVED
+            or resolution.work_id is None
+        ):
             raise ValueError("citation relation requires a resolved reference")
         return WorkRelation(
             relation_id=self._id_factory(
-                f"work-relation:{citing_work_id}:{resolution.work_id}:cites:{reference.reference_id}"
+                "work-relation:"
+                f"{citing_work_id}:{resolution.work_id}:cites:{reference.reference_id}"
             ),
             subject_work_id=citing_work_id,
             object_work_id=resolution.work_id,
@@ -91,13 +96,12 @@ class CitationIdentityResolver:
 
 
 def _normalize_identifier(scheme: str, value: str) -> str | None:
-    normalized_scheme = scheme.strip().lower()
     stripped = value.strip()
-    if not normalized_scheme or not stripped:
+    if not scheme or not stripped:
         return None
-    if normalized_scheme == "doi":
+    if scheme == "doi":
         return try_normalize_doi(stripped)
-    if normalized_scheme == "arxiv":
+    if scheme == "arxiv":
         return try_normalize_arxiv_id(stripped)
     return stripped
 

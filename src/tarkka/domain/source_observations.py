@@ -92,18 +92,22 @@ class CapabilityManifest:
     identifier_schemes: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
-        if not self.adapter_name.strip():
-            raise ValueError("adapter name must not be blank")
-        if not self.version.strip():
-            raise ValueError("adapter version must not be blank")
+        _require_non_blank_str(self.adapter_name, "adapter name")
+        _require_non_blank_str(self.version, "adapter version")
+        if not isinstance(self.adapter_kind, AdapterKind):
+            raise ValueError("adapter kind must be an AdapterKind")
 
         capabilities = frozenset(self.capabilities)
         media_types = frozenset(self.media_types)
         identifier_schemes = frozenset(self.identifier_schemes)
-        if any(not value.strip() for value in media_types):
-            raise ValueError("media types must not contain blank values")
-        if any(not value.strip() for value in identifier_schemes):
-            raise ValueError("identifier schemes must not contain blank values")
+        if any(not isinstance(value, Capability) for value in capabilities):
+            raise ValueError("capabilities must contain only Capability values")
+        if any(not isinstance(value, str) or not value.strip() for value in media_types):
+            raise ValueError("media types must contain only non-blank strings")
+        if any(
+            not isinstance(value, str) or not value.strip() for value in identifier_schemes
+        ):
+            raise ValueError("identifier schemes must contain only non-blank strings")
 
         object.__setattr__(self, "capabilities", capabilities)
         object.__setattr__(self, "media_types", media_types)
@@ -135,14 +139,12 @@ class SourceObservation:
     observed_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        if not self.source_name.strip():
-            raise ValueError("source observation name must not be blank")
-        if self.source_version is not None and not self.source_version.strip():
-            raise ValueError("source version must not be blank when provided")
-        if self.provider_record_id is not None and not self.provider_record_id.strip():
-            raise ValueError("provider record id must not be blank when provided")
-        if self.media_type is not None and not self.media_type.strip():
-            raise ValueError("media type must not be blank when provided")
+        _require_non_blank_str(self.source_name, "source observation name")
+        if not isinstance(self.basis, ObservationBasis):
+            raise ValueError("observation basis must be an ObservationBasis")
+        _require_optional_non_blank_str(self.source_version, "source version")
+        _require_optional_non_blank_str(self.provider_record_id, "provider record id")
+        _require_optional_non_blank_str(self.media_type, "media type")
         object.__setattr__(self, "metadata", _freeze_mapping(self.metadata))
 
 
@@ -159,16 +161,27 @@ class ResourceLinkObservation:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.target_uri.strip():
-            raise ValueError("resource target URI must not be blank")
-        if self.media_type is not None and not self.media_type.strip():
-            raise ValueError("resource media type must not be blank when provided")
-        if self.label is not None and not self.label.strip():
-            raise ValueError("resource label must not be blank when provided")
+        _require_non_blank_str(self.target_uri, "resource target URI")
+        if not isinstance(self.relation, ResourceRelation):
+            raise ValueError("resource relation must be a ResourceRelation")
+        _require_optional_non_blank_str(self.media_type, "resource media type")
+        _require_optional_non_blank_str(self.label, "resource label")
         object.__setattr__(self, "metadata", _freeze_mapping(self.metadata))
 
 
+def _require_non_blank_str(value: Any, field_name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-blank string")
+
+
+def _require_optional_non_blank_str(value: Any, field_name: str) -> None:
+    if value is not None:
+        _require_non_blank_str(value, field_name)
+
+
 def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("native metadata must be a mapping")
     frozen: dict[str, Any] = {}
     for key, item in value.items():
         if not isinstance(key, str) or not key.strip():

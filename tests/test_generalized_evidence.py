@@ -26,6 +26,7 @@ from tarkka.domain.source_artifacts import (
     Table,
     TableCellRange,
 )
+from tarkka.evaluation.claims import evaluate_claims
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 
 
@@ -228,6 +229,52 @@ def test_document_rejects_cross_document_source_artifact() -> None:
             sections=(),
             figures=(foreign,),
         )
+
+
+def test_document_rejects_duplicate_source_artifact_ordinals() -> None:
+    document_id = uuid4()
+    figures = (
+        Figure(figure_id=uuid4(), document_id=document_id, ordinal=0),
+        Figure(figure_id=uuid4(), document_id=document_id, ordinal=0),
+    )
+
+    with pytest.raises(ValueError, match="figure ordinals must be unique"):
+        Document(
+            document_id=document_id,
+            artifact_id=uuid4(),
+            title="Duplicate ordinals",
+            parser_name="fixture",
+            parser_version="1",
+            sections=(),
+            figures=figures,
+        )
+
+
+def test_claim_evaluation_explicitly_rejects_non_passage_evidence() -> None:
+    document = _document()
+    run, provenance = _run(document)
+    figure_evidence = FigureEvidence(
+        evidence_id=uuid4(),
+        document_id=document.document_id,
+        figure_id=document.figures[0].figure_id,
+        provenance=provenance,
+    )
+    claim = Claim(
+        extraction_id=uuid4(),
+        document_id=document.document_id,
+        evidence_ids=(figure_evidence.evidence_id,),
+        provenance=provenance,
+        text="Figure-backed claim",
+    )
+    batch = ExtractionBatch(
+        document=document,
+        run=run,
+        evidence=(figure_evidence,),
+        extractions=(claim,),
+    )
+
+    with pytest.raises(ValueError, match="supports passage evidence only"):
+        evaluate_claims(batch, ())
 
 
 def test_json_repository_round_trips_mixed_evidence(tmp_path: Path) -> None:

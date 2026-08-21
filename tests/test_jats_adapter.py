@@ -108,6 +108,31 @@ def test_jats_ids_are_stable_for_same_source_artifact() -> None:
     ]
 
 
+def test_jats_default_namespace_preserves_descendants(tmp_path: Path) -> None:
+    path = tmp_path / "namespaced.nxml"
+    path.write_text(
+        """<article xmlns="urn:jats:test">
+  <front><article-meta><title-group><article-title>Namespaced</article-title></title-group></article-meta></front>
+  <body><sec id="s1"><title>Methods</title><p>Native paragraph.</p></sec></body>
+</article>""",
+        encoding="utf-8",
+    )
+    artifact = Artifact(
+        artifact_id=uuid4(),
+        sha256="d" * 64,
+        size_bytes=path.stat().st_size,
+        media_type="application/jats+xml",
+        storage_key=PurePosixPath("dd/namespaced"),
+        original_name="namespaced.nxml",
+    )
+
+    document = JatsParser().parse(artifact, path)
+
+    assert document.title == "Namespaced"
+    assert [section.title for section in document.sections] == ["Methods"]
+    assert document.sections[0].passages[0].text == "Native paragraph."
+
+
 def test_jats_capabilities_are_explicit() -> None:
     manifest = JatsParser.manifest
 

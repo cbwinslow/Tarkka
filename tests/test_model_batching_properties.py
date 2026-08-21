@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from tarkka.domain.models import Document, Passage, Section
@@ -69,22 +69,26 @@ def _document(lengths: list[int]) -> Document:
     )
 
 
+@st.composite
+def _valid_batch_limits(draw: st.DrawFn) -> tuple[int, int]:
+    max_passages = draw(st.integers(min_value=1, max_value=8))
+    overlap = draw(st.integers(min_value=0, max_value=max_passages - 1))
+    return max_passages, overlap
+
+
 @pytest.mark.property
 @given(
     lengths=st.lists(st.integers(min_value=1, max_value=80), min_size=1, max_size=20),
     max_chars=st.integers(min_value=1, max_value=120),
-    max_passages=st.integers(min_value=1, max_value=8),
-    overlap=st.integers(min_value=0, max_value=7),
+    batch_limits=_valid_batch_limits(),
 )
 @settings(max_examples=150, deadline=None)
 def test_model_batching_preserves_passages_and_bounds(
     lengths: list[int],
     max_chars: int,
-    max_passages: int,
-    overlap: int,
+    batch_limits: tuple[int, int],
 ) -> None:
-    assume(overlap < max_passages)
-
+    max_passages, overlap = batch_limits
     document = _document(lengths)
     model = RecordingModel()
     extractor = ModelClaimExtractor(

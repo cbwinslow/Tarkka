@@ -15,7 +15,13 @@ dependencies = []
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
 docling = ["docling>=2.117,<3"]
-dev = ["pytest>=8.3", "ruff>=0.9", "mypy>=1.14"]
+dev = [
+    "hypothesis>=6.124",
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+]
 all = ["psycopg[binary]>=3.2,<4", "docling>=2.117,<3"]
 
 [project.scripts]
@@ -26,7 +32,23 @@ packages = ["src/tarkka"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
+markers = [
+    "unit: isolated deterministic behavior without external services",
+    "contract: public/domain/port invariants and compatibility contracts",
+    "integration: collaboration between multiple Tarkka components",
+    "regression: a previously observed failure that must not recur",
+    "property: property-based invariant tests generated across many inputs",
+    "external: opt-in tests requiring network, databases, models, or other services",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["tarkka"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
 
 [tool.ruff]
 target-version = "py311"

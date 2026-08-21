@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "pyproject.toml"
+      - "uv.lock"
       - "src/tarkka/infrastructure/storage/docling_parser.py"
       - "src/tarkka/infrastructure/storage/markdown_normalizer.py"
       - "tests/test_docling_adapter.py"
@@ -12,6 +13,7 @@ on:
   pull_request:
     paths:
       - "pyproject.toml"
+      - "uv.lock"
       - "src/tarkka/infrastructure/storage/docling_parser.py"
       - "src/tarkka/infrastructure/storage/markdown_normalizer.py"
       - "tests/test_docling_adapter.py"
@@ -31,17 +33,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: "3.12"
-          cache: pip
+          enable-cache: true
+      - name: Create integration environment
+        run: uv venv --python 3.12 --seed
       - name: Install Docling integration (CPU)
+        # PyTorch's CPU index also contains stale copies of generic packages.
+        # pip's extra-index behavior is intentionally retained for this one
+        # specialized integration instead of weakening uv's safe first-index policy.
         run: >-
-          python -m pip install -e '.[dev,docling]'
+          .venv/bin/python -m pip install -e '.[docling]'
           --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Install development test tools
+        run: uv pip install --group dev
       - name: Verify optional adapter
         run: >-
-          python -c "from tarkka.infrastructure.storage.docling_parser import DoclingParser;
+          uv run --no-sync python -c "from tarkka.infrastructure.storage.docling_parser import DoclingParser;
           assert DoclingParser.is_available()"
       - name: Run adapter tests
-        run: pytest tests/test_docling_adapter.py
+        run: uv run --no-sync pytest tests/test_docling_adapter.py

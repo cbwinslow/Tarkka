@@ -1,0 +1,8 @@
+# Historical migrations predate SQLFluff adoption and are append-only after merge.
+# New migration files are intentionally not ignored and must pass SQLFluff.
+migrations/0001_core.sql
+migrations/0002_acquisition.sql
+migrations/0003_discovery.sql
+migrations/0004_work_identity.sql
+migrations/0005_structured_extraction.sql
+migrations/0006_generalized_evidence.sql

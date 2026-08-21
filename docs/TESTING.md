@@ -77,23 +77,43 @@ Markers are descriptive rather than mutually exclusive. For example, a test may 
 
 `--strict-markers` is enabled so misspelled or undocumented markers fail immediately.
 
-## Default validation
+## Development environment
 
-Every supported Python version runs:
+`uv` is the canonical project/development environment manager. Install a compatible uv release and synchronize the development group:
 
 ```bash
-ruff check .
-mypy
-pytest -m "not external"
+uv sync --group dev
 ```
 
-The default suite must remain deterministic and network-free.
+Run repository tools through `uv run` so local execution uses the same declared environment as CI:
+
+```bash
+uv run ruff check .
+uv run mypy
+uv run sqlfluff lint migrations
+uv run pytest -m "not external"
+```
+
+Do not install project tooling globally or maintain parallel `requirements-dev.txt` files. Development-only tools belong in the `dev` dependency group in `pyproject.toml`; runtime features belong in normal dependencies or explicit optional extras.
+
+## Default validation
+
+CI separates static quality checks from the Python compatibility matrix:
+
+- Ruff, strict mypy, and SQLFluff run once on the primary CI interpreter.
+- pytest runs on Python 3.11, 3.12, and 3.13.
+- external tests remain opt-in.
+- branch coverage is collected during the Python 3.13 test run rather than rerunning the suite in a separate coverage job.
+
+SQL migrations are linted with SQLFluff using the PostgreSQL dialect configured in `pyproject.toml`.
+
+The default suite must remain deterministic and network-free after dependency installation.
 
 ## Coverage
 
 Coverage is a diagnostic, not a substitute for meaningful assertions.
 
-CI records branch coverage and reports missing lines. Tarkka initially measures coverage without enforcing an arbitrary repository-wide percentage. Once a stable baseline is known, thresholds can be introduced per critical subsystem rather than rewarding low-value tests merely to increase a global number.
+CI records branch coverage, reports missing lines, and retains `coverage.xml` as a workflow artifact for later inspection. Tarkka initially measures coverage without enforcing an arbitrary repository-wide percentage. Once a stable baseline is known, thresholds can be introduced per critical subsystem rather than rewarding low-value tests merely to increase a global number.
 
 High-risk contracts should aim for behavior coverage even when total repository coverage is lower.
 

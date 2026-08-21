@@ -29,6 +29,7 @@ Load additional docs only when the task touches them:
 | MCP/agent APIs | `docs/AGENT_INTERFACE.md`, `docs/CONTEXT_EFFICIENCY.md` |
 | auth/privacy/content rights | `docs/SECURITY_PRIVACY_LICENSING.md` |
 | implementation practices | `docs/DEVELOPMENT.md` |
+| testing/quality workflow | `docs/TESTING.md` |
 | naming/package namespace | `docs/NAMING.md` |
 | unresolved design choices | `docs/OPEN_QUESTIONS.md` |
 | external projects/dependencies | `docs/REFERENCE_PROJECTS.md` |
@@ -72,6 +73,27 @@ Do not violate these without an explicit architecture decision:
 7. Add or update tests with the implementation.
 8. Update architecture/milestone docs when behavior or contracts materially change.
 
+## Canonical development workflow
+
+Use `uv` for project environments and dependency operations. Do not create parallel pip/requirements workflows for development tooling.
+
+Synchronize the declared development environment:
+
+```bash
+uv sync --group dev
+```
+
+Before considering a code change complete, run the checks relevant to the files touched. For normal Python/SQL changes the canonical full local validation is:
+
+```bash
+uv run ruff check .
+uv run mypy
+uv run sqlfluff lint migrations
+uv run pytest -m "not external"
+```
+
+Do not hand-edit `uv.lock`. When dependency declarations change, regenerate the lock with `uv`, review the dependency diff, and include the lock update in the same PR. CI is the final authority for the supported Python matrix.
+
 ## Implementation style
 
 - Prefer explicit, readable Python.
@@ -97,6 +119,8 @@ Before adding a substantial dependency, determine:
 - replacement boundary
 - network/data behavior
 - test strategy
+
+Development-only tools belong in the `dev` dependency group. Runtime dependencies belong in `[project.dependencies]` or a narrowly scoped optional extra. Do not make lint/test tooling a runtime dependency.
 
 Do not recreate mature parsing/search/reporting systems merely to avoid integration work, but do not make a vendor library the architecture either.
 

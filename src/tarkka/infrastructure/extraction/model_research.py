@@ -177,19 +177,36 @@ def _to_domain_record(
     evidence_ids: tuple[UUID, ...],
     provenance: ExtractionProvenance,
 ) -> ResearchExtraction:
-    common = {
-        "extraction_id": extraction_id,
-        "document_id": document_id,
-        "evidence_ids": evidence_ids,
-        "provenance": provenance,
-        "attribution": candidate.attribution,
-    }
     if isinstance(candidate, ModelMethodCandidate):
-        return Method(**common, name=candidate.name, description=candidate.description)
+        return Method(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            name=candidate.name,
+            description=candidate.description,
+        )
     if isinstance(candidate, ModelDatasetCandidate):
-        return Dataset(**common, name=candidate.name, description=candidate.description)
+        return Dataset(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            name=candidate.name,
+            description=candidate.description,
+        )
     if isinstance(candidate, ModelResultCandidate):
-        return Result(**common, text=candidate.text, direction=candidate.direction)
+        return Result(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            text=candidate.text,
+            direction=candidate.direction,
+        )
     raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
 
 

@@ -160,6 +160,25 @@ def test_rejects_candidate_evidence_outside_current_batch() -> None:
         ).extract(document)
 
 
+def test_rejects_candidate_evidence_beyond_passage_bounds() -> None:
+    document = _document()
+    first = document.sections[0].passages[0]
+    model = RecordingResearchModel(
+        responses=[
+            (
+                ModelMethodCandidate(
+                    name="gradient boosted trees",
+                    evidence=(EvidenceSelector(first.passage_id, 0, len(first.text) + 1),),
+                    confidence=0.8,
+                ),
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="evidence range must be contained within the passage"):
+        ModelResearchExtractor(model).extract(document)
+
+
 def test_no_candidates_fails_closed_without_partial_batch() -> None:
     with pytest.raises(NoModelResearchFoundError):
         ModelResearchExtractor(RecordingResearchModel()).extract(_document())

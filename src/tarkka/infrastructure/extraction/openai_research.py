@@ -41,7 +41,9 @@ class OpenAICompatibleResearchModel(OpenAICompatibleClaimModel):
         return _parse_research_candidates(_response_content(response))
 
 
-def _research_request_payload(model_name: str, request: ModelResearchRequest) -> dict[str, Any]:
+def _research_request_payload(
+    model_name: str, request: ModelResearchRequest
+) -> dict[str, Any]:
     source = json.dumps(
         {
             "document_id": str(request.document_id),
@@ -109,39 +111,85 @@ def _parse_research_candidate(raw: Any) -> ModelResearchCandidate:
     confidence_value = float(confidence)
     if not math.isfinite(confidence_value):
         raise ValueError("model research confidence must be finite")
-    attribution = AttributionKind(_json_text(raw, "attribution", default="author_stated"))
+    attribution = AttributionKind(
+        _json_text(raw, "attribution", default="author_stated")
+    )
     reasoning = raw.get("reasoning_summary")
     if reasoning is not None and not isinstance(reasoning, str):
         raise ValueError("model reasoning summary must be text when provided")
     evidence = tuple(_parse_selector(item) for item in evidence_raw)
 
-    common = {
-        "evidence": evidence,
-        "confidence": confidence_value,
-        "attribution": attribution,
-        "reasoning_summary": reasoning,
-    }
     if kind == "method":
-        return ModelMethodCandidate(name=_json_text(raw, "name"), description=_optional_text(raw, "description"), **common)
+        return ModelMethodCandidate(
+            name=_json_text(raw, "name"),
+            description=_optional_text(raw, "description"),
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
+        )
     if kind == "dataset":
-        return ModelDatasetCandidate(name=_json_text(raw, "name"), description=_optional_text(raw, "description"), **common)
+        return ModelDatasetCandidate(
+            name=_json_text(raw, "name"),
+            description=_optional_text(raw, "description"),
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
+        )
     if kind == "variable":
-        return ModelVariableCandidate(name=_json_text(raw, "name"), role=_optional_text(raw, "role"), **common)
+        return ModelVariableCandidate(
+            name=_json_text(raw, "name"),
+            role=_optional_text(raw, "role"),
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
+        )
     if kind == "model":
-        return ModelModelCandidate(name=_json_text(raw, "name"), family=_optional_text(raw, "family"), **common)
+        return ModelModelCandidate(
+            name=_json_text(raw, "name"),
+            family=_optional_text(raw, "family"),
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
+        )
     if kind == "metric":
         return ModelMetricCandidate(
             name=_json_text(raw, "name"),
             value_text=_optional_text(raw, "value_text"),
             unit=_optional_text(raw, "unit"),
-            **common,
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
         )
     if kind == "hypothesis":
-        return ModelHypothesisCandidate(text=_json_text(raw, "text"), **common)
+        return ModelHypothesisCandidate(
+            text=_json_text(raw, "text"),
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
+        )
     if kind == "result":
-        return ModelResultCandidate(text=_json_text(raw, "text"), direction=_optional_text(raw, "direction"), **common)
+        return ModelResultCandidate(
+            text=_json_text(raw, "text"),
+            direction=_optional_text(raw, "direction"),
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
+        )
     if kind == "limitation":
-        return ModelLimitationCandidate(text=_json_text(raw, "text"), **common)
+        return ModelLimitationCandidate(
+            text=_json_text(raw, "text"),
+            evidence=evidence,
+            confidence=confidence_value,
+            attribution=attribution,
+            reasoning_summary=reasoning,
+        )
     raise ValueError(f"unsupported model research candidate kind: {kind!r}")
 
 
@@ -161,7 +209,9 @@ def _parse_selector(raw: Any) -> EvidenceSelector:
     return EvidenceSelector(passage_id=passage_id, char_start=start, char_end=end)
 
 
-def _json_text(raw: Mapping[str, Any], key: str, *, default: str | None = None) -> str:
+def _json_text(
+    raw: Mapping[str, Any], key: str, *, default: str | None = None
+) -> str:
     value = raw.get(key, default)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"model research {key} must be non-empty text")

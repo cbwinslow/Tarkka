@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import assume, given, settings
+from hypothesis import strategies as st
 
 from tarkka.domain.models import Document, Passage, Section
 from tarkka.infrastructure.extraction.model_claims import ModelBatchingPolicy, ModelClaimExtractor
@@ -82,8 +83,7 @@ def test_model_batching_preserves_passages_and_bounds(
     max_passages: int,
     overlap: int,
 ) -> None:
-    if overlap >= max_passages:
-        return
+    assume(overlap < max_passages)
 
     document = _document(lengths)
     model = RecordingModel()

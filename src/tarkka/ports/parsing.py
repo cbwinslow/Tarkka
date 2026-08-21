@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from tarkka.domain.citations import BibliographicReference, CitationMention
 from tarkka.domain.models import Artifact, Document
@@ -51,6 +51,7 @@ class DocumentParser(Protocol):
     def parse(self, artifact: Artifact, path: Path) -> Document: ...
 
 
+@runtime_checkable
 class NativeStructureParser(DocumentParser, Protocol):
     """Parser capable of exposing preserved source-native structure and provenance."""
 

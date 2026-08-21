@@ -29,6 +29,9 @@ class AdapterKind(StrEnum):
     ENRICHMENT = "enrichment"
     CRAWLER = "crawler"
     EXTRACTION = "extraction"
+    VERIFICATION = "verification"
+    RETRIEVAL = "retrieval"
+    STORAGE = "storage"
     EXPORT = "export"
 
 
@@ -37,6 +40,12 @@ class Capability(StrEnum):
 
     SEARCH = "search"
     RECORD_LOOKUP = "record_lookup"
+    ACQUIRE = "acquire"
+    PARSE = "parse"
+    EXTRACT = "extract"
+    VERIFY = "verify"
+    RETRIEVE = "retrieve"
+    EXPORT = "export"
     REFERENCES_OUTBOUND = "references_outbound"
     CITATIONS_INBOUND = "citations_inbound"
     FULL_TEXT = "full_text"
@@ -87,10 +96,18 @@ class CapabilityManifest:
             raise ValueError("adapter name must not be blank")
         if not self.version.strip():
             raise ValueError("adapter version must not be blank")
-        if any(not value.strip() for value in self.media_types):
+
+        capabilities = frozenset(self.capabilities)
+        media_types = frozenset(self.media_types)
+        identifier_schemes = frozenset(self.identifier_schemes)
+        if any(not value.strip() for value in media_types):
             raise ValueError("media types must not contain blank values")
-        if any(not value.strip() for value in self.identifier_schemes):
+        if any(not value.strip() for value in identifier_schemes):
             raise ValueError("identifier schemes must not contain blank values")
+
+        object.__setattr__(self, "capabilities", capabilities)
+        object.__setattr__(self, "media_types", media_types)
+        object.__setattr__(self, "identifier_schemes", identifier_schemes)
 
     def supports(self, *capabilities: Capability) -> bool:
         """Return whether every requested capability is advertised."""
@@ -154,7 +171,7 @@ class ResourceLinkObservation:
 def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
     frozen: dict[str, Any] = {}
     for key, item in value.items():
-        if not isinstance(key, str) or not key:
+        if not isinstance(key, str) or not key.strip():
             raise ValueError("native metadata keys must be non-empty strings")
         frozen[key] = _freeze_value(item)
     return MappingProxyType(frozen)

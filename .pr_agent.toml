@@ -1,6 +1,6 @@
 [config]
-model = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
-fallback_models = ["openrouter/openrouter/free"]
+model = "openrouter/openrouter/free"
+fallback_models = []
 custom_model_max_tokens = 20000
 large_patch_policy = "clip"
 

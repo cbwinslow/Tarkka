@@ -1,0 +1,24 @@
+[config]
+model = "openrouter/openrouter/free"
+custom_model_max_tokens = 20000
+large_patch_policy = "clip"
+
+[pr_reviewer]
+require_tests_review = true
+require_security_review = true
+extra_instructions = """
+Review Tarkka as evidence-oriented, domain-agnostic research infrastructure.
+Prioritize correctness, silent data loss, provenance and identity invariants,
+source-native structure preservation, provider/parser independence, fail-closed
+behavior, deterministic behavior, Python typing/contracts, migration compatibility,
+and regression coverage for material findings.
+
+Do not recommend provider-specific coupling in core code. Do not recommend
+flattening source-native information when richer structure can be retained.
+Prefer existing abstractions over parallel frameworks. Treat AGENTS.md and the
+current architecture documents as authoritative project guidance.
+"""
+
+[pr_code_suggestions]
+num_code_suggestions = 4
+suggestions_score_threshold = 7

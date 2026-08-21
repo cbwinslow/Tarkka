@@ -37,6 +37,7 @@ from tarkka.infrastructure.storage.search_snapshot_log import (
     JsonlSearchSnapshotLog,
     SnapshotDataError,
 )
+from tarkka.infrastructure.storage.semantic_html_parser import SemanticHtmlParser
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
@@ -71,7 +72,7 @@ def _snapshot_log() -> JsonlSearchSnapshotLog:
 
 
 def _parsers() -> tuple[DocumentParser, ...]:
-    parsers: list[DocumentParser] = [JatsParser(), PlainTextParser()]
+    parsers: list[DocumentParser] = [JatsParser(), SemanticHtmlParser(), PlainTextParser()]
     if DoclingParser.is_available():
         parsers.append(DoclingParser())
     return tuple(parsers)

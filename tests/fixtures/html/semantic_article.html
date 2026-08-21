@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Fallback title</title>
+  <meta name="citation_title" content="Semantic HTML Fixture">
+  <meta name="citation_doi" content="10.1000/html.fixture">
+  <link rel="canonical" href="https://example.test/paper">
+</head>
+<body>
+<article>
+  <h1 id="intro">Introduction</h1>
+  <p>Prior work <a role="doc-biblioref" href="#ref-1">[1]</a> motivates this study.</p>
+  <h2 id="methods">Methods</h2>
+  <p>We fit a model.</p>
+  <figure id="fig-1" aria-label="Figure 1">
+    <img src="plot.png" alt="Model plot">
+    <figcaption>Observed and fitted values.</figcaption>
+  </figure>
+  <table id="table-1" aria-label="Table 1">
+    <caption>Model coefficients.</caption>
+    <thead><tr><th>Term</th><th>Estimate</th></tr></thead>
+    <tbody><tr><td>x</td><td>1.2</td></tr></tbody>
+  </table>
+  <math id="eq-1" aria-label="Equation 1"><mi>y</mi><mo>=</mo><mi>x</mi></math>
+  <a rel="supplement" type="text/csv" href="supplement.csv">Supplement data</a>
+  <h2 id="references">References</h2>
+  <ol role="doc-bibliography">
+    <li id="ref-1" role="doc-biblioentry">A. Author. Example. <a href="https://doi.org/10.1000/example">doi</a></li>
+  </ol>
+</article>
+</body>
+</html>

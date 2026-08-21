@@ -69,6 +69,43 @@ def test_source_observation_rejects_non_json_like_nonfinite_and_blank_keys() -> 
         )
 
 
+def test_source_observation_rejects_invalid_runtime_contract_values() -> None:
+    invalid_source_name: Any = None
+    invalid_basis: Any = "native"
+    invalid_media_type: Any = 42
+    invalid_metadata: Any = None
+
+    with pytest.raises(ValueError, match="source observation name"):
+        SourceObservation(
+            observation_id=uuid4(),
+            source_name=invalid_source_name,
+            basis=ObservationBasis.NATIVE,
+        )
+
+    with pytest.raises(ValueError, match="observation basis"):
+        SourceObservation(
+            observation_id=uuid4(),
+            source_name="fixture",
+            basis=invalid_basis,
+        )
+
+    with pytest.raises(ValueError, match="media type"):
+        SourceObservation(
+            observation_id=uuid4(),
+            source_name="fixture",
+            basis=ObservationBasis.NATIVE,
+            media_type=invalid_media_type,
+        )
+
+    with pytest.raises(ValueError, match="metadata must be a mapping"):
+        SourceObservation(
+            observation_id=uuid4(),
+            source_name="fixture",
+            basis=ObservationBasis.NATIVE,
+            metadata=invalid_metadata,
+        )
+
+
 def test_resource_link_preserves_unresolved_relationship_without_canonicalizing() -> None:
     observation_id = uuid4()
     link = ResourceLinkObservation(
@@ -84,6 +121,27 @@ def test_resource_link_preserves_unresolved_relationship_without_canonicalizing(
     assert link.observation_id == observation_id
     assert link.relation is ResourceRelation.SUPPLEMENT
     assert link.metadata["source_anchor"] == "supp-data-1"
+
+
+def test_resource_link_rejects_invalid_runtime_contract_values() -> None:
+    invalid_uri: Any = None
+    invalid_relation: Any = "supplement"
+
+    with pytest.raises(ValueError, match="resource target URI"):
+        ResourceLinkObservation(
+            link_id=uuid4(),
+            observation_id=uuid4(),
+            target_uri=invalid_uri,
+            relation=ResourceRelation.SUPPLEMENT,
+        )
+
+    with pytest.raises(ValueError, match="resource relation"):
+        ResourceLinkObservation(
+            link_id=uuid4(),
+            observation_id=uuid4(),
+            target_uri="https://example.org/resource",
+            relation=invalid_relation,
+        )
 
 
 @dataclass(frozen=True)
@@ -140,6 +198,37 @@ def test_capability_manifest_normalizes_mutable_collection_inputs() -> None:
 
     assert manifest.capabilities == frozenset({Capability.SEARCH})
     assert manifest.media_types == frozenset({"application/json"})
+
+
+def test_capability_manifest_rejects_invalid_runtime_contract_values() -> None:
+    invalid_kind: Any = "discovery"
+    invalid_capabilities: Any = {"search"}
+    invalid_media_types: Any = {None}
+
+    with pytest.raises(ValueError, match="adapter kind"):
+        CapabilityManifest(
+            adapter_name="fixture",
+            adapter_kind=invalid_kind,
+            version="1",
+            capabilities=frozenset({Capability.SEARCH}),
+        )
+
+    with pytest.raises(ValueError, match="Capability values"):
+        CapabilityManifest(
+            adapter_name="fixture",
+            adapter_kind=AdapterKind.DISCOVERY,
+            version="1",
+            capabilities=invalid_capabilities,
+        )
+
+    with pytest.raises(ValueError, match="media types"):
+        CapabilityManifest(
+            adapter_name="fixture",
+            adapter_kind=AdapterKind.DISCOVERY,
+            version="1",
+            capabilities=frozenset({Capability.SEARCH}),
+            media_types=invalid_media_types,
+        )
 
 
 def test_capability_manifest_can_describe_native_document_structure() -> None:

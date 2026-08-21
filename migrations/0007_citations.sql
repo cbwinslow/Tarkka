@@ -68,11 +68,11 @@ CREATE TABLE IF NOT EXISTS tarkka.citation_context (
     document_id uuid NOT NULL REFERENCES tarkka.document (document_id) ON DELETE CASCADE,
     section_id uuid,
     passage_id uuid,
-    "text" text NOT NULL CHECK (length(btrim("text")) > 0),
+    text text NOT NULL CHECK (length(btrim(text)) > 0),  -- noqa: RF04
     char_start integer NOT NULL CHECK (char_start >= 0),
     char_end integer NOT NULL,
     CHECK (char_end > char_start),
-    CHECK (char_end - char_start = char_length("text")),
+    CHECK (char_end - char_start = char_length(text)),
     CHECK (passage_id IS NULL OR section_id IS NOT NULL),
     FOREIGN KEY (mention_id, document_id)
     REFERENCES tarkka.citation_mention (mention_id, document_id)

@@ -11,9 +11,12 @@ from tarkka.domain.extraction import (
     AttributionKind,
     Claim,
     Dataset,
+    EquationEvidence,
     Evidence,
+    EvidenceRecord,
     ExtractionBatch,
     ExtractionProvenance,
+    FigureEvidence,
     HumanReviewState,
     Hypothesis,
     Limitation,
@@ -23,6 +26,7 @@ from tarkka.domain.extraction import (
     ResearchExtraction,
     ResearchObjectKind,
     Result,
+    TableEvidence,
     Variable,
 )
 from tarkka.infrastructure.storage.locking import exclusive_lock
@@ -66,9 +70,9 @@ class JsonExtractionRepository:
         run_id: UUID | None = None,
         offset: int = 0,
         limit: int = 100,
-    ) -> tuple[Evidence, ...]:
+    ) -> tuple[EvidenceRecord, ...]:
         _validate_page(offset, limit)
-        values: list[Evidence] = []
+        values: list[EvidenceRecord] = []
         for payload in self._matching_batches(document_id, run_id):
             values.extend(_evidence_from_dict(item) for item in payload["evidence"])
         values.sort(key=lambda item: (str(item.provenance.run_id), str(item.evidence_id)))
@@ -100,7 +104,7 @@ class JsonExtractionRepository:
                     return _extraction_from_dict(item)
         return None
 
-    def get_evidence(self, evidence_id: UUID) -> Evidence | None:
+    def get_evidence(self, evidence_id: UUID) -> EvidenceRecord | None:
         for payload in self._read()["batches"].values():
             for item in payload["evidence"]:
                 if item.get("evidence_id") == str(evidence_id):
@@ -171,30 +175,81 @@ def _provenance_from_dict(raw: dict[str, Any]) -> ExtractionProvenance:
     )
 
 
-def _evidence_to_dict(value: Evidence) -> dict[str, Any]:
-    return {
+def _evidence_to_dict(value: EvidenceRecord) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "evidence_id": str(value.evidence_id),
         "document_id": str(value.document_id),
-        "section_id": str(value.section_id),
-        "passage_id": str(value.passage_id),
-        "passage_char_start": value.passage_char_start,
-        "passage_char_end": value.passage_char_end,
-        "text": value.text,
         "provenance": _provenance_to_dict(value.provenance),
     }
+    if isinstance(value, Evidence):
+        payload.update(
+            source_kind="passage",
+            section_id=str(value.section_id),
+            passage_id=str(value.passage_id),
+            passage_char_start=value.passage_char_start,
+            passage_char_end=value.passage_char_end,
+            text=value.text,
+        )
+    elif isinstance(value, FigureEvidence):
+        payload.update(source_kind="figure", figure_id=str(value.figure_id))
+    elif isinstance(value, TableEvidence):
+        payload.update(
+            source_kind="table",
+            table_id=str(value.table_id),
+            row_start=value.row_start,
+            row_end=value.row_end,
+            column_start=value.column_start,
+            column_end=value.column_end,
+        )
+    elif isinstance(value, EquationEvidence):
+        payload.update(source_kind="equation", equation_id=str(value.equation_id))
+    else:
+        raise TypeError(f"unsupported evidence type: {type(value)!r}")
+    return payload
 
 
-def _evidence_from_dict(raw: dict[str, Any]) -> Evidence:
-    return Evidence(
-        evidence_id=UUID(raw["evidence_id"]),
-        document_id=UUID(raw["document_id"]),
-        section_id=UUID(raw["section_id"]),
-        passage_id=UUID(raw["passage_id"]),
-        passage_char_start=int(raw["passage_char_start"]),
-        passage_char_end=int(raw["passage_char_end"]),
-        text=raw["text"],
-        provenance=_provenance_from_dict(raw["provenance"]),
-    )
+def _evidence_from_dict(raw: dict[str, Any]) -> EvidenceRecord:
+    evidence_id = UUID(raw["evidence_id"])
+    document_id = UUID(raw["document_id"])
+    provenance = _provenance_from_dict(raw["provenance"])
+    source_kind = raw.get("source_kind", "passage")
+    if source_kind == "passage":
+        return Evidence(
+            evidence_id=evidence_id,
+            document_id=document_id,
+            section_id=UUID(raw["section_id"]),
+            passage_id=UUID(raw["passage_id"]),
+            passage_char_start=int(raw["passage_char_start"]),
+            passage_char_end=int(raw["passage_char_end"]),
+            text=raw["text"],
+            provenance=provenance,
+        )
+    if source_kind == "figure":
+        return FigureEvidence(
+            evidence_id=evidence_id,
+            document_id=document_id,
+            figure_id=UUID(raw["figure_id"]),
+            provenance=provenance,
+        )
+    if source_kind == "table":
+        return TableEvidence(
+            evidence_id=evidence_id,
+            document_id=document_id,
+            table_id=UUID(raw["table_id"]),
+            row_start=int(raw["row_start"]),
+            row_end=int(raw["row_end"]),
+            column_start=int(raw["column_start"]),
+            column_end=int(raw["column_end"]),
+            provenance=provenance,
+        )
+    if source_kind == "equation":
+        return EquationEvidence(
+            evidence_id=evidence_id,
+            document_id=document_id,
+            equation_id=UUID(raw["equation_id"]),
+            provenance=provenance,
+        )
+    raise ValueError(f"unsupported evidence source_kind: {source_kind!r}")
 
 
 def _extraction_to_dict(value: ResearchExtraction) -> dict[str, Any]:

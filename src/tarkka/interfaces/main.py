@@ -13,7 +13,15 @@ from tarkka.application.identity_review import (
     IdentityReviewService,
     IdentitySnapshotNotFoundError,
 )
-from tarkka.domain.extraction import Claim, ResearchObjectKind
+from tarkka.domain.extraction import (
+    Claim,
+    EquationEvidence,
+    Evidence,
+    EvidenceRecord,
+    FigureEvidence,
+    ResearchObjectKind,
+    TableEvidence,
+)
 from tarkka.domain.identity_candidates import IdentityDecision
 from tarkka.infrastructure.extraction.model_claims import (
     ModelClaimExtractor,
@@ -226,6 +234,33 @@ def _claim_payload(claim: Claim) -> dict[str, object]:
     }
 
 
+def _evidence_payload(item: EvidenceRecord) -> dict[str, object]:
+    payload: dict[str, object] = {"evidence_id": str(item.evidence_id)}
+    if isinstance(item, Evidence):
+        payload.update(
+            source_kind="passage",
+            section_id=str(item.section_id),
+            passage_id=str(item.passage_id),
+            passage_char_start=item.passage_char_start,
+            passage_char_end=item.passage_char_end,
+            text=item.text,
+        )
+    elif isinstance(item, FigureEvidence):
+        payload.update(source_kind="figure", figure_id=str(item.figure_id))
+    elif isinstance(item, TableEvidence):
+        payload.update(
+            source_kind="table",
+            table_id=str(item.table_id),
+            row_start=item.row_start,
+            row_end=item.row_end,
+            column_start=item.column_start,
+            column_end=item.column_end,
+        )
+    elif isinstance(item, EquationEvidence):
+        payload.update(source_kind="equation", equation_id=str(item.equation_id))
+    return payload
+
+
 def _cmd_claims_list(args: argparse.Namespace) -> int:
     repository = _extraction_repository()
     try:
@@ -257,16 +292,7 @@ def _cmd_claims_show(args: argparse.Namespace) -> int:
             if item is None:
                 print(f"error: evidence not found: {evidence_id}", file=sys.stderr)
                 return 2
-            evidence.append(
-                {
-                    "evidence_id": str(item.evidence_id),
-                    "section_id": str(item.section_id),
-                    "passage_id": str(item.passage_id),
-                    "passage_char_start": item.passage_char_start,
-                    "passage_char_end": item.passage_char_end,
-                    "text": item.text,
-                }
-            )
+            evidence.append(_evidence_payload(item))
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

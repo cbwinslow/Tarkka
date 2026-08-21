@@ -8,6 +8,8 @@ from types import MappingProxyType
 from typing import Any
 from uuid import UUID, uuid4
 
+from tarkka.domain.source_artifacts import Equation, Figure, Table
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -142,6 +144,9 @@ class Document:
     parser_name: str
     parser_version: str
     sections: tuple[Section, ...]
+    figures: tuple[Figure, ...] = ()
+    tables: tuple[Table, ...] = ()
+    equations: tuple[Equation, ...] = ()
     normalized_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
@@ -150,3 +155,35 @@ class Document:
         for section in self.sections:
             if section.document_id != self.document_id:
                 raise ValueError("section does not belong to document")
+        for figure in self.figures:
+            if figure.document_id != self.document_id:
+                raise ValueError("figure does not belong to document")
+        for table in self.tables:
+            if table.document_id != self.document_id:
+                raise ValueError("table does not belong to document")
+        for equation in self.equations:
+            if equation.document_id != self.document_id:
+                raise ValueError("equation does not belong to document")
+
+        artifact_contracts = (
+            (
+                "figure",
+                [item.figure_id for item in self.figures],
+                [item.ordinal for item in self.figures],
+            ),
+            (
+                "table",
+                [item.table_id for item in self.tables],
+                [item.ordinal for item in self.tables],
+            ),
+            (
+                "equation",
+                [item.equation_id for item in self.equations],
+                [item.ordinal for item in self.equations],
+            ),
+        )
+        for name, ids, ordinals in artifact_contracts:
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"document {name} IDs must be unique")
+            if len(ordinals) != len(set(ordinals)):
+                raise ValueError(f"document {name} ordinals must be unique")

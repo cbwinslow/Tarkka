@@ -43,7 +43,9 @@ class RecordingResearchModel:
     responses: list[tuple[ModelResearchCandidate, ...]] = field(default_factory=list)
     requests: list[ModelClaimRequest] = field(default_factory=list)
 
-    def extract_research(self, request: ModelClaimRequest) -> tuple[ModelResearchCandidate, ...]:
+    def extract_research(
+        self, request: ModelClaimRequest
+    ) -> tuple[ModelResearchCandidate, ...]:
         self.requests.append(request)
         return self.responses.pop(0) if self.responses else ()
 
@@ -52,8 +54,10 @@ def _document() -> Document:
     document_id = uuid4()
     section_id = uuid4()
     texts = (
-        "We hypothesized starter rest would improve outcomes and trained gradient boosted trees on Statcast data using rest_days.",
-        "Log loss improved from 0.61 to 0.57, although the sample was limited to one season.",
+        "We hypothesized starter rest would improve outcomes and trained gradient "
+        "boosted trees on Statcast data using rest_days.",
+        "Log loss improved from 0.61 to 0.57, although the sample was limited "
+        "to one season.",
         "Additional discussion followed the reported result.",
     )
     offset = 0
@@ -97,14 +101,51 @@ def test_extracts_complete_research_vocabulary_in_one_run() -> None:
     model = RecordingResearchModel(
         responses=[
             (
-                ModelHypothesisCandidate(text="starter rest would improve outcomes", evidence=first_span, confidence=0.9),
-                ModelMethodCandidate(name="gradient boosted trees", description="Tree boosting", evidence=first_span, confidence=0.95),
-                ModelDatasetCandidate(name="Statcast", evidence=first_span, confidence=0.98),
-                ModelVariableCandidate(name="rest_days", role="predictor", evidence=first_span, confidence=0.97),
-                ModelModelCandidate(name="gradient boosted trees", family="tree ensemble", evidence=first_span, confidence=0.96),
-                ModelMetricCandidate(name="log loss", value_text="0.57", evidence=second_span, confidence=0.99),
-                ModelResultCandidate(text="Log loss improved from 0.61 to 0.57", direction="improved", evidence=second_span, confidence=0.99),
-                ModelLimitationCandidate(text="the sample was limited to one season", evidence=second_span, confidence=0.93),
+                ModelHypothesisCandidate(
+                    text="starter rest would improve outcomes",
+                    evidence=first_span,
+                    confidence=0.9,
+                ),
+                ModelMethodCandidate(
+                    name="gradient boosted trees",
+                    description="Tree boosting",
+                    evidence=first_span,
+                    confidence=0.95,
+                ),
+                ModelDatasetCandidate(
+                    name="Statcast",
+                    evidence=first_span,
+                    confidence=0.98,
+                ),
+                ModelVariableCandidate(
+                    name="rest_days",
+                    role="predictor",
+                    evidence=first_span,
+                    confidence=0.97,
+                ),
+                ModelModelCandidate(
+                    name="gradient boosted trees",
+                    family="tree ensemble",
+                    evidence=first_span,
+                    confidence=0.96,
+                ),
+                ModelMetricCandidate(
+                    name="log loss",
+                    value_text="0.57",
+                    evidence=second_span,
+                    confidence=0.99,
+                ),
+                ModelResultCandidate(
+                    text="Log loss improved from 0.61 to 0.57",
+                    direction="improved",
+                    evidence=second_span,
+                    confidence=0.99,
+                ),
+                ModelLimitationCandidate(
+                    text="the sample was limited to one season",
+                    evidence=second_span,
+                    confidence=0.93,
+                ),
             )
         ]
     )
@@ -144,7 +185,11 @@ def test_bounded_research_extraction_deduplicates_overlap_by_exact_signature() -
 
     batch = ModelResearchExtractor(
         model,
-        batching=ModelBatchingPolicy(max_chars=300, max_passages=2, overlap_passages=1),
+        batching=ModelBatchingPolicy(
+            max_chars=300,
+            max_passages=2,
+            overlap_passages=1,
+        ),
     ).extract(document)
 
     assert len(model.requests) == 2
@@ -172,7 +217,11 @@ def test_rejects_candidate_evidence_outside_current_batch() -> None:
     with pytest.raises(ValueError, match="outside request batch"):
         ModelResearchExtractor(
             model,
-            batching=ModelBatchingPolicy(max_chars=300, max_passages=2, overlap_passages=1),
+            batching=ModelBatchingPolicy(
+                max_chars=300,
+                max_passages=2,
+                overlap_passages=1,
+            ),
         ).extract(document)
 
 
@@ -184,14 +233,23 @@ def test_rejects_candidate_evidence_beyond_passage_bounds() -> None:
             (
                 ModelMethodCandidate(
                     name="gradient boosted trees",
-                    evidence=(EvidenceSelector(first.passage_id, 0, len(first.text) + 1),),
+                    evidence=(
+                        EvidenceSelector(
+                            first.passage_id,
+                            0,
+                            len(first.text) + 1,
+                        ),
+                    ),
                     confidence=0.8,
                 ),
             )
         ]
     )
 
-    with pytest.raises(ValueError, match="evidence range must be contained within the passage"):
+    with pytest.raises(
+        ValueError,
+        match="evidence range must be contained within the passage",
+    ):
         ModelResearchExtractor(model).extract(document)
 
 

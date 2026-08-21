@@ -20,7 +20,11 @@ def adapters_supporting(
     adapters: Iterable[TCapabilityAdapter],
     *capabilities: Capability,
 ) -> tuple[TCapabilityAdapter, ...]:
-    """Select adapters by capability without branching on provider names."""
+    """Select adapters by capability without branching on provider names.
+
+    An empty capability requirement intentionally returns every adapter, making this
+    function an identity filter when callers build capability requirements dynamically.
+    """
     return tuple(
         adapter for adapter in adapters if adapter.manifest.supports(*capabilities)
     )

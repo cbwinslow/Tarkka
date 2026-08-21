@@ -9,10 +9,15 @@ from tarkka.domain.extraction import (
     ExtractionBatch,
     ExtractionProvenance,
     ExtractionRun,
+    Hypothesis,
+    Limitation,
     Method,
+    Metric,
+    Model,
     ModelProvenance,
     ResearchExtraction,
     Result,
+    Variable,
 )
 from tarkka.domain.models import Document, Passage
 from tarkka.infrastructure.extraction.model_batching import (
@@ -22,9 +27,14 @@ from tarkka.infrastructure.extraction.model_batching import (
 )
 from tarkka.ports.model_research import (
     ModelDatasetCandidate,
+    ModelHypothesisCandidate,
+    ModelLimitationCandidate,
     ModelMethodCandidate,
+    ModelMetricCandidate,
+    ModelModelCandidate,
     ModelResearchCandidate,
     ModelResultCandidate,
+    ModelVariableCandidate,
     StructuredResearchModel,
 )
 
@@ -37,10 +47,10 @@ class NoModelResearchFoundError(ValueError):
 
 
 class ModelResearchExtractor:
-    """Extract bounded Method, Dataset, and Result records with exact evidence."""
+    """Extract bounded structured research records with exact evidence."""
 
     name = "model-research"
-    version = "1.0.0"
+    version = "1.1.0"
 
     def __init__(
         self,
@@ -145,15 +155,28 @@ def _candidate_kind(candidate: ModelResearchCandidate) -> str:
         return "method"
     if isinstance(candidate, ModelDatasetCandidate):
         return "dataset"
+    if isinstance(candidate, ModelVariableCandidate):
+        return "variable"
+    if isinstance(candidate, ModelModelCandidate):
+        return "model"
+    if isinstance(candidate, ModelMetricCandidate):
+        return "metric"
+    if isinstance(candidate, ModelHypothesisCandidate):
+        return "hypothesis"
     if isinstance(candidate, ModelResultCandidate):
         return "result"
+    if isinstance(candidate, ModelLimitationCandidate):
+        return "limitation"
     raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
 
 
 def _candidate_primary(candidate: ModelResearchCandidate) -> str:
-    if isinstance(candidate, (ModelMethodCandidate, ModelDatasetCandidate)):
+    if isinstance(
+        candidate,
+        (ModelMethodCandidate, ModelDatasetCandidate, ModelVariableCandidate, ModelModelCandidate, ModelMetricCandidate),
+    ):
         return candidate.name
-    if isinstance(candidate, ModelResultCandidate):
+    if isinstance(candidate, (ModelHypothesisCandidate, ModelResultCandidate, ModelLimitationCandidate)):
         return candidate.text
     raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
 
@@ -169,6 +192,23 @@ def _candidate_signature(candidate: ModelResearchCandidate) -> _CandidateSignatu
     return (_candidate_kind(candidate), normalized_primary, candidate.attribution.value, evidence)
 
 
+def _base_kwargs(
+    *,
+    extraction_id: UUID,
+    document_id: UUID,
+    evidence_ids: tuple[UUID, ...],
+    provenance: ExtractionProvenance,
+    candidate: ModelResearchCandidate,
+) -> dict[str, object]:
+    return {
+        "extraction_id": extraction_id,
+        "document_id": document_id,
+        "evidence_ids": evidence_ids,
+        "provenance": provenance,
+        "attribution": candidate.attribution,
+    }
+
+
 def _to_domain_record(
     candidate: ModelResearchCandidate,
     *,
@@ -177,36 +217,34 @@ def _to_domain_record(
     evidence_ids: tuple[UUID, ...],
     provenance: ExtractionProvenance,
 ) -> ResearchExtraction:
+    common = _base_kwargs(
+        extraction_id=extraction_id,
+        document_id=document_id,
+        evidence_ids=evidence_ids,
+        provenance=provenance,
+        candidate=candidate,
+    )
     if isinstance(candidate, ModelMethodCandidate):
-        return Method(
-            extraction_id=extraction_id,
-            document_id=document_id,
-            evidence_ids=evidence_ids,
-            provenance=provenance,
-            attribution=candidate.attribution,
-            name=candidate.name,
-            description=candidate.description,
-        )
+        return Method(**common, name=candidate.name, description=candidate.description)
     if isinstance(candidate, ModelDatasetCandidate):
-        return Dataset(
-            extraction_id=extraction_id,
-            document_id=document_id,
-            evidence_ids=evidence_ids,
-            provenance=provenance,
-            attribution=candidate.attribution,
+        return Dataset(**common, name=candidate.name, description=candidate.description)
+    if isinstance(candidate, ModelVariableCandidate):
+        return Variable(**common, name=candidate.name, role=candidate.role)
+    if isinstance(candidate, ModelModelCandidate):
+        return Model(**common, name=candidate.name, family=candidate.family)
+    if isinstance(candidate, ModelMetricCandidate):
+        return Metric(
+            **common,
             name=candidate.name,
-            description=candidate.description,
+            value_text=candidate.value_text,
+            unit=candidate.unit,
         )
+    if isinstance(candidate, ModelHypothesisCandidate):
+        return Hypothesis(**common, text=candidate.text)
     if isinstance(candidate, ModelResultCandidate):
-        return Result(
-            extraction_id=extraction_id,
-            document_id=document_id,
-            evidence_ids=evidence_ids,
-            provenance=provenance,
-            attribution=candidate.attribution,
-            text=candidate.text,
-            direction=candidate.direction,
-        )
+        return Result(**common, text=candidate.text, direction=candidate.direction)
+    if isinstance(candidate, ModelLimitationCandidate):
+        return Limitation(**common, text=candidate.text)
     raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
 
 

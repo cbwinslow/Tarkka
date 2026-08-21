@@ -120,6 +120,7 @@ class DoclingParser:
             parser_name=self.name,
             parser_version=self.version,
             title=str(title),
+            document_id=_stable_id(artifact.artifact_id, "docling-document"),
         )
         figures = _docling_figures(
             docling_document,

@@ -15,6 +15,11 @@ class GoldEvidenceSpan:
     char_end: int
 
     def __post_init__(self) -> None:
+        """Validate the evidence span's character range.
+
+        Raises:
+            ValueError: If the start is negative or the end does not follow the start.
+        """
         if self.char_start < 0 or self.char_end <= self.char_start:
             raise ValueError("invalid gold evidence character range")
 
@@ -27,6 +32,12 @@ class GoldClaim:
     attribution: AttributionKind = AttributionKind.AUTHOR_STATED
 
     def __post_init__(self) -> None:
+        """Validate that the gold claim contains unique evidence spans.
+
+        Raises:
+            ValueError: If the claim contains no evidence or contains duplicate
+                evidence spans.
+        """
         if not self.evidence:
             raise ValueError("gold claim must contain evidence")
         if len(set(self.evidence)) != len(self.evidence):
@@ -53,11 +64,22 @@ class _PredictedClaim:
 
 
 def _validate_gold(batch: ExtractionBatch, gold: tuple[GoldClaim, ...]) -> None:
-    passages_by_id = {
-        passage.passage_id: passage
-        for section in batch.document.sections
-        for passage in section.passages
-    }
+    """Validate gold claims against the source document.
+
+    Args:
+        batch: Extraction batch containing the source document.
+        gold: Gold claims to validate.
+
+    Raises:
+        ValueError: If any gold evidence span references an unknown passage ID,
+            has char_end beyond the passage text length, or if duplicate complete
+            evidence sets exist across gold claims.
+    """
+    passages_by_id = {}
+    for section in batch.document.sections:
+        for passage in section.passages:
+            passages_by_id[passage.passage_id] = passage
+
     for gold_claim in gold:
         for span in gold_claim.evidence:
             if span.passage_id not in passages_by_id:
@@ -81,7 +103,24 @@ def evaluate_claims(
     batch: ExtractionBatch,
     gold: tuple[GoldClaim, ...],
 ) -> ClaimEvaluationReport:
-    """Evaluate passage-evidence claim predictions using exact evidence-set matching."""
+    """Evaluate claim predictions against gold labels using exact passage evidence.
+
+    Claim wording is excluded from matching, and each gold claim can match at most one
+    prediction. The current gold-label contract is passage-local; claims backed by
+    figures, tables, or equations require a future generalized evaluation contract.
+
+    Args:
+        batch: Extraction results containing predicted claims and their evidence.
+        gold: Gold claims with passage-local evidence spans and attribution labels.
+
+    Returns:
+        A report containing detection counts, precision, recall, F1, and attribution
+        accuracy. Attribution accuracy is ``None`` when no claims are matched.
+
+    Raises:
+        ValueError: If gold claims contain invalid evidence spans, duplicate evidence
+            sets, or a predicted claim references non-passage evidence.
+    """
     _validate_gold(batch, gold)
     predictions = _claim_predictions(batch)
     unmatched_gold = list(gold)
@@ -117,18 +156,16 @@ def evaluate_claims(
 
 
 def _claim_predictions(batch: ExtractionBatch) -> tuple[_PredictedClaim, ...]:
+    """Build predicted claims from passage-local evidence in an extraction batch."""
     evidence_by_id = {item.evidence_id: item for item in batch.evidence}
     predictions: list[_PredictedClaim] = []
     for extraction in batch.extractions:
         if not isinstance(extraction, Claim):
             continue
         referenced = [evidence_by_id[evidence_id] for evidence_id in extraction.evidence_ids]
-        if not all(isinstance(item, Evidence) for item in referenced):
-            raise ValueError(
-                "claim evaluation currently requires passage evidence; "
-                "multimodal evaluation is not implemented"
-            )
         passage_evidence = [item for item in referenced if isinstance(item, Evidence)]
+        if len(passage_evidence) != len(referenced):
+            raise ValueError("claim evaluation currently supports passage evidence only")
         spans = frozenset(
             GoldEvidenceSpan(
                 passage_id=item.passage_id,
@@ -145,6 +182,7 @@ def _find_gold_match(
     prediction: _PredictedClaim,
     gold: list[GoldClaim],
 ) -> int | None:
+    """Find the first gold claim whose evidence spans exactly match the prediction."""
     for index, expected in enumerate(gold):
         if prediction.evidence == frozenset(expected.evidence):
             return index
@@ -152,8 +190,10 @@ def _find_gold_match(
 
 
 def _ratio(numerator: int, denominator: int) -> float:
+    """Return numerator / denominator, or zero when the denominator is zero."""
     return numerator / denominator if denominator else 0.0
 
 
 def _f1(precision: float, recall: float) -> float:
+    """Compute F1 from precision and recall."""
     return 2 * precision * recall / (precision + recall) if precision + recall else 0.0

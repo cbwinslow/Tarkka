@@ -7,6 +7,7 @@ from typing import TypeAlias
 from uuid import UUID
 
 from tarkka.domain.models import Document, Passage, utc_now
+from tarkka.domain.source_artifacts import EquationRef, FigureRef, PassageSpan, TableCellRange
 
 
 class HumanReviewState(StrEnum):
@@ -84,6 +85,8 @@ class ExtractionProvenance:
 
 @dataclass(frozen=True, slots=True)
 class Evidence:
+    """Exact text-span evidence retained for backward-compatible claim workflows."""
+
     evidence_id: UUID
     document_id: UUID
     section_id: UUID
@@ -100,6 +103,15 @@ class Evidence:
             raise ValueError("evidence character range must match evidence text length")
         if not self.text.strip():
             raise ValueError("evidence text must not be blank")
+
+    @property
+    def locator(self) -> PassageSpan:
+        return PassageSpan(
+            section_id=self.section_id,
+            passage_id=self.passage_id,
+            char_start=self.passage_char_start,
+            char_end=self.passage_char_end,
+        )
 
     @classmethod
     def from_passage(
@@ -126,6 +138,64 @@ class Evidence:
             text=passage.text[passage_char_start:passage_char_end],
             provenance=provenance,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class FigureEvidence:
+    evidence_id: UUID
+    document_id: UUID
+    figure_id: UUID
+    provenance: ExtractionProvenance
+
+    @property
+    def locator(self) -> FigureRef:
+        return FigureRef(self.figure_id)
+
+
+@dataclass(frozen=True, slots=True)
+class TableEvidence:
+    evidence_id: UUID
+    document_id: UUID
+    table_id: UUID
+    row_start: int
+    row_end: int
+    column_start: int
+    column_end: int
+    provenance: ExtractionProvenance
+
+    def __post_init__(self) -> None:
+        TableCellRange(
+            table_id=self.table_id,
+            row_start=self.row_start,
+            row_end=self.row_end,
+            column_start=self.column_start,
+            column_end=self.column_end,
+        )
+
+    @property
+    def locator(self) -> TableCellRange:
+        return TableCellRange(
+            table_id=self.table_id,
+            row_start=self.row_start,
+            row_end=self.row_end,
+            column_start=self.column_start,
+            column_end=self.column_end,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EquationEvidence:
+    evidence_id: UUID
+    document_id: UUID
+    equation_id: UUID
+    provenance: ExtractionProvenance
+
+    @property
+    def locator(self) -> EquationRef:
+        return EquationRef(self.equation_id)
+
+
+EvidenceRecord: TypeAlias = Evidence | FigureEvidence | TableEvidence | EquationEvidence
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -281,7 +351,6 @@ class Limitation(ResearchExtractionBase):
         return ResearchObjectKind.LIMITATION
 
 
-# TypeAlias remains necessary while Tarkka supports Python 3.11.
 ResearchExtraction: TypeAlias = (
     Claim | Hypothesis | Method | Dataset | Variable | Model | Metric | Result | Limitation
 )
@@ -293,7 +362,7 @@ class ExtractionBatch:
 
     document: Document
     run: ExtractionRun
-    evidence: tuple[Evidence, ...]
+    evidence: tuple[EvidenceRecord, ...]
     extractions: tuple[ResearchExtraction, ...]
 
     @property
@@ -308,12 +377,10 @@ class ExtractionBatch:
         if not self.extractions:
             raise ValueError("extraction batch must contain at least one extraction")
 
-        evidence_ids = {evidence_item.evidence_id for evidence_item in self.evidence}
+        evidence_ids = {item.evidence_id for item in self.evidence}
         if len(evidence_ids) != len(self.evidence):
             raise ValueError("extraction batch evidence IDs must be unique")
-        extraction_ids = {
-            extraction_item.extraction_id for extraction_item in self.extractions
-        }
+        extraction_ids = {item.extraction_id for item in self.extractions}
         if len(extraction_ids) != len(self.extractions):
             raise ValueError("extraction batch extraction IDs must be unique")
 
@@ -322,22 +389,41 @@ class ExtractionBatch:
             for section in self.document.sections
             for passage in section.passages
         }
+        figures = {item.figure_id: item for item in self.document.figures}
+        tables = {item.table_id: item for item in self.document.tables}
+        equations = {item.equation_id: item for item in self.document.equations}
 
         for evidence_item in self.evidence:
             if evidence_item.provenance.run_id != self.run.run_id:
                 raise ValueError("evidence does not belong to extraction batch run")
             if evidence_item.document_id != self.document_id:
                 raise ValueError("evidence does not belong to extraction batch document")
-            passage = passages.get(evidence_item.passage_id)
-            if passage is None or passage.section_id != evidence_item.section_id:
-                raise ValueError("evidence does not resolve to a normalized passage")
-            if evidence_item.passage_char_end > len(passage.text):
-                raise ValueError("evidence range is outside its normalized passage")
-            expected = passage.text[
-                evidence_item.passage_char_start : evidence_item.passage_char_end
-            ]
-            if evidence_item.text != expected:
-                raise ValueError("evidence text does not match its normalized passage span")
+
+            if isinstance(evidence_item, Evidence):
+                passage = passages.get(evidence_item.passage_id)
+                if passage is None or passage.section_id != evidence_item.section_id:
+                    raise ValueError("evidence does not resolve to a normalized passage")
+                if evidence_item.passage_char_end > len(passage.text):
+                    raise ValueError("evidence range is outside its normalized passage")
+                expected = passage.text[
+                    evidence_item.passage_char_start : evidence_item.passage_char_end
+                ]
+                if evidence_item.text != expected:
+                    raise ValueError("evidence text does not match its normalized passage span")
+            elif isinstance(evidence_item, FigureEvidence):
+                if evidence_item.figure_id not in figures:
+                    raise ValueError("evidence does not resolve to a normalized figure")
+            elif isinstance(evidence_item, TableEvidence):
+                table = tables.get(evidence_item.table_id)
+                if table is None:
+                    raise ValueError("evidence does not resolve to a normalized table")
+                if table.row_count is not None and evidence_item.row_end > table.row_count:
+                    raise ValueError("evidence row range is outside its normalized table")
+                if table.column_count is not None and evidence_item.column_end > table.column_count:
+                    raise ValueError("evidence column range is outside its normalized table")
+            elif isinstance(evidence_item, EquationEvidence):
+                if evidence_item.equation_id not in equations:
+                    raise ValueError("evidence does not resolve to a normalized equation")
 
         for extraction_item in self.extractions:
             if extraction_item.provenance.run_id != self.run.run_id:

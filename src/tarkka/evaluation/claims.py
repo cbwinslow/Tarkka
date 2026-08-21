@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from tarkka.domain.extraction import AttributionKind, Claim, ExtractionBatch
+from tarkka.domain.extraction import AttributionKind, Claim, Evidence, ExtractionBatch
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -15,11 +15,6 @@ class GoldEvidenceSpan:
     char_end: int
 
     def __post_init__(self) -> None:
-        """Validate the evidence span's character range.
-        
-        Raises:
-            ValueError: If the start is negative or the end does not follow the start.
-        """
         if self.char_start < 0 or self.char_end <= self.char_start:
             raise ValueError("invalid gold evidence character range")
 
@@ -32,12 +27,6 @@ class GoldClaim:
     attribution: AttributionKind = AttributionKind.AUTHOR_STATED
 
     def __post_init__(self) -> None:
-        """Validate that the gold claim contains unique evidence spans.
-        
-        Raises:
-            ValueError: If the claim contains no evidence or contains duplicate
-                evidence spans.
-        """
         if not self.evidence:
             raise ValueError("gold claim must contain evidence")
         if len(set(self.evidence)) != len(self.evidence):
@@ -64,24 +53,11 @@ class _PredictedClaim:
 
 
 def _validate_gold(batch: ExtractionBatch, gold: tuple[GoldClaim, ...]) -> None:
-    """Validate gold claims against the source document.
-
-    Args:
-        batch: Extraction batch containing the source document.
-        gold: Gold claims to validate.
-
-    Raises:
-        ValueError: If any gold evidence span references an unknown passage ID,
-            has char_end beyond the passage text length, or if duplicate complete
-            evidence sets exist across gold claims.
-    """
-    # Build passage index
-    passages_by_id = {}
-    for section in batch.document.sections:
-        for passage in section.passages:
-            passages_by_id[passage.passage_id] = passage
-
-    # Validate each evidence span
+    passages_by_id = {
+        passage.passage_id: passage
+        for section in batch.document.sections
+        for passage in section.passages
+    }
     for gold_claim in gold:
         for span in gold_claim.evidence:
             if span.passage_id not in passages_by_id:
@@ -96,7 +72,6 @@ def _validate_gold(batch: ExtractionBatch, gold: tuple[GoldClaim, ...]) -> None:
                     f"for passage {span.passage_id}"
                 )
 
-    # Check for duplicate evidence sets
     evidence_sets = [frozenset(claim.evidence) for claim in gold]
     if len(set(evidence_sets)) != len(evidence_sets):
         raise ValueError("duplicate complete evidence sets found in gold claims")
@@ -106,23 +81,7 @@ def evaluate_claims(
     batch: ExtractionBatch,
     gold: tuple[GoldClaim, ...],
 ) -> ClaimEvaluationReport:
-    """Evaluate claim predictions against gold labels using exact evidence-set matching.
-
-    Claim wording is excluded from matching, and each gold claim can match at most one
-    prediction. Unmatched predictions count as false positives, while unmatched gold
-    claims count as false negatives.
-
-    Args:
-        batch: Extraction results containing predicted claims and their evidence.
-        gold: Gold claims with passage-local evidence spans and attribution labels.
-
-    Returns:
-        A report containing detection counts, precision, recall, F1, and attribution
-        accuracy. Attribution accuracy is ``None`` when no claims are matched.
-
-    Raises:
-        ValueError: If gold claims contain invalid evidence spans or duplicate evidence sets.
-    """
+    """Evaluate passage-evidence claim predictions using exact evidence-set matching."""
     _validate_gold(batch, gold)
     predictions = _claim_predictions(batch)
     unmatched_gold = list(gold)
@@ -158,26 +117,25 @@ def evaluate_claims(
 
 
 def _claim_predictions(batch: ExtractionBatch) -> tuple[_PredictedClaim, ...]:
-    """Build predicted claim records from an extraction batch.
-    
-    Args:
-        batch: Extraction batch containing claims and their referenced evidence.
-    
-    Returns:
-        A tuple of predicted claims with resolved passage-local evidence spans.
-    """
     evidence_by_id = {item.evidence_id: item for item in batch.evidence}
     predictions: list[_PredictedClaim] = []
     for extraction in batch.extractions:
         if not isinstance(extraction, Claim):
             continue
+        referenced = [evidence_by_id[evidence_id] for evidence_id in extraction.evidence_ids]
+        if not all(isinstance(item, Evidence) for item in referenced):
+            raise ValueError(
+                "claim evaluation currently requires passage evidence; "
+                "multimodal evaluation is not implemented"
+            )
+        passage_evidence = [item for item in referenced if isinstance(item, Evidence)]
         spans = frozenset(
             GoldEvidenceSpan(
-                passage_id=evidence_by_id[evidence_id].passage_id,
-                char_start=evidence_by_id[evidence_id].passage_char_start,
-                char_end=evidence_by_id[evidence_id].passage_char_end,
+                passage_id=item.passage_id,
+                char_start=item.passage_char_start,
+                char_end=item.passage_char_end,
             )
-            for evidence_id in extraction.evidence_ids
+            for item in passage_evidence
         )
         predictions.append(_PredictedClaim(claim=extraction, evidence=spans))
     return tuple(predictions)
@@ -187,15 +145,6 @@ def _find_gold_match(
     prediction: _PredictedClaim,
     gold: list[GoldClaim],
 ) -> int | None:
-    """Find the first gold claim whose evidence spans exactly match the prediction.
-    
-    Args:
-        prediction: Predicted claim with its normalized evidence-span set.
-        gold: Gold claims to search.
-    
-    Returns:
-        The index of the first matching gold claim, or `None` if no claim matches.
-    """
     for index, expected in enumerate(gold):
         if prediction.evidence == frozenset(expected.evidence):
             return index
@@ -203,28 +152,8 @@ def _find_gold_match(
 
 
 def _ratio(numerator: int, denominator: int) -> float:
-    """
-    Calculate the ratio of two integers.
-    
-    Args:
-        numerator: The value to divide.
-        denominator: The divisor.
-    
-    Returns:
-        The quotient, or `0.0` when the denominator is zero.
-    """
     return numerator / denominator if denominator else 0.0
 
 
 def _f1(precision: float, recall: float) -> float:
-    """
-    Compute the F1 score from precision and recall.
-    
-    Args:
-        precision: The precision score.
-        recall: The recall score.
-    
-    Returns:
-        The harmonic mean of precision and recall, or 0.0 when both are zero.
-    """
     return 2 * precision * recall / (precision + recall) if precision + recall else 0.0

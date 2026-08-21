@@ -119,8 +119,8 @@ class CitationContext:
     passage_id: UUID | None = None
 
     def __post_init__(self) -> None:
-        if not self.text:
-            raise ValueError("citation context text must not be empty")
+        if not self.text.strip():
+            raise ValueError("citation context text must not be blank")
         if self.char_start < 0 or self.char_end < self.char_start:
             raise ValueError("invalid citation context character range")
         if self.char_end - self.char_start != len(self.text):
@@ -184,8 +184,8 @@ class WorkRelation:
     created_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        if self.subject_work_id == self.object_work_id:
-            raise ValueError("work relation endpoints must be distinct")
+        if self.subject_work_id == self.object_work_id and self.kind is not WorkRelationKind.CITES:
+            raise ValueError("non-citation work relation endpoints must be distinct")
         if not isinstance(self.kind, WorkRelationKind):
             raise ValueError("work relation kind must be a WorkRelationKind")
         if not isinstance(self.basis, ObservationBasis):

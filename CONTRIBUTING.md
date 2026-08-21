@@ -17,6 +17,29 @@ Read:
 
 Search existing issues/code before creating a new abstraction.
 
+## Development setup
+
+Tarkka uses `uv` as the canonical Python project and development environment manager. The package metadata remains standards-based in `pyproject.toml`, and Hatchling is the build backend.
+
+Install a compatible `uv` release, then create/synchronize the development environment from the project root:
+
+```bash
+uv sync --group dev
+```
+
+Run project tooling through `uv run` rather than relying on globally installed Python tools:
+
+```bash
+uv run ruff check .
+uv run mypy
+uv run sqlfluff lint migrations
+uv run pytest -m "not external"
+```
+
+When the lockfile changes intentionally, review the dependency diff before committing it. Do not hand-edit `uv.lock`.
+
+Development-only tooling belongs in the `dev` dependency group. Runtime dependencies belong in `[project.dependencies]` or a narrowly scoped optional extra such as `postgres` or `docling`.
+
 ## Good early contributions
 
 - architecture review and concrete corrections
@@ -54,6 +77,8 @@ Prefer deterministic tests and recorded/static fixtures over live external API d
 
 External provider adapters should have shared contract tests for pagination, normalization, rate-limit behavior, provenance, and error handling.
 
+See `docs/TESTING.md` for the marker taxonomy, CI contract, and canonical validation commands.
+
 ## Research/source contributions
 
 Do not commit copyrighted or restricted full-text research merely because it is useful for testing.
@@ -73,16 +98,27 @@ Do not include credentials, private research content, or user data in issues, fi
 
 Report security-sensitive issues privately once a security policy/contact is established; until then, avoid publishing exploitable details in public issues and contact the repository owner directly.
 
-## Style
+## Style and quality gates
 
-Implementation conventions will be finalized with the first code milestone. Until then:
+Python contributions should be explicit, typed, and organized around focused modules and replaceable contracts. CI enforces:
 
-- readable explicit Python
-- type hints
-- focused modules
-- composition/protocols
-- structured errors/logging
-- no unnecessary framework coupling
+- Ruff for Python linting/import hygiene
+- strict mypy for static typing
+- SQLFluff with the PostgreSQL dialect for migration SQL
+- pytest across supported Python versions
+- branch-coverage reporting on the primary CI interpreter
+
+Prefer composition/protocols over inheritance-heavy frameworks, validate external inputs at boundaries, and avoid unnecessary framework coupling.
+
+## Package-development rules
+
+Keep the published package installable independently of development tooling:
+
+- do not place linters, test frameworks, or documentation tooling in runtime dependencies;
+- keep the `src/tarkka` layout and public CLI entry point standards-compliant;
+- avoid importing optional integrations at package import time when their extras are not installed;
+- add dependencies only when they materially improve the implementation and have a clear replacement boundary;
+- preserve the supported `requires-python` contract or update CI and documentation with any deliberate compatibility change.
 
 ## License note
 

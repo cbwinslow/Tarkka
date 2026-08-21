@@ -5,7 +5,16 @@ from uuid import uuid4
 
 import pytest
 
-from tarkka.domain.extraction import Dataset, Method, Result
+from tarkka.domain.extraction import (
+    Dataset,
+    Hypothesis,
+    Limitation,
+    Method,
+    Metric,
+    Model,
+    Result,
+    Variable,
+)
 from tarkka.domain.models import Document, Passage, Section
 from tarkka.infrastructure.extraction.model_batching import ModelBatchingPolicy
 from tarkka.infrastructure.extraction.model_research import (
@@ -15,9 +24,14 @@ from tarkka.infrastructure.extraction.model_research import (
 from tarkka.ports.model_claims import EvidenceSelector, ModelClaimRequest
 from tarkka.ports.model_research import (
     ModelDatasetCandidate,
+    ModelHypothesisCandidate,
+    ModelLimitationCandidate,
     ModelMethodCandidate,
+    ModelMetricCandidate,
+    ModelModelCandidate,
     ModelResearchCandidate,
     ModelResultCandidate,
+    ModelVariableCandidate,
 )
 
 
@@ -38,8 +52,8 @@ def _document() -> Document:
     document_id = uuid4()
     section_id = uuid4()
     texts = (
-        "We trained gradient boosted trees on Statcast data.",
-        "The model reduced log loss from 0.61 to 0.57.",
+        "We hypothesized starter rest would improve outcomes and trained gradient boosted trees on Statcast data using rest_days.",
+        "Log loss improved from 0.61 to 0.57, although the sample was limited to one season.",
         "Additional discussion followed the reported result.",
     )
     offset = 0
@@ -75,37 +89,39 @@ def _document() -> Document:
     )
 
 
-def test_extracts_method_dataset_and_result_in_one_run() -> None:
+def test_extracts_complete_research_vocabulary_in_one_run() -> None:
     document = _document()
     first, second, _ = document.sections[0].passages
+    first_span = (EvidenceSelector(first.passage_id, 0, len(first.text)),)
+    second_span = (EvidenceSelector(second.passage_id, 0, len(second.text)),)
     model = RecordingResearchModel(
         responses=[
             (
-                ModelMethodCandidate(
-                    name="gradient boosted trees",
-                    description="Tree boosting for game prediction",
-                    evidence=(EvidenceSelector(first.passage_id, 3, 32),),
-                    confidence=0.95,
-                ),
-                ModelDatasetCandidate(
-                    name="Statcast",
-                    evidence=(EvidenceSelector(first.passage_id, 36, 49),),
-                    confidence=0.98,
-                ),
-                ModelResultCandidate(
-                    text="The model reduced log loss from 0.61 to 0.57.",
-                    direction="improved",
-                    evidence=(EvidenceSelector(second.passage_id, 0, len(second.text)),),
-                    confidence=0.99,
-                ),
+                ModelHypothesisCandidate(text="starter rest would improve outcomes", evidence=first_span, confidence=0.9),
+                ModelMethodCandidate(name="gradient boosted trees", description="Tree boosting", evidence=first_span, confidence=0.95),
+                ModelDatasetCandidate(name="Statcast", evidence=first_span, confidence=0.98),
+                ModelVariableCandidate(name="rest_days", role="predictor", evidence=first_span, confidence=0.97),
+                ModelModelCandidate(name="gradient boosted trees", family="tree ensemble", evidence=first_span, confidence=0.96),
+                ModelMetricCandidate(name="log loss", value_text="0.57", evidence=second_span, confidence=0.99),
+                ModelResultCandidate(text="Log loss improved from 0.61 to 0.57", direction="improved", evidence=second_span, confidence=0.99),
+                ModelLimitationCandidate(text="the sample was limited to one season", evidence=second_span, confidence=0.93),
             )
         ]
     )
 
     batch = ModelResearchExtractor(model).extract(document)
 
-    assert [type(item) for item in batch.extractions] == [Method, Dataset, Result]
-    assert len(batch.evidence) == 3
+    assert [type(item) for item in batch.extractions] == [
+        Hypothesis,
+        Method,
+        Dataset,
+        Variable,
+        Model,
+        Metric,
+        Result,
+        Limitation,
+    ]
+    assert len(batch.evidence) == 8
     assert {item.provenance.run_id for item in batch.extractions} == {batch.run.run_id}
     assert batch.run.model is not None
     assert batch.run.model.name == "research-model"
@@ -128,7 +144,7 @@ def test_bounded_research_extraction_deduplicates_overlap_by_exact_signature() -
 
     batch = ModelResearchExtractor(
         model,
-        batching=ModelBatchingPolicy(max_chars=200, max_passages=2, overlap_passages=1),
+        batching=ModelBatchingPolicy(max_chars=300, max_passages=2, overlap_passages=1),
     ).extract(document)
 
     assert len(model.requests) == 2
@@ -156,7 +172,7 @@ def test_rejects_candidate_evidence_outside_current_batch() -> None:
     with pytest.raises(ValueError, match="outside request batch"):
         ModelResearchExtractor(
             model,
-            batching=ModelBatchingPolicy(max_chars=200, max_passages=2, overlap_passages=1),
+            batching=ModelBatchingPolicy(max_chars=300, max_passages=2, overlap_passages=1),
         ).extract(document)
 
 

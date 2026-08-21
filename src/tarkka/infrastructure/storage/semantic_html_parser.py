@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
@@ -19,7 +20,23 @@ from tarkka.domain.source_observations import (
 )
 from tarkka.ports.parsing import NativeDocumentParseResult
 
-_VOID_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"})
+_VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "source",
+        "track",
+        "wbr",
+    }
+)
 _IGNORED_TEXT_TAGS = frozenset({"script", "style", "template", "noscript"})
 _BLOCK_TAGS = frozenset({"p", "li", "blockquote", "pre", "dd", "dt"})
 
@@ -29,7 +46,7 @@ class _Node:
     tag: str
     attrs: dict[str, str]
     children: list[_Node] = field(default_factory=list)
-    text_parts: list[str] = field(default_factory=list)
+    content: list[str | _Node] = field(default_factory=list)
 
 
 class _TreeBuilder(HTMLParser):
@@ -40,7 +57,9 @@ class _TreeBuilder(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         node = _Node(tag.lower(), {key.lower(): value or "" for key, value in attrs})
-        self._stack[-1].children.append(node)
+        parent = self._stack[-1]
+        parent.children.append(node)
+        parent.content.append(node)
         if node.tag not in _VOID_TAGS:
             self._stack.append(node)
 
@@ -57,7 +76,7 @@ class _TreeBuilder(HTMLParser):
                 return
 
     def handle_data(self, data: str) -> None:
-        self._stack[-1].text_parts.append(data)
+        self._stack[-1].content.append(data)
 
 
 class SemanticHtmlParser:
@@ -104,6 +123,7 @@ class SemanticHtmlParser:
             source = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             raise ValueError(f"unable to read semantic HTML {path}: {exc}") from exc
+
         builder = _TreeBuilder()
         try:
             builder.feed(source)
@@ -114,7 +134,8 @@ class SemanticHtmlParser:
         root = builder.root
         document_id = _stable_id(artifact.artifact_id, "semantic-html-document")
         observation_id = _stable_id(artifact.artifact_id, "semantic-html-observation")
-        title = _metadata(root).get("citation_title") or _first_text(root, "title")
+        native_metadata = _metadata(root)
+        title = native_metadata.get("citation_title") or _first_text(root, "title")
         if not title:
             title = _first_text(root, "h1") or artifact.original_name or "Document"
 
@@ -125,7 +146,7 @@ class SemanticHtmlParser:
         references, reference_targets = _references(root, document_id, observation_id)
         mentions = _mentions(root, document_id, observation_id, reference_targets)
         links = _resource_links(root, artifact.artifact_id, observation_id)
-        metadata = _metadata(root)
+        metadata: dict[str, object] = dict(native_metadata)
         metadata.update(
             {
                 "language": _document_language(root),
@@ -150,7 +171,7 @@ class SemanticHtmlParser:
             basis=ObservationBasis.NATIVE,
             media_type=artifact.media_type,
             native_artifact_id=artifact.artifact_id,
-            provider_record_id=metadata.get("citation_doi"),
+            provider_record_id=native_metadata.get("citation_doi"),
             metadata=metadata,
         )
         document = Document(
@@ -201,42 +222,50 @@ def _sections(root: _Node, document_id: UUID, fallback_title: str) -> tuple[Sect
                 "blocks": [],
             }
             specs.append(current)
-        else:
-            if current is None:
-                current = {
-                    "title": fallback_title,
-                    "level": 1,
-                    "native_id": None,
-                    "blocks": [],
-                }
-                specs.append(current)
-            blocks = current["blocks"]
-            assert isinstance(blocks, list)
-            blocks.append(text)
+            continue
+        if current is None:
+            current = {
+                "title": fallback_title,
+                "level": 1,
+                "native_id": None,
+                "blocks": [],
+            }
+            specs.append(current)
+        blocks = current["blocks"]
+        assert isinstance(blocks, list)
+        blocks.append(text)
 
     if not specs:
         text = _text(content_root)
         specs.append(
-            {"title": fallback_title, "level": 1, "native_id": None, "blocks": [text] if text else []}
+            {
+                "title": fallback_title,
+                "level": 1,
+                "native_id": None,
+                "blocks": [text] if text else [],
+            }
         )
 
     sections: list[Section] = []
     parent_stack: list[tuple[int, UUID]] = []
     cursor = 0
     for ordinal, spec in enumerate(specs):
-        level = int(spec["level"])
-        native_id = spec["native_id"]
+        level_value = spec["level"]
+        native_id_value = spec["native_id"]
+        blocks_value = spec["blocks"]
+        assert isinstance(level_value, int)
+        assert native_id_value is None or isinstance(native_id_value, str)
+        assert isinstance(blocks_value, list)
+        level = level_value
         section_id = _stable_id(
             document_id,
-            f"section:{ordinal}:{native_id or 'unanchored'}",
+            f"section:{ordinal}:{native_id_value or 'unanchored'}",
         )
         while parent_stack and parent_stack[-1][0] >= level:
             parent_stack.pop()
         parent_id = parent_stack[-1][1] if parent_stack else None
-        blocks = spec["blocks"]
-        assert isinstance(blocks, list)
         passages: list[Passage] = []
-        for passage_ordinal, block in enumerate(blocks):
+        for passage_ordinal, block in enumerate(blocks_value):
             assert isinstance(block, str)
             start = cursor
             end = start + len(block)
@@ -270,15 +299,20 @@ def _sections(root: _Node, document_id: UUID, fallback_title: str) -> tuple[Sect
 def _figures(root: _Node, document_id: UUID) -> tuple[Figure, ...]:
     values: list[Figure] = []
     for ordinal, node in enumerate(_nodes(root, "figure")):
-        caption_node = next((child for child in _walk(node) if child.tag == "figcaption"), None)
+        caption_node = next(
+            (child for child in _walk(node) if child.tag == "figcaption"), None
+        )
         image = next((child for child in _walk(node) if child.tag == "img"), None)
         native_id = node.attrs.get("id")
         values.append(
             Figure(
-                figure_id=_stable_id(document_id, f"figure:{ordinal}:{native_id or 'unanchored'}"),
+                figure_id=_stable_id(
+                    document_id, f"figure:{ordinal}:{native_id or 'unanchored'}"
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
-                label=node.attrs.get("aria-label") or (image.attrs.get("alt") if image else None),
+                label=node.attrs.get("aria-label")
+                or (image.attrs.get("alt") if image else None),
                 caption=_text(caption_node) or None,
                 figure_type="html_figure",
             )
@@ -291,14 +325,19 @@ def _tables(root: _Node, document_id: UUID) -> tuple[Table, ...]:
     for ordinal, node in enumerate(_nodes(root, "table")):
         rows = [child for child in _walk(node) if child.tag == "tr"]
         columns = max(
-            (sum(1 for child in row.children if child.tag in {"th", "td"}) for row in rows),
+            (
+                sum(1 for child in row.children if child.tag in {"th", "td"})
+                for row in rows
+            ),
             default=0,
         )
         caption = next((child for child in node.children if child.tag == "caption"), None)
         native_id = node.attrs.get("id")
         values.append(
             Table(
-                table_id=_stable_id(document_id, f"table:{ordinal}:{native_id or 'unanchored'}"),
+                table_id=_stable_id(
+                    document_id, f"table:{ordinal}:{native_id or 'unanchored'}"
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 label=node.attrs.get("aria-label"),
@@ -317,7 +356,9 @@ def _equations(root: _Node, document_id: UUID) -> tuple[Equation, ...]:
         native_id = node.attrs.get("id")
         values.append(
             Equation(
-                equation_id=_stable_id(document_id, f"equation:{ordinal}:{native_id or 'unanchored'}"),
+                equation_id=_stable_id(
+                    document_id, f"equation:{ordinal}:{native_id or 'unanchored'}"
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 label=node.attrs.get("aria-label"),
@@ -332,11 +373,7 @@ def _references(
     document_id: UUID,
     observation_id: UUID,
 ) -> tuple[tuple[BibliographicReference, ...], dict[str, UUID]]:
-    candidates = [
-        node
-        for node in _walk(root)
-        if "doc-biblioentry" in _roles(node)
-    ]
+    candidates = [node for node in _walk(root) if "doc-biblioentry" in _roles(node)]
     values: list[BibliographicReference] = []
     targets: dict[str, UUID] = {}
     for ordinal, node in enumerate(candidates):
@@ -349,8 +386,7 @@ def _references(
             targets[native_id] = reference_id
         identifiers: dict[str, str] = {}
         for link in (item for item in _walk(node) if item.tag == "a"):
-            href = link.attrs.get("href", "")
-            doi = _doi_from_uri(href)
+            doi = _doi_from_uri(link.attrs.get("href", ""))
             if doi:
                 identifiers["doi"] = doi
         raw_text = _text(node)
@@ -389,7 +425,9 @@ def _mentions(
         anchor = node.attrs.get("href", "").removeprefix("#") or None
         values.append(
             CitationMention(
-                mention_id=_stable_id(document_id, f"mention:{ordinal}:{anchor or 'unanchored'}"),
+                mention_id=_stable_id(
+                    document_id, f"mention:{ordinal}:{anchor or 'unanchored'}"
+                ),
                 document_id=document_id,
                 raw_text=text,
                 reference_id=targets.get(anchor or ""),
@@ -419,7 +457,11 @@ def _resource_links(
             relation = ResourceRelation.CANONICAL
         elif "alternate" in rel:
             relation = ResourceRelation.ALTERNATE
-        elif "supplement" in rel or "supplementary" in rel or "doc-supplementary" in role:
+        elif (
+            "supplement" in rel
+            or "supplementary" in rel
+            or "doc-supplementary" in role
+        ):
             relation = ResourceRelation.SUPPLEMENT
         elif "dataset" in rel:
             relation = ResourceRelation.DATASET
@@ -447,7 +489,9 @@ def _resource_links(
 def _metadata(root: _Node) -> dict[str, str]:
     values: dict[str, str] = {}
     for node in _nodes(root, "meta"):
-        key = (node.attrs.get("name") or node.attrs.get("property") or "").strip().lower()
+        key = (
+            node.attrs.get("name") or node.attrs.get("property") or ""
+        ).strip().lower()
         content = node.attrs.get("content", "").strip()
         if key and content and key not in values:
             values[key] = content
@@ -488,7 +532,7 @@ def _nodes(root: _Node, tag: str) -> tuple[_Node, ...]:
     return tuple(node for node in _walk(root) if node.tag == tag)
 
 
-def _walk(root: _Node):  # type: ignore[no-untyped-def]
+def _walk(root: _Node) -> Iterator[_Node]:
     yield root
     for child in root.children:
         yield from _walk(child)
@@ -497,18 +541,19 @@ def _walk(root: _Node):  # type: ignore[no-untyped-def]
 def _text(node: _Node | None) -> str:
     if node is None or node.tag in _IGNORED_TEXT_TAGS:
         return ""
-    parts = list(node.text_parts)
-    for child in node.children:
-        parts.append(_text(child))
-    return " ".join(" ".join(parts).split())
+    parts: list[str] = []
+    for item in node.content:
+        parts.append(item if isinstance(item, str) else _text(item))
+    return " ".join("".join(parts).split())
 
 
 def _has_ancestor_block(root: _Node, target: _Node) -> bool:
     def visit(node: _Node, blocked: bool) -> bool:
+        descendant_blocked = blocked or node.tag in _BLOCK_TAGS
         for child in node.children:
             if child is target:
-                return blocked
-            if visit(child, blocked or node.tag in _BLOCK_TAGS):
+                return descendant_blocked
+            if visit(child, descendant_blocked):
                 return True
         return False
 

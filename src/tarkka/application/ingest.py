@@ -8,7 +8,11 @@ from tarkka.domain.manifest import ResourceManifest, build_document_manifest
 from tarkka.domain.models import Acquisition, Artifact, Document, new_id
 from tarkka.ports.acquisitions import AcquisitionRecorder
 from tarkka.ports.artifacts import ArtifactStore
-from tarkka.ports.parsing import DocumentParser
+from tarkka.ports.parsing import (
+    DocumentParser,
+    NativeDocumentParseResult,
+    NativeStructureParser,
+)
 from tarkka.ports.repositories import ResearchRepository
 
 
@@ -22,6 +26,7 @@ class IngestResult:
     acquisition: Acquisition
     document: Document
     manifest: ResourceManifest
+    native_parse: NativeDocumentParseResult | None = None
 
 
 class IngestService:
@@ -90,7 +95,12 @@ class IngestService:
             )
 
         stored_path = self._artifact_store.path_for(artifact)
-        document = parser.parse(artifact, stored_path)
+        native_parse: NativeDocumentParseResult | None = None
+        if isinstance(parser, NativeStructureParser):
+            native_parse = parser.parse_native(artifact, stored_path)
+            document = native_parse.document
+        else:
+            document = parser.parse(artifact, stored_path)
         manifest = build_document_manifest(document, artifact)
         self._repository.save_artifact(artifact)
         self._repository.save_document(document, manifest)
@@ -99,4 +109,5 @@ class IngestService:
             acquisition=acquisition,
             document=document,
             manifest=manifest,
+            native_parse=native_parse,
         )

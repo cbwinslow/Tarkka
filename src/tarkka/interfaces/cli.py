@@ -29,6 +29,7 @@ from tarkka.infrastructure.full_text.http import UrllibBinaryFetcher
 from tarkka.infrastructure.full_text.source_record import SourceRecordFullTextResolver
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
+from tarkka.infrastructure.storage.jats_parser import JatsParser
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
@@ -70,7 +71,7 @@ def _snapshot_log() -> JsonlSearchSnapshotLog:
 
 
 def _parsers() -> tuple[DocumentParser, ...]:
-    parsers: list[DocumentParser] = [PlainTextParser()]
+    parsers: list[DocumentParser] = [JatsParser(), PlainTextParser()]
     if DoclingParser.is_available():
         parsers.append(DoclingParser())
     return tuple(parsers)

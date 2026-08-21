@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import NAMESPACE_URL, UUID, uuid5
+
 from tarkka.domain.models import Artifact, Document, Passage, Section, new_id
 
 
@@ -10,10 +12,11 @@ def document_from_markdown(
     parser_name: str,
     parser_version: str,
     title: str | None = None,
+    document_id: UUID | None = None,
 ) -> Document:
     """Normalize Markdown-ish text into Tarkka's deterministic document hierarchy."""
 
-    document_id = new_id()
+    resolved_document_id = document_id or new_id()
     lines = text.splitlines(keepends=True)
     section_specs: list[tuple[str, int, int, int]] = []
     current_title = title or artifact.original_name or "Document"
@@ -40,14 +43,17 @@ def document_from_markdown(
 
     sections: list[Section] = []
     for ordinal, (section_title, level, start, end) in enumerate(section_specs):
-        section_id = new_id()
+        section_id = _stable_id(
+            resolved_document_id,
+            f"section:{ordinal}:{level}:{start}:{end}",
+        )
         section_text = text[start:end]
         passages: tuple[Passage, ...]
         if section_text:
             passages = (
                 Passage(
-                    passage_id=new_id(),
-                    document_id=document_id,
+                    passage_id=_stable_id(section_id, "passage:0"),
+                    document_id=resolved_document_id,
                     section_id=section_id,
                     ordinal=0,
                     text=section_text,
@@ -60,7 +66,7 @@ def document_from_markdown(
         sections.append(
             Section(
                 section_id=section_id,
-                document_id=document_id,
+                document_id=resolved_document_id,
                 ordinal=ordinal,
                 title=section_title,
                 level=level,
@@ -69,10 +75,14 @@ def document_from_markdown(
         )
 
     return Document(
-        document_id=document_id,
+        document_id=resolved_document_id,
         artifact_id=artifact.artifact_id,
         title=title or artifact.original_name or "Document",
         parser_name=parser_name,
         parser_version=parser_version,
         sections=tuple(sections),
     )
+
+
+def _stable_id(namespace: UUID, key: str) -> UUID:
+    return uuid5(NAMESPACE_URL, f"tarkka:{namespace}:{key}")

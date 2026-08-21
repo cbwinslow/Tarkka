@@ -1,0 +1,32 @@
+# Native document adapters
+
+Tarkka prefers the richest source-native representation available and keeps the acquired artifact immutable. A parser may still produce the canonical `Document` used by existing ingest flows, but native-aware parsers should additionally expose `NativeDocumentParseResult` so bibliography, inline citation anchors, source observations, and linked resources are not discarded during normalization.
+
+## Parser priority
+
+Prefer a format-specific native adapter over a general reconstruction adapter when both support the same artifact. For example, JATS/NXML should be parsed as JATS rather than routed through a generic XML/PDF-to-Markdown path.
+
+## Current preservation matrix
+
+| Adapter | Basis | Structure | Bibliography | Inline citations | Figures | Tables | Equations | Supplements |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| JATS | native | yes | yes | yes | yes | yes | yes | yes |
+| Docling | reconstructed | yes | no | no | yes | yes | best-effort formulas | no |
+| Plain text | reconstructed | minimal | no | no | no | no | no | no |
+
+Capability manifests are the machine-readable source of truth. The matrix is explanatory and must not advertise a capability that the adapter manifest does not expose.
+
+## Preservation rules
+
+- Keep canonical `Document`, `Section`, and `Passage` records provider-neutral.
+- Preserve native IDs/anchors and provider metadata in `SourceObservation` instead of adding format-specific fields to the canonical schema.
+- Promote figures, tables, and equations into existing first-class source-artifact contracts rather than embedding them in Markdown.
+- Preserve bibliography entries and inline citation anchors through the citation contracts introduced by issue #26.
+- Preserve supplementary/resource links as `ResourceLinkObservation` values.
+- Label reconstructed structure as reconstructed; do not present PDF layout recovery as source-native structure.
+- Use stable IDs derived from the immutable source artifact plus native anchors when the format provides durable anchors.
+- Keep broad format support incremental: EPUB, semantic HTML/XHTML, LaTeX/source bundles, BibTeX/RIS/CSL-JSON, and OCR/layout adapters should reuse these boundaries rather than redesigning the canonical schema.
+
+## Fixture policy
+
+Every structure-aware adapter should have deterministic fixtures that fail if expected structure disappears. At minimum, fixtures should cover the capabilities the adapter advertises, including bibliography, citation anchors, figures, tables, equations, and resource links when supported.

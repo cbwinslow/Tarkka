@@ -68,6 +68,7 @@ class JatsParser:
             raise ValueError(f"unable to parse JATS XML {path}: {exc}") from exc
         if _local_name(root.tag) != "article":
             raise ValueError("JATS parser requires an <article> root element")
+        _strip_element_namespaces(root)
 
         document_id = _stable_id(artifact.artifact_id, "document")
         observation_id = _stable_id(artifact.artifact_id, "observation")
@@ -387,6 +388,13 @@ def _article_identifier(root: ET.Element) -> str | None:
 
 def _native_ids(elements: Iterable[ET.Element]) -> tuple[str, ...]:
     return tuple(element.attrib["id"] for element in elements if element.attrib.get("id"))
+
+
+def _strip_element_namespaces(root: ET.Element) -> None:
+    """Make JATS element lookup namespace-agnostic without mutating source bytes or attributes."""
+    for element in root.iter():
+        if isinstance(element.tag, str):
+            element.tag = _local_name(element.tag)
 
 
 def _text(element: ET.Element | None) -> str:

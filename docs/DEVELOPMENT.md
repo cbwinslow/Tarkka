@@ -27,11 +27,35 @@ The repository currently targets Python 3.11–3.13 in CI and uses:
 - standard-library-first domain/application code where practical
 - `psycopg` as an optional PostgreSQL integration
 - optional Docling rich-document parsing behind `DocumentParser`
+- `uv` for dependency resolution, project environments, and running development tools
+- Hatchling as the standards-compliant package build backend
 - pytest
 - Ruff
+- SQLFluff with the PostgreSQL dialect for new migration SQL
 - strict mypy
 
 Future dependencies should be adopted only when they materially improve the implementation and remain replaceable behind a narrow contract where appropriate.
+
+## Development environment
+
+Use the committed `uv.lock` and the development dependency group:
+
+```bash
+uv sync --frozen --group dev
+```
+
+Run tools through the project environment:
+
+```bash
+uv run --no-sync ruff check .
+uv run --no-sync mypy
+uv run --no-sync sqlfluff lint migrations
+uv run --no-sync pytest -m "not external"
+```
+
+When dependency declarations change intentionally, regenerate the lockfile with `uv lock`, review the dependency diff, and commit `pyproject.toml` and `uv.lock` together. Do not hand-edit `uv.lock`.
+
+Development-only tools belong in the `dev` dependency group. Runtime dependencies belong in `[project.dependencies]` or narrowly scoped optional extras. Do not maintain parallel development requirements files or add test/lint tooling to runtime package metadata.
 
 ## Package layout
 
@@ -52,6 +76,17 @@ src/tarkka/
 As additional stages arrive, add focused modules such as extraction, retrieval, reporting, API, or MCP only when the corresponding application contracts exist. Do not create speculative empty framework layers.
 
 Keep domain models separate from provider, parser, database, transport, CLI, and model-vendor details.
+
+## Package-development conventions
+
+Keep package metadata portable and standards-based. `uv` manages development and resolution; it does not replace the configured PEP 517 build backend.
+
+- Preserve the `src/` layout and explicit `tarkka` package namespace.
+- Keep optional integrations import-safe when their extras are not installed.
+- Avoid runtime dependency on linters, test frameworks, build orchestration, or CI-only packages.
+- Keep the CLI entry point in `[project.scripts]` thin and route behavior through application services.
+- Treat changes to `requires-python`, extras, public imports, CLI behavior, and persisted schemas as compatibility changes.
+- Build/release automation should consume committed metadata and lock state rather than maintaining a second dependency definition.
 
 ## Configuration
 
@@ -162,6 +197,8 @@ Migration design should preserve:
 - provenance
 - conflicting source observations
 - append-only guarantees where promised
+
+SQLFluff was adopted after migrations `0001`–`0006`; those historical files are baselined in `.sqlfluffignore` rather than rewritten. Every new migration must pass the configured PostgreSQL SQLFluff rules before merge.
 
 ## Performance philosophy
 

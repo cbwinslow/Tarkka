@@ -122,3 +122,18 @@ def test_docling_native_parse_preserves_first_class_structural_artifacts(tmp_pat
         Capability.TABLES,
         Capability.EQUATIONS,
     )
+
+
+def test_docling_structural_artifact_ids_are_stable_for_same_artifact(tmp_path: Path) -> None:
+    source = tmp_path / "paper.pdf"
+    source.write_bytes(b"not-a-real-pdf")
+    parser = DoclingParser(converter=_FakeConverter())
+    artifact = _artifact()
+
+    first = parser.parse_native(artifact, source).document
+    second = parser.parse_native(artifact, source).document
+
+    assert first.document_id != second.document_id
+    assert first.figures[0].figure_id == second.figures[0].figure_id
+    assert first.tables[0].table_id == second.tables[0].table_id
+    assert first.equations[0].equation_id == second.equations[0].equation_id

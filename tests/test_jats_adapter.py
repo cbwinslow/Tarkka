@@ -103,7 +103,9 @@ def test_jats_ids_are_stable_for_same_source_artifact() -> None:
     assert [item.reference_id for item in first.references] == [
         item.reference_id for item in second.references
     ]
-    assert [item.mention_id for item in first.mentions] == [item.mention_id for item in second.mentions]
+    assert [item.mention_id for item in first.mentions] == [
+        item.mention_id for item in second.mentions
+    ]
 
 
 def test_jats_capabilities_are_explicit() -> None:

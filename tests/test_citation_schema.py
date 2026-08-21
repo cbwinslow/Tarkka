@@ -18,8 +18,8 @@ def test_schema_enforces_exact_citation_ranges_and_nonblank_context() -> None:
     sql = _sql()
     assert "char_end > char_start" in sql
     assert "char_end - char_start = char_length(raw_text)" in sql
-    assert 'char_end - char_start = char_length("text")' in sql
-    assert '"text" text NOT NULL CHECK (length(btrim("text")) > 0)' in sql
+    assert "char_end - char_start = char_length(text)" in sql
+    assert "text text NOT NULL CHECK (length(btrim(text)) > 0)" in sql
 
 
 def test_schema_enforces_citation_document_lineage() -> None:

@@ -28,7 +28,7 @@ class CitationIdentityResolver:
         self._id_factory = id_factory or _deterministic_id
 
     def resolve(self, reference: BibliographicReference) -> CitationResolution:
-        matches: dict[UUID, str] = {}
+        matches: set[UUID] = set()
         for scheme, raw_value in reference.identifiers.items():
             normalized_scheme = scheme.strip().lower()
             value = _normalize_identifier(normalized_scheme, raw_value)
@@ -36,7 +36,7 @@ class CitationIdentityResolver:
                 continue
             work = self._repository.find_work_by_identifier(normalized_scheme, value)
             if work is not None:
-                matches[work.work_id] = f"{normalized_scheme}:{value}"
+                matches.add(work.work_id)
 
         resolution_id = self._id_factory(f"citation-resolution:{reference.reference_id}")
         if not matches:
@@ -97,7 +97,7 @@ class CitationIdentityResolver:
 
 def _normalize_identifier(scheme: str, value: str) -> str | None:
     stripped = value.strip()
-    if not scheme or not stripped:
+    if not stripped:
         return None
     if scheme == "doi":
         return try_normalize_doi(stripped)

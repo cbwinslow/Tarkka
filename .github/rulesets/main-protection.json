@@ -26,16 +26,20 @@
       "parameters": {
         "required_status_checks": [
           {
-            "context": "Quality"
+            "context": "Quality",
+            "integration_id": 15368
           },
           {
-            "context": "Tests (Python 3.11)"
+            "context": "Tests (Python 3.11)",
+            "integration_id": 15368
           },
           {
-            "context": "Tests (Python 3.12)"
+            "context": "Tests (Python 3.12)",
+            "integration_id": 15368
           },
           {
-            "context": "Tests (Python 3.13)"
+            "context": "Tests (Python 3.13)",
+            "integration_id": 15368
           }
         ],
         "strict_required_status_checks_policy": true

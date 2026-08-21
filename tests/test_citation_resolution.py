@@ -111,6 +111,22 @@ def test_resolved_reference_creates_provenance_backed_cites_relation() -> None:
     assert relation.source_observation_id == reference.source_observation_id
 
 
+def test_self_citation_creates_explicit_cites_relation() -> None:
+    work = _work()
+    reference = _reference(doi="10.1000/example")
+    resolver = _resolver({("doi", "10.1000/example"): work})
+    resolution = resolver.resolve(reference)
+
+    relation = resolver.relation_for_resolved_reference(
+        citing_work_id=work.work_id,
+        reference=reference,
+        resolution=resolution,
+    )
+
+    assert relation.subject_work_id == work.work_id
+    assert relation.object_work_id == work.work_id
+
+
 def test_relation_rejects_unresolved_or_mismatched_resolution() -> None:
     reference = _reference(doi="10.1000/example")
     resolver = _resolver({})

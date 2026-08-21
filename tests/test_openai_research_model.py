@@ -58,20 +58,72 @@ def _request() -> ModelClaimRequest:
 def test_translates_complete_structured_research_response() -> None:
     request = _request()
     passage = request.passages[0]
-    evidence = [{"passage_id": str(passage.passage_id), "char_start": 0, "char_end": 8}]
+    evidence = [
+        {
+            "passage_id": str(passage.passage_id),
+            "char_start": 0,
+            "char_end": 8,
+        }
+    ]
     content = {
         "items": [
-            {"kind": "method", "name": "training", "confidence": 0.9, "evidence": evidence},
-            {"kind": "dataset", "name": "Statcast", "confidence": 0.9, "evidence": evidence},
-            {"kind": "variable", "name": "rest_days", "role": "predictor", "confidence": 0.9, "evidence": evidence},
-            {"kind": "model", "name": "gradient boosting", "family": "tree ensemble", "confidence": 0.9, "evidence": evidence},
-            {"kind": "metric", "name": "log loss", "value_text": "0.57", "confidence": 0.9, "evidence": evidence},
-            {"kind": "hypothesis", "text": "rest improves outcomes", "confidence": 0.9, "evidence": evidence},
-            {"kind": "result", "text": "log loss improved", "direction": "improved", "confidence": 0.9, "evidence": evidence},
-            {"kind": "limitation", "text": "single-season sample", "confidence": 0.9, "evidence": evidence},
+            {
+                "kind": "method",
+                "name": "training",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
+            {
+                "kind": "dataset",
+                "name": "Statcast",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
+            {
+                "kind": "variable",
+                "name": "rest_days",
+                "role": "predictor",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
+            {
+                "kind": "model",
+                "name": "gradient boosting",
+                "family": "tree ensemble",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
+            {
+                "kind": "metric",
+                "name": "log loss",
+                "value_text": "0.57",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
+            {
+                "kind": "hypothesis",
+                "text": "rest improves outcomes",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
+            {
+                "kind": "result",
+                "text": "log loss improved",
+                "direction": "improved",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
+            {
+                "kind": "limitation",
+                "text": "single-season sample",
+                "confidence": 0.9,
+                "evidence": evidence,
+            },
         ]
     }
-    transport = FakeTransport({"choices": [{"message": {"content": json.dumps(content)}}]})
+    transport = FakeTransport(
+        {"choices": [{"message": {"content": json.dumps(content)}}]}
+    )
     model = OpenAICompatibleResearchModel(
         base_url="http://localhost:4000/v1",
         model_name="fixture-model",
@@ -103,7 +155,10 @@ def test_unknown_research_kind_fails_closed() -> None:
             "choices": [
                 {
                     "message": {
-                        "content": '{"items":[{"kind":"chart","confidence":1,"evidence":[]}]}'
+                        "content": (
+                            '{"items":[{"kind":"chart","confidence":1,'
+                            '"evidence":[]}]}'
+                        )
                     }
                 }
             ]

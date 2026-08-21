@@ -66,7 +66,9 @@ class ModelResearchExtractor:
         self.batching = batching or ModelBatchingPolicy()
 
     def extract(self, document: Document) -> ExtractionBatch:
-        passages = tuple(passage for section in document.sections for passage in section.passages)
+        passages = tuple(
+            passage for section in document.sections for passage in section.passages
+        )
         requests = build_model_requests(document, passages, self.batching)
         all_passage_ids = {passage.passage_id for passage in passages}
         candidates: list[ModelResearchCandidate] = []
@@ -75,7 +77,9 @@ class ModelResearchExtractor:
         for request in requests:
             allowed_passage_ids = {passage.passage_id for passage in request.passages}
             for candidate in self.model.extract_research(request):
-                validate_candidate_batch_scope(candidate, allowed_passage_ids, all_passage_ids)
+                validate_candidate_batch_scope(
+                    candidate, allowed_passage_ids, all_passage_ids
+                )
                 signature = _candidate_signature(candidate)
                 existing_index = candidate_index.get(signature)
                 if existing_index is None:
@@ -85,7 +89,9 @@ class ModelResearchExtractor:
                     candidates[existing_index] = candidate
 
         if not candidates:
-            raise NoModelResearchFoundError("model returned no supported research candidates")
+            raise NoModelResearchFoundError(
+                "model returned no supported research candidates"
+            )
 
         run_id = uuid4()
         run = ExtractionRun(
@@ -130,7 +136,8 @@ class ModelResearchExtractor:
 
             extraction_id = uuid5(
                 _TARKKA_MODEL_RESEARCH_NAMESPACE,
-                f"{_candidate_kind(candidate)}:{run_id}:{candidate_number}:{_candidate_primary(candidate)}",
+                f"{_candidate_kind(candidate)}:{run_id}:{candidate_number}:"
+                f"{_candidate_primary(candidate)}",
             )
             extractions.append(
                 _to_domain_record(
@@ -171,12 +178,21 @@ def _candidate_kind(candidate: ModelResearchCandidate) -> str:
 
 
 def _candidate_primary(candidate: ModelResearchCandidate) -> str:
-    if isinstance(
-        candidate,
-        (ModelMethodCandidate, ModelDatasetCandidate, ModelVariableCandidate, ModelModelCandidate, ModelMetricCandidate),
-    ):
+    named_types = (
+        ModelMethodCandidate,
+        ModelDatasetCandidate,
+        ModelVariableCandidate,
+        ModelModelCandidate,
+        ModelMetricCandidate,
+    )
+    if isinstance(candidate, named_types):
         return candidate.name
-    if isinstance(candidate, (ModelHypothesisCandidate, ModelResultCandidate, ModelLimitationCandidate)):
+    text_types = (
+        ModelHypothesisCandidate,
+        ModelResultCandidate,
+        ModelLimitationCandidate,
+    )
+    if isinstance(candidate, text_types):
         return candidate.text
     raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
 
@@ -189,24 +205,12 @@ def _candidate_signature(candidate: ModelResearchCandidate) -> _CandidateSignatu
         )
     )
     normalized_primary = " ".join(_candidate_primary(candidate).split()).casefold()
-    return (_candidate_kind(candidate), normalized_primary, candidate.attribution.value, evidence)
-
-
-def _base_kwargs(
-    *,
-    extraction_id: UUID,
-    document_id: UUID,
-    evidence_ids: tuple[UUID, ...],
-    provenance: ExtractionProvenance,
-    candidate: ModelResearchCandidate,
-) -> dict[str, object]:
-    return {
-        "extraction_id": extraction_id,
-        "document_id": document_id,
-        "evidence_ids": evidence_ids,
-        "provenance": provenance,
-        "attribution": candidate.attribution,
-    }
+    return (
+        _candidate_kind(candidate),
+        normalized_primary,
+        candidate.attribution.value,
+        evidence,
+    )
 
 
 def _to_domain_record(
@@ -217,34 +221,85 @@ def _to_domain_record(
     evidence_ids: tuple[UUID, ...],
     provenance: ExtractionProvenance,
 ) -> ResearchExtraction:
-    common = _base_kwargs(
-        extraction_id=extraction_id,
-        document_id=document_id,
-        evidence_ids=evidence_ids,
-        provenance=provenance,
-        candidate=candidate,
-    )
     if isinstance(candidate, ModelMethodCandidate):
-        return Method(**common, name=candidate.name, description=candidate.description)
+        return Method(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            name=candidate.name,
+            description=candidate.description,
+        )
     if isinstance(candidate, ModelDatasetCandidate):
-        return Dataset(**common, name=candidate.name, description=candidate.description)
+        return Dataset(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            name=candidate.name,
+            description=candidate.description,
+        )
     if isinstance(candidate, ModelVariableCandidate):
-        return Variable(**common, name=candidate.name, role=candidate.role)
+        return Variable(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            name=candidate.name,
+            role=candidate.role,
+        )
     if isinstance(candidate, ModelModelCandidate):
-        return Model(**common, name=candidate.name, family=candidate.family)
+        return Model(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            name=candidate.name,
+            family=candidate.family,
+        )
     if isinstance(candidate, ModelMetricCandidate):
         return Metric(
-            **common,
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
             name=candidate.name,
             value_text=candidate.value_text,
             unit=candidate.unit,
         )
     if isinstance(candidate, ModelHypothesisCandidate):
-        return Hypothesis(**common, text=candidate.text)
+        return Hypothesis(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            text=candidate.text,
+        )
     if isinstance(candidate, ModelResultCandidate):
-        return Result(**common, text=candidate.text, direction=candidate.direction)
+        return Result(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            text=candidate.text,
+            direction=candidate.direction,
+        )
     if isinstance(candidate, ModelLimitationCandidate):
-        return Limitation(**common, text=candidate.text)
+        return Limitation(
+            extraction_id=extraction_id,
+            document_id=document_id,
+            evidence_ids=evidence_ids,
+            provenance=provenance,
+            attribution=candidate.attribution,
+            text=candidate.text,
+        )
     raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
 
 

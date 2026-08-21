@@ -70,12 +70,14 @@ def test_translates_complete_structured_research_response() -> None:
             {
                 "kind": "method",
                 "name": "training",
+                "description": "model training procedure",
                 "confidence": 0.9,
                 "evidence": evidence,
             },
             {
                 "kind": "dataset",
                 "name": "Statcast",
+                "description": "MLB tracking data",
                 "confidence": 0.9,
                 "evidence": evidence,
             },
@@ -97,6 +99,7 @@ def test_translates_complete_structured_research_response() -> None:
                 "kind": "metric",
                 "name": "log loss",
                 "value_text": "0.57",
+                "unit": "dimensionless",
                 "confidence": 0.9,
                 "evidence": evidence,
             },
@@ -142,6 +145,26 @@ def test_translates_complete_structured_research_response() -> None:
         ModelResultCandidate,
         ModelLimitationCandidate,
     ]
+    method, dataset, variable, model_candidate, metric, hypothesis, result, limitation = (
+        candidates
+    )
+    assert isinstance(method, ModelMethodCandidate)
+    assert method.description == "model training procedure"
+    assert isinstance(dataset, ModelDatasetCandidate)
+    assert dataset.description == "MLB tracking data"
+    assert isinstance(variable, ModelVariableCandidate)
+    assert variable.role == "predictor"
+    assert isinstance(model_candidate, ModelModelCandidate)
+    assert model_candidate.family == "tree ensemble"
+    assert isinstance(metric, ModelMetricCandidate)
+    assert metric.value_text == "0.57"
+    assert metric.unit == "dimensionless"
+    assert isinstance(hypothesis, ModelHypothesisCandidate)
+    assert hypothesis.text == "rest improves outcomes"
+    assert isinstance(result, ModelResultCandidate)
+    assert result.direction == "improved"
+    assert isinstance(limitation, ModelLimitationCandidate)
+    assert limitation.text == "single-season sample"
     assert transport.calls[0][0] == "http://localhost:4000/v1/chat/completions"
     system_prompt = transport.calls[0][1]["messages"][0]["content"]
     assert "untrusted data" in system_prompt

@@ -25,15 +25,10 @@ jobs:
         with:
           python-version: "3.13"
           enable-cache: true
+      - name: Verify lockfile
+        run: uv lock --check
       - name: Sync development environment
-        run: uv sync --group dev
-      - name: Retain resolved lock candidate
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: uv-lock-candidate
-          path: uv.lock
-          if-no-files-found: error
-          retention-days: 1
+        run: uv sync --frozen --group dev
       - name: Ruff
         run: uv run --no-sync ruff check .
       - name: Mypy
@@ -58,7 +53,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Sync development environment
-        run: uv sync --group dev
+        run: uv sync --frozen --group dev
       - name: Pytest
         if: matrix.python-version != '3.13'
         run: uv run --no-sync pytest -m "not external"

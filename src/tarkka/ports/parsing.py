@@ -35,7 +35,10 @@ class NativeDocumentParseResult:
             raise ValueError("native parse references must belong to parsed document")
         if any(mention.document_id != document_id for mention in self.mentions):
             raise ValueError("native parse mentions must belong to parsed document")
-        if any(link.observation_id != self.observation.observation_id for link in self.resource_links):
+        if any(
+            link.observation_id != self.observation.observation_id
+            for link in self.resource_links
+        ):
             raise ValueError("native parse resource links must belong to source observation")
 
 

@@ -4,7 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from tarkka.domain.extraction import (
-    Evidence,
+    EvidenceRecord,
     ExtractionBatch,
     ResearchExtraction,
     ResearchObjectKind,
@@ -58,7 +58,7 @@ class ExtractionRepository(Protocol):
         run_id: UUID | None = None,
         offset: int = 0,
         limit: int = 100,
-    ) -> tuple[Evidence, ...]: ...
+    ) -> tuple[EvidenceRecord, ...]: ...
 
     def list_extractions(
         self,

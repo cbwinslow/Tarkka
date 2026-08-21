@@ -209,35 +209,46 @@ def _evidence_to_dict(value: EvidenceRecord) -> dict[str, Any]:
 
 
 def _evidence_from_dict(raw: dict[str, Any]) -> EvidenceRecord:
+    evidence_id = UUID(raw["evidence_id"])
+    document_id = UUID(raw["document_id"])
     provenance = _provenance_from_dict(raw["provenance"])
-    common = {
-        "evidence_id": UUID(raw["evidence_id"]),
-        "document_id": UUID(raw["document_id"]),
-        "provenance": provenance,
-    }
     source_kind = raw.get("source_kind", "passage")
     if source_kind == "passage":
         return Evidence(
-            **common,
+            evidence_id=evidence_id,
+            document_id=document_id,
             section_id=UUID(raw["section_id"]),
             passage_id=UUID(raw["passage_id"]),
             passage_char_start=int(raw["passage_char_start"]),
             passage_char_end=int(raw["passage_char_end"]),
             text=raw["text"],
+            provenance=provenance,
         )
     if source_kind == "figure":
-        return FigureEvidence(**common, figure_id=UUID(raw["figure_id"]))
+        return FigureEvidence(
+            evidence_id=evidence_id,
+            document_id=document_id,
+            figure_id=UUID(raw["figure_id"]),
+            provenance=provenance,
+        )
     if source_kind == "table":
         return TableEvidence(
-            **common,
+            evidence_id=evidence_id,
+            document_id=document_id,
             table_id=UUID(raw["table_id"]),
             row_start=int(raw["row_start"]),
             row_end=int(raw["row_end"]),
             column_start=int(raw["column_start"]),
             column_end=int(raw["column_end"]),
+            provenance=provenance,
         )
     if source_kind == "equation":
-        return EquationEvidence(**common, equation_id=UUID(raw["equation_id"]))
+        return EquationEvidence(
+            evidence_id=evidence_id,
+            document_id=document_id,
+            equation_id=UUID(raw["equation_id"]),
+            provenance=provenance,
+        )
     raise ValueError(f"unsupported evidence source_kind: {source_kind!r}")
 
 

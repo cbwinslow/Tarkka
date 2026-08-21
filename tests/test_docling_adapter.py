@@ -4,11 +4,43 @@ from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from tarkka.domain.models import Artifact
+from tarkka.domain.source_observations import Capability, ObservationBasis
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
+
+
+class _Prov:
+    page_no = 2
+
+
+class _Picture:
+    label = "Figure A"
+    caption = "A reconstructed plot"
+    prov = (_Prov(),)
+
+
+class _TableData:
+    num_rows = 4
+    num_cols = 3
+
+
+class _Table:
+    label = "Table A"
+    caption = "A reconstructed table"
+    data = _TableData()
+    prov = (_Prov(),)
+
+
+class _Formula:
+    label = "formula"
+    text = "y = a + bx"
+    prov = (_Prov(),)
 
 
 class _FakeDoclingDocument:
     name = "Normalized Research Paper"
+    pictures = (_Picture(),)
+    tables = (_Table(),)
+    texts = (_Formula(),)
 
     def export_to_markdown(self) -> str:
         return "# Abstract\nEvidence\x00 survives safely.\n\n## Methods\nRegression model.\n"
@@ -56,3 +88,37 @@ def test_docling_adapter_normalizes_to_tarkka_document(tmp_path: Path) -> None:
     assert "\x00" not in text
     assert "\ufffd" in text
     assert {section.document_id for section in document.sections} == {document.document_id}
+
+
+def test_docling_native_parse_preserves_first_class_structural_artifacts(tmp_path: Path) -> None:
+    source = tmp_path / "paper.pdf"
+    source.write_bytes(b"not-a-real-pdf")
+    parser = DoclingParser(converter=_FakeConverter())
+
+    result = parser.parse_native(_artifact(), source)
+    document = result.document
+
+    assert len(document.figures) == 1
+    assert document.figures[0].label == "Figure A"
+    assert document.figures[0].caption == "A reconstructed plot"
+    assert document.figures[0].page_number == 2
+
+    assert len(document.tables) == 1
+    assert document.tables[0].row_count == 4
+    assert document.tables[0].column_count == 3
+
+    assert len(document.equations) == 1
+    assert document.equations[0].source_text == "y = a + bx"
+    assert result.observation.basis is ObservationBasis.RECONSTRUCTED
+    assert result.observation.metadata["counts"] == {
+        "figures": 1,
+        "tables": 1,
+        "equations": 1,
+        "sections": 2,
+    }
+    assert parser.manifest.supports(
+        Capability.DOCUMENT_STRUCTURE,
+        Capability.FIGURES,
+        Capability.TABLES,
+        Capability.EQUATIONS,
+    )

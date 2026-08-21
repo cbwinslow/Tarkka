@@ -133,6 +133,30 @@ def test_jats_default_namespace_preserves_descendants(tmp_path: Path) -> None:
     assert document.sections[0].passages[0].text == "Native paragraph."
 
 
+def test_duplicate_native_ids_do_not_alias_canonical_records(tmp_path: Path) -> None:
+    path = tmp_path / "duplicates.nxml"
+    path.write_text(
+        """<article><body>
+  <sec id="same"><title>First</title><p>one</p></sec>
+  <sec id="same"><title>Second</title><p>two</p></sec>
+</body></article>""",
+        encoding="utf-8",
+    )
+    artifact = Artifact(
+        artifact_id=uuid4(),
+        sha256="e" * 64,
+        size_bytes=path.stat().st_size,
+        media_type="application/jats+xml",
+        storage_key=PurePosixPath("ee/duplicates"),
+        original_name="duplicates.nxml",
+    )
+
+    document = JatsParser().parse(artifact, path)
+
+    assert len(document.sections) == 2
+    assert document.sections[0].section_id != document.sections[1].section_id
+
+
 def test_jats_capabilities_are_explicit() -> None:
     manifest = JatsParser.manifest
 

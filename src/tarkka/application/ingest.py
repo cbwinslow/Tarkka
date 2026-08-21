@@ -23,7 +23,7 @@ class UnsupportedDocumentError(ValueError):
 
 
 class NativePersistenceError(RuntimeError):
-    """Native persistence was interrupted; retrying the same source is safe and resumable."""
+    """Transient native persistence interruption that can be resumed by retrying."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,11 +120,11 @@ class IngestService:
         if native_parse is not None:
             try:
                 self._persist_native_parse(native_parse)
-            except Exception as exc:
-                # The local catalogs use deterministic record IDs and idempotent writes. A retry
-                # therefore resumes any missing native records instead of duplicating prior ones.
+            except OSError as exc:
+                # Deterministic record IDs and idempotent writes make transient filesystem
+                # interruptions resumable. Validation/conflict errors intentionally pass through.
                 raise NativePersistenceError(
-                    "native parse persistence was incomplete; retry the same source to resume"
+                    "native parse persistence was interrupted; retry the same source to resume"
                 ) from exc
 
         return IngestResult(

@@ -39,7 +39,15 @@ from tarkka.ports.model_research import (
 )
 
 _TARKKA_MODEL_RESEARCH_NAMESPACE = UUID("83bb5e6c-d273-5dbd-8b70-76e75576ab31")
-_CandidateSignature: TypeAlias = tuple[str, str, str, tuple[tuple[str, int, int], ...]]
+_EvidenceSignature: TypeAlias = tuple[str, int, int]
+_DetailSignature: TypeAlias = tuple[str | None, ...]
+_CandidateSignature: TypeAlias = tuple[
+    str,
+    str,
+    str,
+    _DetailSignature,
+    tuple[_EvidenceSignature, ...],
+]
 
 
 class NoModelResearchFoundError(ValueError):
@@ -49,8 +57,8 @@ class NoModelResearchFoundError(ValueError):
 class ModelResearchExtractor:
     """Extract bounded structured research records with exact evidence."""
 
-    name = "model-research"
-    version = "1.1.0"
+    name: str = "model-research"
+    version: str = "1.1.0"
 
     def __init__(
         self,
@@ -87,6 +95,7 @@ class ModelResearchExtractor:
                     candidates.append(candidate)
                 elif candidate.confidence > candidates[existing_index].confidence:
                     candidates[existing_index] = candidate
+                # Equal-confidence duplicates intentionally retain the first occurrence.
 
         if not candidates:
             raise NoModelResearchFoundError(
@@ -197,6 +206,31 @@ def _candidate_primary(candidate: ModelResearchCandidate) -> str:
     raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
 
 
+def _normalized_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return " ".join(value.split()).casefold()
+
+
+def _candidate_details(candidate: ModelResearchCandidate) -> _DetailSignature:
+    if isinstance(candidate, (ModelMethodCandidate, ModelDatasetCandidate)):
+        return (_normalized_optional(candidate.description),)
+    if isinstance(candidate, ModelVariableCandidate):
+        return (_normalized_optional(candidate.role),)
+    if isinstance(candidate, ModelModelCandidate):
+        return (_normalized_optional(candidate.family),)
+    if isinstance(candidate, ModelMetricCandidate):
+        return (
+            _normalized_optional(candidate.value_text),
+            _normalized_optional(candidate.unit),
+        )
+    if isinstance(candidate, ModelResultCandidate):
+        return (_normalized_optional(candidate.direction),)
+    if isinstance(candidate, (ModelHypothesisCandidate, ModelLimitationCandidate)):
+        return ()
+    raise TypeError(f"unsupported research candidate: {type(candidate)!r}")
+
+
 def _candidate_signature(candidate: ModelResearchCandidate) -> _CandidateSignature:
     evidence = tuple(
         sorted(
@@ -209,6 +243,7 @@ def _candidate_signature(candidate: ModelResearchCandidate) -> _CandidateSignatu
         _candidate_kind(candidate),
         normalized_primary,
         candidate.attribution.value,
+        _candidate_details(candidate),
         evidence,
     )
 

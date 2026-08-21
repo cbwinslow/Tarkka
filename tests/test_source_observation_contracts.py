@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -18,7 +19,7 @@ from tarkka.ports.capabilities import adapters_supporting
 
 
 def test_source_observation_freezes_nested_native_metadata() -> None:
-    original = {
+    original: dict[str, Any] = {
         "authors": [{"name": "A. Researcher"}],
         "references": ["doi:10.1234/example"],
     }
@@ -42,7 +43,7 @@ def test_source_observation_freezes_nested_native_metadata() -> None:
         observation.metadata["new"] = "value"  # type: ignore[index]
 
 
-def test_source_observation_rejects_non_json_like_and_nonfinite_metadata() -> None:
+def test_source_observation_rejects_non_json_like_nonfinite_and_blank_keys() -> None:
     with pytest.raises(ValueError, match="JSON-like"):
         SourceObservation(
             observation_id=uuid4(),
@@ -57,6 +58,14 @@ def test_source_observation_rejects_non_json_like_and_nonfinite_metadata() -> No
             source_name="fixture",
             basis=ObservationBasis.NATIVE,
             metadata={"score": float("nan")},
+        )
+
+    with pytest.raises(ValueError, match="keys"):
+        SourceObservation(
+            observation_id=uuid4(),
+            source_name="fixture",
+            basis=ObservationBasis.NATIVE,
+            metadata={"   ": "invalid"},
         )
 
 
@@ -115,6 +124,24 @@ def test_adapters_are_selected_by_capability_not_provider_name() -> None:
     assert selected == (citation_source,)
 
 
+def test_capability_manifest_normalizes_mutable_collection_inputs() -> None:
+    mutable_capabilities = {Capability.SEARCH}
+    mutable_media_types = {"application/json"}
+    manifest = CapabilityManifest(
+        adapter_name="fixture",
+        adapter_kind=AdapterKind.DISCOVERY,
+        version="1",
+        capabilities=mutable_capabilities,  # type: ignore[arg-type]
+        media_types=mutable_media_types,  # type: ignore[arg-type]
+    )
+
+    mutable_capabilities.add(Capability.CITATIONS_INBOUND)
+    mutable_media_types.add("application/xml")
+
+    assert manifest.capabilities == frozenset({Capability.SEARCH})
+    assert manifest.media_types == frozenset({"application/json"})
+
+
 def test_capability_manifest_can_describe_native_document_structure() -> None:
     manifest = CapabilityManifest(
         adapter_name="jats-fixture",
@@ -122,6 +149,7 @@ def test_capability_manifest_can_describe_native_document_structure() -> None:
         version="1",
         capabilities=frozenset(
             {
+                Capability.PARSE,
                 Capability.DOCUMENT_METADATA,
                 Capability.DOCUMENT_STRUCTURE,
                 Capability.BIBLIOGRAPHY,
@@ -136,6 +164,7 @@ def test_capability_manifest_can_describe_native_document_structure() -> None:
     )
 
     assert manifest.supports(
+        Capability.PARSE,
         Capability.DOCUMENT_STRUCTURE,
         Capability.BIBLIOGRAPHY,
         Capability.INLINE_CITATIONS,

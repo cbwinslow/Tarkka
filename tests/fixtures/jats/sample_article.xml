@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article article-type="research-article" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <front>
+    <journal-meta>
+      <journal-title-group><journal-title>Journal of Fixtures</journal-title></journal-title-group>
+    </journal-meta>
+    <article-meta>
+      <article-id pub-id-type="pmcid">PMC123456</article-id>
+      <article-id pub-id-type="doi">10.1000/tarkka.fixture</article-id>
+      <title-group><article-title>Native Structure Fixture</article-title></title-group>
+      <abstract><p>We preserve native structure and cite <xref ref-type="bibr" rid="R1">[1]</xref>.</p></abstract>
+      <self-uri xlink:href="supplement/data.csv" mimetype="text/csv">Supplementary data</self-uri>
+    </article-meta>
+  </front>
+  <body>
+    <sec id="s1">
+      <title>Methods</title>
+      <p>First methods paragraph.</p>
+      <list><list-item><p>Preserved list item.</p></list-item></list>
+      <sec id="s1-1">
+        <title>Model</title>
+        <p>The model follows <xref ref-type="bibr" rid="R1 R2">[1,2]</xref>.</p>
+        <disp-formula id="eq1"><label>(1)</label><tex-math>y = a + bx</tex-math></disp-formula>
+      </sec>
+    </sec>
+    <sec id="s2">
+      <title>Results</title>
+      <p>Results are shown in <xref ref-type="fig" rid="fig1">Figure 1</xref>.</p>
+      <fig id="fig1" fig-type="diagram">
+        <label>Figure 1</label>
+        <caption><p>Preserved figure caption.</p></caption>
+      </fig>
+      <table-wrap id="tbl1">
+        <label>Table 1</label>
+        <caption><p>Preserved table caption.</p></caption>
+        <table>
+          <thead><tr><th>A</th><th>B</th></tr></thead>
+          <tbody><tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr></tbody>
+        </table>
+      </table-wrap>
+    </sec>
+  </body>
+  <back>
+    <ref-list>
+      <ref id="R1"><element-citation><article-title>First cited work</article-title><pub-id pub-id-type="doi">10.1000/first</pub-id></element-citation></ref>
+      <ref id="R2"><element-citation><article-title>Second cited work</article-title><pub-id pub-id-type="pmid">987654</pub-id></element-citation></ref>
+    </ref-list>
+  </back>
+</article>

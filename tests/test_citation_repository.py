@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
@@ -113,27 +114,66 @@ def test_json_citation_repository_rejects_conflicting_stable_ids(tmp_path: Path)
         repository.save_reference(replace(reference, raw_text="Different reference"))
 
 
-def test_resolution_key_is_reference_identity_not_resolution_identity(tmp_path: Path) -> None:
+def test_resolution_state_can_evolve_for_same_stable_resolution(tmp_path: Path) -> None:
     repository = JsonCitationRepository(tmp_path / "citations.json")
     reference_id = uuid4()
+    resolution_id = uuid4()
     first = CitationResolution(
-        resolution_id=uuid4(),
+        resolution_id=resolution_id,
         reference_id=reference_id,
         status=CitationResolutionStatus.UNRESOLVED,
         resolver="exact_identifier",
     )
     repository.save_resolution(first)
 
-    with pytest.raises(CitationConflictError, match="conflicting resolution"):
+    resolved = CitationResolution(
+        resolution_id=resolution_id,
+        reference_id=reference_id,
+        status=CitationResolutionStatus.RESOLVED,
+        work_id=uuid4(),
+        resolver="exact_identifier",
+    )
+    repository.save_resolution(resolved)
+
+    assert repository.get_resolution(reference_id) == resolved
+
+
+def test_resolution_rejects_different_identity_for_same_reference(tmp_path: Path) -> None:
+    repository = JsonCitationRepository(tmp_path / "citations.json")
+    reference_id = uuid4()
+    repository.save_resolution(
+        CitationResolution(
+            resolution_id=uuid4(),
+            reference_id=reference_id,
+            status=CitationResolutionStatus.UNRESOLVED,
+        )
+    )
+
+    with pytest.raises(CitationConflictError, match="conflicting resolution identity"):
         repository.save_resolution(
             CitationResolution(
                 resolution_id=uuid4(),
                 reference_id=reference_id,
                 status=CitationResolutionStatus.RESOLVED,
                 work_id=uuid4(),
-                resolver="manual_review",
             )
         )
+
+
+def test_repository_rejects_directory_catalog_path(tmp_path: Path) -> None:
+    catalog_dir = tmp_path / "citations"
+    catalog_dir.mkdir()
+
+    with pytest.raises(ValueError, match="is a directory"):
+        JsonCitationRepository(catalog_dir)
+
+
+def test_repository_rejects_catalog_with_missing_bucket(tmp_path: Path) -> None:
+    path = tmp_path / "citations.json"
+    path.write_text(json.dumps({"schema_version": 1, "references": {}}), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="invalid citation catalog bucket"):
+        JsonCitationRepository(path).list_references(uuid4())
 
 
 def test_repository_orders_references_and_mentions_deterministically(tmp_path: Path) -> None:

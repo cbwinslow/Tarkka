@@ -22,7 +22,7 @@ from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
 class CitationConflictError(RuntimeError):
-    """Raised when a stable citation ID is reused with different content."""
+    """Raised when a stable citation ID is reused with incompatible content."""
 
 
 class JsonCitationRepository:
@@ -30,9 +30,12 @@ class JsonCitationRepository:
 
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
+        if self.path.exists() and self.path.is_dir():
+            raise ValueError(f"citation catalog path is a directory: {self.path}")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self._write(_empty_catalog())
+        with exclusive_lock(self.path):
+            if not self.path.exists():
+                self._write(_empty_catalog())
 
     def save_reference(self, reference: BibliographicReference) -> None:
         self._save("references", reference.reference_id, _reference_to_dict(reference))
@@ -44,7 +47,19 @@ class JsonCitationRepository:
         self._save("contexts", context.context_id, _context_to_dict(context))
 
     def save_resolution(self, resolution: CitationResolution) -> None:
-        self._save("resolutions", resolution.reference_id, _resolution_to_dict(resolution))
+        key = str(resolution.reference_id)
+        payload = _resolution_to_dict(resolution)
+        with exclusive_lock(self.path):
+            data = self._read()
+            existing = data["resolutions"].get(key)
+            if existing == payload:
+                return
+            if existing is not None and existing.get("resolution_id") != payload["resolution_id"]:
+                raise CitationConflictError(
+                    f"conflicting resolution identity for reference {resolution.reference_id}"
+                )
+            data["resolutions"][key] = payload
+            self._write(data)
 
     def save_relation(self, relation: WorkRelation) -> None:
         self._save("relations", relation.relation_id, _relation_to_dict(relation))
@@ -123,7 +138,7 @@ class JsonCitationRepository:
         if data.get("schema_version") != 1:
             raise RuntimeError("invalid or unsupported citation catalog")
         for bucket in _BUCKETS:
-            if not isinstance(data.get(bucket), dict):
+            if bucket not in data or not isinstance(data[bucket], dict):
                 raise RuntimeError(f"invalid citation catalog bucket: {bucket}")
         return data
 
@@ -133,6 +148,8 @@ class JsonCitationRepository:
         temp_path = Path(temp_name)
         try:
             temp_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+            with temp_path.open("rb") as handle:
+                os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
         finally:
             temp_path.unlink(missing_ok=True)

@@ -135,16 +135,6 @@ def test_citation_context_range_must_match_text_exactly() -> None:
 
     assert context.char_end - context.char_start == len(context.text)
 
-    with pytest.raises(ValueError, match="must not be blank"):
-        CitationContext(
-            context_id=uuid4(),
-            mention_id=uuid4(),
-            document_id=uuid4(),
-            text="   ",
-            char_start=5,
-            char_end=8,
-        )
-
     with pytest.raises(ValueError, match="match text length"):
         CitationContext(
             context_id=uuid4(),

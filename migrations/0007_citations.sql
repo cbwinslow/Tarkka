@@ -1,5 +1,9 @@
 BEGIN;
 
+-- Composite uniqueness supports document-lineage foreign keys below.
+CREATE UNIQUE INDEX IF NOT EXISTS section_lineage_idx
+    ON tarkka.section(section_id, document_id);
+
 CREATE TABLE IF NOT EXISTS tarkka.bibliographic_reference (
     reference_id uuid PRIMARY KEY,
     document_id uuid NOT NULL REFERENCES tarkka.document(document_id) ON DELETE CASCADE,
@@ -21,7 +25,7 @@ CREATE INDEX IF NOT EXISTS bibliographic_reference_document_idx
 CREATE TABLE IF NOT EXISTS tarkka.citation_mention (
     mention_id uuid PRIMARY KEY,
     document_id uuid NOT NULL REFERENCES tarkka.document(document_id) ON DELETE CASCADE,
-    reference_id uuid REFERENCES tarkka.bibliographic_reference(reference_id) ON DELETE SET NULL,
+    reference_id uuid,
     section_id uuid,
     passage_id uuid,
     raw_text text NOT NULL CHECK (length(btrim(raw_text)) > 0),
@@ -29,6 +33,7 @@ CREATE TABLE IF NOT EXISTS tarkka.citation_mention (
     char_end integer,
     source_anchor text CHECK (source_anchor IS NULL OR length(btrim(source_anchor)) > 0),
     source_observation_id uuid,
+    CHECK (passage_id IS NULL OR section_id IS NOT NULL),
     CHECK (
         (char_start IS NULL AND char_end IS NULL)
         OR (
@@ -38,7 +43,17 @@ CREATE TABLE IF NOT EXISTS tarkka.citation_mention (
             AND char_end > char_start
             AND char_end - char_start = char_length(raw_text)
         )
-    )
+    ),
+    FOREIGN KEY (reference_id, document_id)
+        REFERENCES tarkka.bibliographic_reference(reference_id, document_id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (section_id, document_id)
+        REFERENCES tarkka.section(section_id, document_id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (passage_id, document_id, section_id)
+        REFERENCES tarkka.passage(passage_id, document_id, section_id)
+        ON DELETE RESTRICT,
+    UNIQUE (mention_id, document_id)
 );
 
 CREATE INDEX IF NOT EXISTS citation_mention_document_idx
@@ -49,15 +64,25 @@ CREATE INDEX IF NOT EXISTS citation_mention_reference_idx
 
 CREATE TABLE IF NOT EXISTS tarkka.citation_context (
     context_id uuid PRIMARY KEY,
-    mention_id uuid NOT NULL REFERENCES tarkka.citation_mention(mention_id) ON DELETE CASCADE,
+    mention_id uuid NOT NULL,
     document_id uuid NOT NULL REFERENCES tarkka.document(document_id) ON DELETE CASCADE,
     section_id uuid,
     passage_id uuid,
-    text text NOT NULL CHECK (char_length(text) > 0),
+    text text NOT NULL CHECK (length(btrim(text)) > 0),
     char_start integer NOT NULL CHECK (char_start >= 0),
     char_end integer NOT NULL,
     CHECK (char_end > char_start),
-    CHECK (char_end - char_start = char_length(text))
+    CHECK (char_end - char_start = char_length(text)),
+    CHECK (passage_id IS NULL OR section_id IS NOT NULL),
+    FOREIGN KEY (mention_id, document_id)
+        REFERENCES tarkka.citation_mention(mention_id, document_id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (section_id, document_id)
+        REFERENCES tarkka.section(section_id, document_id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (passage_id, document_id, section_id)
+        REFERENCES tarkka.passage(passage_id, document_id, section_id)
+        ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS citation_context_document_idx
@@ -109,25 +134,33 @@ CREATE TABLE IF NOT EXISTS tarkka.work_relation (
     ),
     basis text NOT NULL CHECK (basis IN ('native', 'reconstructed', 'inferred')),
     source_observation_id uuid,
-    source_document_id uuid REFERENCES tarkka.document(document_id) ON DELETE SET NULL,
-    source_reference_id uuid
-        REFERENCES tarkka.bibliographic_reference(reference_id) ON DELETE SET NULL,
+    source_document_id uuid REFERENCES tarkka.document(document_id) ON DELETE RESTRICT,
+    source_reference_id uuid,
     created_at timestamptz NOT NULL,
-    CHECK (subject_work_id <> object_work_id),
+    CHECK (subject_work_id <> object_work_id OR kind = 'cites'),
+    CHECK (source_reference_id IS NULL OR source_document_id IS NOT NULL),
     CHECK (
         source_observation_id IS NOT NULL
         OR source_document_id IS NOT NULL
         OR source_reference_id IS NOT NULL
     ),
-    UNIQUE (
+    FOREIGN KEY (source_reference_id, source_document_id)
+        REFERENCES tarkka.bibliographic_reference(reference_id, document_id)
+        ON DELETE RESTRICT
+);
+
+-- UUID text is never empty, so COALESCE provides NULLS-NOT-DISTINCT semantics
+-- without requiring a PostgreSQL-version-specific UNIQUE NULLS NOT DISTINCT clause.
+CREATE UNIQUE INDEX IF NOT EXISTS work_relation_logical_unique_idx
+    ON tarkka.work_relation (
         subject_work_id,
         object_work_id,
         kind,
-        source_observation_id,
-        source_document_id,
-        source_reference_id
-    )
-);
+        basis,
+        COALESCE(source_observation_id::text, ''),
+        COALESCE(source_document_id::text, ''),
+        COALESCE(source_reference_id::text, '')
+    );
 
 CREATE INDEX IF NOT EXISTS work_relation_subject_idx
     ON tarkka.work_relation (subject_work_id, kind);

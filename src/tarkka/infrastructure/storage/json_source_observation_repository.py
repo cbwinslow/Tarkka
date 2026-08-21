@@ -35,11 +35,21 @@ class JsonSourceObservationRepository:
                 self._write(_empty_catalog())
 
     def save_observation(self, observation: SourceObservation) -> None:
-        self._save(
-            "observations",
-            observation.observation_id,
-            _observation_to_dict(observation),
-        )
+        key = str(observation.observation_id)
+        payload = _observation_to_dict(observation)
+        with exclusive_lock(self.path):
+            data = self._read()
+            existing = data["observations"].get(key)
+            if existing is not None:
+                if _same_observation(existing, payload):
+                    # Keep the first-seen timestamp. A stable observation ID describes the same
+                    # source-native fact even when an unchanged artifact is processed again.
+                    return
+                raise SourceObservationConflictError(
+                    f"conflicting observations entry for stable ID {key}"
+                )
+            data["observations"][key] = payload
+            self._write(data)
 
     def save_resource_link(self, link: ResourceLinkObservation) -> None:
         self._save("resource_links", link.link_id, _resource_link_to_dict(link))
@@ -113,6 +123,13 @@ class JsonSourceObservationRepository:
 
 def _empty_catalog() -> dict[str, Any]:
     return {"schema_version": 1, "observations": {}, "resource_links": {}}
+
+
+def _same_observation(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    """Compare stable observation content while treating observed_at as first-seen metadata."""
+    existing_stable = {key: value for key, value in existing.items() if key != "observed_at"}
+    incoming_stable = {key: value for key, value in incoming.items() if key != "observed_at"}
+    return existing_stable == incoming_stable
 
 
 def _json_value(value: Any) -> Any:

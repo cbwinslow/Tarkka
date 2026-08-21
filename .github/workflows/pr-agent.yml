@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      CONFIG__MODEL: openrouter/openrouter/free
+      CONFIG__MODEL: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
       CONFIG__FALLBACK_MODELS: '["openrouter/openrouter/free"]'
       CONFIG__CUSTOM_MODEL_MAX_TOKENS: "20000"
       CONFIG__LARGE_PATCH_POLICY: clip

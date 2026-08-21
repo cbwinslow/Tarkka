@@ -22,6 +22,10 @@ class UnsupportedDocumentError(ValueError):
     pass
 
 
+class NativePersistenceError(RuntimeError):
+    """Native persistence was interrupted; retrying the same source is safe and resumable."""
+
+
 @dataclass(frozen=True, slots=True)
 class IngestResult:
     artifact: Artifact
@@ -114,7 +118,14 @@ class IngestService:
         self._repository.save_artifact(artifact)
         self._repository.save_document(document, manifest)
         if native_parse is not None:
-            self._persist_native_parse(native_parse)
+            try:
+                self._persist_native_parse(native_parse)
+            except Exception as exc:
+                # The local catalogs use deterministic record IDs and idempotent writes. A retry
+                # therefore resumes any missing native records instead of duplicating prior ones.
+                raise NativePersistenceError(
+                    "native parse persistence was incomplete; retry the same source to resume"
+                ) from exc
 
         return IngestResult(
             artifact=artifact,

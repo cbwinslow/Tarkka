@@ -39,10 +39,13 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - name: Create integration environment
-        run: uv venv --python 3.12
+        run: uv venv --python 3.12 --seed
       - name: Install Docling integration (CPU)
+        # PyTorch's CPU index also contains stale copies of generic packages.
+        # pip's extra-index behavior is intentionally retained for this one
+        # specialized integration instead of weakening uv's safe first-index policy.
         run: >-
-          uv pip install -e '.[docling]'
+          .venv/bin/python -m pip install -e '.[docling]'
           --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Install development test tools
         run: uv pip install --group dev

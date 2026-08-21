@@ -119,8 +119,8 @@ class CitationContext:
     passage_id: UUID | None = None
 
     def __post_init__(self) -> None:
-        if not self.text:
-            raise ValueError("citation context text must not be empty")
+        if not self.text.strip():
+            raise ValueError("citation context text must not be blank")
         if self.char_start < 0 or self.char_end < self.char_start:
             raise ValueError("invalid citation context character range")
         if self.char_end - self.char_start != len(self.text):

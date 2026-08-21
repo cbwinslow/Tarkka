@@ -1,0 +1,63 @@
+name: PR Agent
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request != null)
+    runs-on: ubuntu-latest
+    env:
+      PR_AGENT_ENABLED: ${{ secrets.OPENROUTER_API_KEY != '' }}
+      CONFIG__MODEL: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      CONFIG__FALLBACK_MODELS: '["openrouter/openrouter/free"]'
+      CONFIG__CUSTOM_MODEL_MAX_TOKENS: "20000"
+      CONFIG__LARGE_PATCH_POLICY: clip
+      PR_REVIEWER__REQUIRE_TESTS_REVIEW: "true"
+      PR_REVIEWER__REQUIRE_SECURITY_REVIEW: "true"
+      PR_REVIEWER__EXTRA_INSTRUCTIONS: >-
+        Review Tarkka as evidence-oriented, domain-agnostic research infrastructure.
+        Prioritize correctness, silent data loss, provenance and identity invariants,
+        source-native structure preservation, provider/parser independence, fail-closed
+        behavior, deterministic behavior, Python typing/contracts, migration compatibility,
+        and regression coverage for material findings. Do not recommend provider-specific
+        coupling in core code or flattening source-native information when richer structure
+        can be retained. Prefer existing abstractions over parallel frameworks. Treat
+        AGENTS.md and current architecture documents as authoritative project guidance.
+    steps:
+      - name: Report disabled configuration
+        if: env.PR_AGENT_ENABLED != 'true'
+        run: echo "OPENROUTER_API_KEY is not configured; skipping PR-Agent."
+
+      - name: Run PR-Agent review
+        if: env.PR_AGENT_ENABLED == 'true'
+        uses: docker://pragent/pr-agent:0.41.0-github_action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CONFIG__MODEL: ${{ env.CONFIG__MODEL }}
+          CONFIG__FALLBACK_MODELS: ${{ env.CONFIG__FALLBACK_MODELS }}
+          CONFIG__CUSTOM_MODEL_MAX_TOKENS: ${{ env.CONFIG__CUSTOM_MODEL_MAX_TOKENS }}
+          CONFIG__LARGE_PATCH_POLICY: ${{ env.CONFIG__LARGE_PATCH_POLICY }}
+          PR_REVIEWER__REQUIRE_TESTS_REVIEW: ${{ env.PR_REVIEWER__REQUIRE_TESTS_REVIEW }}
+          PR_REVIEWER__REQUIRE_SECURITY_REVIEW: ${{ env.PR_REVIEWER__REQUIRE_SECURITY_REVIEW }}
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: ${{ env.PR_REVIEWER__EXTRA_INSTRUCTIONS }}
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
+          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from pathlib import PurePosixPath
 from uuid import uuid4
 
 import pytest
 
 from tarkka.domain.citations import BibliographicReference, CitationMention
-from tarkka.domain.models import Artifact, Document, Section
+from tarkka.domain.models import Document, Section
 from tarkka.domain.source_observations import (
     ObservationBasis,
     ResourceLinkObservation,

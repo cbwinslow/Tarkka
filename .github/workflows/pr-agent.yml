@@ -18,12 +18,14 @@ permissions:
 
 jobs:
   review:
-    if: github.event.sender.type != 'Bot'
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request != null)
     runs-on: ubuntu-latest
     env:
-      OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      CONFIG__MODEL: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-      CONFIG__FALLBACK_MODELS: '["openrouter/openrouter/free"]'
+      PR_AGENT_ENABLED: ${{ secrets.OPENROUTER_API_KEY != '' }}
+      CONFIG__MODEL: openrouter/openrouter/free
+      CONFIG__FALLBACK_MODELS: '[]'
       CONFIG__CUSTOM_MODEL_MAX_TOKENS: "20000"
       CONFIG__LARGE_PATCH_POLICY: clip
       PR_REVIEWER__REQUIRE_TESTS_REVIEW: "true"
@@ -38,19 +40,12 @@ jobs:
         can be retained. Prefer existing abstractions over parallel frameworks. Treat
         AGENTS.md and current architecture documents as authoritative project guidance.
     steps:
-      - name: Check OpenRouter configuration
-        id: config
-        shell: bash
-        run: |
-          if [[ -n "${OPENROUTER__KEY}" ]]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_API_KEY is not configured; skipping PR-Agent."
-          fi
+      - name: Report disabled configuration
+        if: env.PR_AGENT_ENABLED != 'true'
+        run: echo "OPENROUTER_API_KEY is not configured; skipping PR-Agent."
 
       - name: Run PR-Agent review
-        if: steps.config.outputs.enabled == 'true'
+        if: env.PR_AGENT_ENABLED == 'true'
         uses: docker://pragent/pr-agent:0.41.0-github_action
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from xml.etree import ElementTree as ET
 from uuid import NAMESPACE_URL, UUID, uuid5
+from xml.etree import ElementTree as ET
 
 from tarkka.domain.citations import BibliographicReference, CitationMention
 from tarkka.domain.models import Artifact, Document, Passage, Section
@@ -103,7 +103,9 @@ class JatsParser:
             provider_record_id=_article_identifier(root),
             metadata={
                 "article_type": root.attrib.get("article-type"),
-                "journal_title": _text(root.find("./front/journal-meta/journal-title-group/journal-title")),
+                "journal_title": _text(
+                    root.find("./front/journal-meta/journal-title-group/journal-title")
+                ),
                 "article_ids": _article_ids(root),
                 "native_section_ids": _native_ids(root.findall(".//sec")),
                 "native_figure_ids": _native_ids(root.findall(".//fig")),
@@ -254,7 +256,13 @@ def _equations(root: ET.Element, document_id: UUID) -> tuple[Equation, ...]:
     values: list[Equation] = []
     for ordinal, element in enumerate(root.findall(".//disp-formula")):
         native_id = element.attrib.get("id")
-        source = _text(element.find("./tex-math")) or _text(element.find("./mml:math", {}))
+        source = _text(element.find("./tex-math"))
+        if not source:
+            math = next(
+                (child for child in element if _local_name(child.tag) == "math"),
+                None,
+            )
+            source = _text(math)
         if not source:
             source = _text(element)
         values.append(
@@ -338,7 +346,9 @@ def _resource_links(
     artifact_id: UUID,
 ) -> tuple[ResourceLinkObservation, ...]:
     values: list[ResourceLinkObservation] = []
-    candidates = list(root.findall(".//supplementary-material")) + list(root.findall(".//self-uri"))
+    candidates = list(root.findall(".//supplementary-material")) + list(
+        root.findall(".//self-uri")
+    )
     for ordinal, element in enumerate(candidates):
         target = element.attrib.get(_XLINK_HREF) or element.attrib.get("href")
         if not target:

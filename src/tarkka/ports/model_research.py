@@ -72,7 +72,9 @@ class ModelResultCandidate:
             raise ValueError("model result direction must not be blank when provided")
 
 
-ModelResearchCandidate: TypeAlias = ModelMethodCandidate | ModelDatasetCandidate | ModelResultCandidate
+ModelResearchCandidate: TypeAlias = (
+    ModelMethodCandidate | ModelDatasetCandidate | ModelResultCandidate
+)
 
 
 class StructuredResearchModel(Protocol):

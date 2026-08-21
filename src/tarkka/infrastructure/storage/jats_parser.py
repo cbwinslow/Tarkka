@@ -143,7 +143,10 @@ def _sections(root: ET.Element, document_id: UUID, fallback_title: str) -> tuple
     def walk(element: ET.Element, level: int, parent_id: UUID | None) -> None:
         native_id = element.attrib.get("id")
         ordinal = len(specs)
-        section_id = _stable_id(document_id, f"section:{native_id or ordinal}")
+        section_id = _stable_id(
+            document_id,
+            f"section:{ordinal}:{native_id or 'unanchored'}",
+        )
         title = _text(element.find("./title")) or f"Section {ordinal + 1}"
         paragraphs = tuple(_direct_content_texts(element))
         specs.append((element, title, level, parent_id, paragraphs))
@@ -165,7 +168,10 @@ def _sections(root: ET.Element, document_id: UUID, fallback_title: str) -> tuple
     cursor = 0
     for ordinal, (element, title, level, parent_id, paragraphs) in enumerate(specs):
         native_id = element.attrib.get("id") if element is not None else None
-        section_id = _stable_id(document_id, f"section:{native_id or ordinal}")
+        section_id = _stable_id(
+            document_id,
+            f"section:{ordinal}:{native_id or 'unanchored'}",
+        )
         passages: list[Passage] = []
         for passage_ordinal, text in enumerate(paragraphs):
             start = cursor
@@ -219,7 +225,10 @@ def _figures(root: ET.Element, document_id: UUID) -> tuple[Figure, ...]:
         native_id = element.attrib.get("id")
         values.append(
             Figure(
-                figure_id=_stable_id(document_id, f"figure:{native_id or ordinal}"),
+                figure_id=_stable_id(
+                    document_id,
+                    f"figure:{ordinal}:{native_id or 'unanchored'}",
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 label=_text(element.find("./label")) or None,
@@ -241,7 +250,10 @@ def _tables(root: ET.Element, document_id: UUID) -> tuple[Table, ...]:
         )
         values.append(
             Table(
-                table_id=_stable_id(document_id, f"table:{native_id or ordinal}"),
+                table_id=_stable_id(
+                    document_id,
+                    f"table:{ordinal}:{native_id or 'unanchored'}",
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 label=_text(element.find("./label")) or None,
@@ -268,7 +280,10 @@ def _equations(root: ET.Element, document_id: UUID) -> tuple[Equation, ...]:
             source = _text(element)
         values.append(
             Equation(
-                equation_id=_stable_id(document_id, f"equation:{native_id or ordinal}"),
+                equation_id=_stable_id(
+                    document_id,
+                    f"equation:{ordinal}:{native_id or 'unanchored'}",
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 label=_text(element.find("./label")) or None,
@@ -287,8 +302,11 @@ def _references(
     targets: dict[str, UUID] = {}
     for ordinal, element in enumerate(root.findall(".//ref-list/ref")):
         native_id = element.attrib.get("id")
-        reference_id = _stable_id(document_id, f"reference:{native_id or ordinal}")
-        if native_id:
+        reference_id = _stable_id(
+            document_id,
+            f"reference:{ordinal}:{native_id or 'unanchored'}",
+        )
+        if native_id and native_id not in targets:
             targets[native_id] = reference_id
         identifiers: dict[str, str] = {}
         for pub_id in element.findall(".//pub-id"):

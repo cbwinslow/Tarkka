@@ -96,12 +96,11 @@ class CitationMention:
             raise ValueError("citation mention raw_text must not be blank")
         if (self.char_start is None) != (self.char_end is None):
             raise ValueError("citation mention character bounds must be supplied together")
-        if (
-            self.char_start is not None
-            and self.char_end is not None
-            and (self.char_start < 0 or self.char_end < self.char_start)
-        ):
-            raise ValueError("invalid citation mention character range")
+        if self.char_start is not None and self.char_end is not None:
+            if self.char_start < 0 or self.char_end <= self.char_start:
+                raise ValueError("invalid citation mention character range")
+            if self.char_end - self.char_start != len(self.raw_text):
+                raise ValueError("citation mention character range must match raw_text length")
         if self.source_anchor is not None and not self.source_anchor.strip():
             raise ValueError("citation mention source_anchor must not be blank")
 

@@ -13,7 +13,7 @@ Milestone numbers in implementation PRs map to the phases below; the phase names
 - Phase 2 — Scholarly discovery and identity: **complete for the local/offline workflow**
 - Phase 3 — Structured research extraction: **in progress**
 
-The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, and review-only fuzzy identity candidates.
+The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, evidence-backed claim extraction, model-assisted extraction, evaluation fixtures, and bounded model requests.
 
 ## Phase 0 — Foundation
 
@@ -113,27 +113,46 @@ Foundation deliverables:
 - PostgreSQL reference schema with lineage constraints and evidence validation
 - extraction contract tests
 
-The supported foundation workflow, failure behavior, debugging steps, and current non-goals are documented in [`MILESTONE_4.md`](MILESTONE_4.md). The focused validation command is:
+Delivered vertical slices now also include:
 
-```bash
-pytest -q tests/test_extraction_contracts.py tests/test_extraction_schema.py
-```
+- deterministic claim extraction
+- local JSON extraction repository
+- claim/evidence CLI inspection
+- provider-neutral structured model boundary
+- OpenAI-compatible model adapter
+- extraction evaluation fixtures and claim precision/recall metrics
+- bounded model requests with request-local evidence validation and overlap deduplication
 
-Agents must return evidence-backed records and only concise visible reasoning summaries where useful. Hidden chain-of-thought is never persisted. The current foundation intentionally contains no LLM SDK, production prompt, concrete extraction repository adapter, or automatic extraction workflow.
+The supported foundation workflow, failure behavior, debugging steps, and current non-goals are documented in [`MILESTONE_4.md`](MILESTONE_4.md).
 
 Next:
 
-1. deterministic claim-extraction vertical slice
-2. local JSON extraction repository for offline workflows with idempotency/atomicity tests
-3. CLI evidence/claim inspection
-4. one replaceable model-assisted extractor adapter
-5. schema-constrained extraction for methods/models, variables, metrics, datasets, hypotheses, results, and limitations
-6. extraction evaluation fixtures and precision/recall measurements
+1. generalize bounded structured extraction beyond claims
+2. add schema-constrained extraction for Method, Dataset, and Result first
+3. expand to Variable, Model, Metric, Limitation, and Hypothesis
+4. introduce generalized evidence locators for textual and multimodal source objects
+5. add first-class Figure, Table, and Equation document artifacts without requiring OCR/vision
+6. add optional native-structure, OCR, and vision adapters behind explicit contracts
+7. link figure/table interpretations to source artifacts without overwriting immutable source facts
+
+Multimodal source artifacts should preserve layers explicitly:
+
+```text
+immutable Figure/Table/Equation artifact
+    -> observed structure/text/value
+    -> optional interpretation
+    -> Result / Claim / other research object
+```
+
+OCR, vision, chart digitization, and embeddings are optional adapters. They are not requirements of the core document or evidence model.
+
+Agents must return evidence-backed records and only concise visible reasoning summaries where useful. Hidden chain-of-thought is never persisted.
 
 Later in this phase:
 
 - software and experiment contracts where the first workflows require them
-- cloud-model and OpenAI-compatible/local adapters without making either mandatory
+- richer table/figure reconstruction when native source data are unavailable
+- links from figures to supplementary/raw datasets where available
 
 ## Phase 4 — Evidence verification
 
@@ -145,7 +164,7 @@ Deliverables:
 - verification workflow
 - support/contradiction/qualification labels
 - confidence and review state
-- source passage expansion
+- source passage/figure/table expansion
 - deterministic evaluation fixtures
 
 ## Phase 5 — Agent-first serving
@@ -239,6 +258,16 @@ Potential deliverables:
 - extension documentation
 
 ## Cross-cutting workstreams
+
+### Testing and quality
+
+Testing is continuous and is defined in [`TESTING.md`](TESTING.md). The suite grows through unit, contract, integration, regression, property-based, and opt-in external tests.
+
+Every meaningful bug should gain a focused regression test. Bugs that expose a broader class of failures should also gain a contract or property-based invariant test.
+
+The default CI profile remains network-free and credential-free. External database/model/provider tests are isolated and opt-in.
+
+Coverage is measured with branch coverage as a diagnostic. Repository-wide thresholds are deferred until a stable baseline is known; critical contracts should be covered behaviorally rather than optimized for a vanity percentage.
 
 ### Evaluation
 

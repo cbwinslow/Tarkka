@@ -164,16 +164,26 @@ class Document:
         for equation in self.equations:
             if equation.document_id != self.document_id:
                 raise ValueError("equation does not belong to document")
-        for name, values in (
-            ("figure", self.figures),
-            ("table", self.tables),
-            ("equation", self.equations),
-        ):
-            ids = [
-                value.figure_id if isinstance(value, Figure)
-                else value.table_id if isinstance(value, Table)
-                else value.equation_id
-                for value in values
-            ]
+
+        artifact_contracts = (
+            (
+                "figure",
+                [item.figure_id for item in self.figures],
+                [item.ordinal for item in self.figures],
+            ),
+            (
+                "table",
+                [item.table_id for item in self.tables],
+                [item.ordinal for item in self.tables],
+            ),
+            (
+                "equation",
+                [item.equation_id for item in self.equations],
+                [item.ordinal for item in self.equations],
+            ),
+        )
+        for name, ids, ordinals in artifact_contracts:
             if len(ids) != len(set(ids)):
                 raise ValueError(f"document {name} IDs must be unique")
+            if len(ordinals) != len(set(ordinals)):
+                raise ValueError(f"document {name} ordinals must be unique")

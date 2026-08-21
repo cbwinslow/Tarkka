@@ -86,7 +86,7 @@ def test_citation_mention_can_remain_unlinked_to_bibliography() -> None:
     assert mention.reference_id is None
 
 
-def test_citation_mention_requires_complete_valid_character_bounds() -> None:
+def test_citation_mention_requires_complete_exact_character_bounds() -> None:
     with pytest.raises(ValueError, match="supplied together"):
         CitationMention(
             mention_id=uuid4(),
@@ -102,6 +102,24 @@ def test_citation_mention_requires_complete_valid_character_bounds() -> None:
             raw_text="[1]",
             char_start=4,
             char_end=3,
+        )
+
+    with pytest.raises(ValueError, match="invalid citation mention"):
+        CitationMention(
+            mention_id=uuid4(),
+            document_id=uuid4(),
+            raw_text="[1]",
+            char_start=4,
+            char_end=4,
+        )
+
+    with pytest.raises(ValueError, match="match raw_text length"):
+        CitationMention(
+            mention_id=uuid4(),
+            document_id=uuid4(),
+            raw_text="[1]",
+            char_start=4,
+            char_end=8,
         )
 
 

@@ -3,8 +3,11 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import math
+import queue
 import socket
 import ssl
+import threading
+import time
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
@@ -14,20 +17,66 @@ _READ_CHUNK_BYTES = 64 * 1024
 
 
 class SystemHostResolver:
-    """Resolve stream-capable addresses using the operating system resolver."""
+    """Resolve stream-capable addresses with bounded blocking and concurrency."""
 
-    def resolve(self, hostname: str) -> tuple[str, ...]:
+    def __init__(self, *, max_concurrent_resolutions: int = 4) -> None:
+        if (
+            not isinstance(max_concurrent_resolutions, int)
+            or isinstance(max_concurrent_resolutions, bool)
+            or max_concurrent_resolutions < 1
+        ):
+            raise ValueError("resolver max_concurrent_resolutions must be a positive integer")
+        self._slots = threading.BoundedSemaphore(max_concurrent_resolutions)
+
+    def resolve(
+        self,
+        hostname: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[str, ...]:
         if not isinstance(hostname, str) or not hostname.strip():
             raise ValueError("resolver hostname must be non-blank")
-        try:
-            records = socket.getaddrinfo(
-                hostname.strip(),
-                None,
-                type=socket.SOCK_STREAM,
-            )
-        except socket.gaierror as exc:
-            raise OSError("unable to resolve HTTP hostname") from exc
-        return tuple(dict.fromkeys(str(record[4][0]) for record in records))
+        normalized_hostname = hostname.strip()
+        if timeout_seconds is None:
+            return _resolve_host(normalized_hostname)
+        if (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or not math.isfinite(float(timeout_seconds))
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("resolver timeout must be finite and positive when provided")
+
+        timeout = float(timeout_seconds)
+        started_at = time.monotonic()
+        if not self._slots.acquire(timeout=timeout):
+            raise TimeoutError("HTTP hostname resolution exceeded its deadline")
+
+        result_queue: queue.Queue[tuple[tuple[str, ...] | None, Exception | None]] = queue.Queue(
+            maxsize=1
+        )
+
+        def resolve_worker() -> None:
+            try:
+                result_queue.put((_resolve_host(normalized_hostname), None))
+            except Exception as exc:
+                result_queue.put((None, exc))
+            finally:
+                self._slots.release()
+
+        worker = threading.Thread(target=resolve_worker, daemon=True)
+        worker.start()
+        remaining = max(timeout - (time.monotonic() - started_at), 0.0)
+        worker.join(remaining)
+        if worker.is_alive():
+            raise TimeoutError("HTTP hostname resolution exceeded its deadline")
+
+        addresses, error = result_queue.get_nowait()
+        if error is not None:
+            raise error
+        if addresses is None:
+            raise RuntimeError("HTTP hostname resolver returned no result")
+        return addresses
 
 
 class PinnedHttpTransport:
@@ -184,6 +233,18 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         except Exception:
             raw_socket.close()
             raise
+
+
+def _resolve_host(hostname: str) -> tuple[str, ...]:
+    try:
+        records = socket.getaddrinfo(
+            hostname,
+            None,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        raise OSError("unable to resolve HTTP hostname") from exc
+    return tuple(dict.fromkeys(str(record[4][0]) for record in records))
 
 
 def _request_target(path: str, query: str) -> str:

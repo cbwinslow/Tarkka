@@ -9,6 +9,7 @@ from tarkka.domain.citations import (
     CitationMention,
     CitationResolution,
     WorkRelation,
+    WorkRelationKind,
 )
 
 
@@ -18,6 +19,10 @@ class CitationRepository(Protocol):
     Implementations must serialize writes to a reference's resolution key. They must also
     implement ``get_or_create_relation`` atomically so concurrent attempts to persist the same
     deterministic relation return one stored relation rather than surfacing a duplicate race.
+
+    Relation-list queries accept filtering, exclusions, and a hard result limit so application
+    traversal budgets can reach the storage boundary. SQL adapters should translate these into
+    WHERE/ORDER BY/LIMIT rather than materializing an unbounded adjacency list first.
     """
 
     def save_reference(self, reference: BibliographicReference) -> None: ...
@@ -42,6 +47,20 @@ class CitationRepository(Protocol):
 
     def get_relation(self, relation_id: UUID) -> WorkRelation | None: ...
 
-    def list_relations_from(self, work_id: UUID) -> tuple[WorkRelation, ...]: ...
+    def list_relations_from(
+        self,
+        work_id: UUID,
+        *,
+        kinds: frozenset[WorkRelationKind] | None = None,
+        exclude_ids: frozenset[UUID] = frozenset(),
+        limit: int | None = None,
+    ) -> tuple[WorkRelation, ...]: ...
 
-    def list_relations_to(self, work_id: UUID) -> tuple[WorkRelation, ...]: ...
+    def list_relations_to(
+        self,
+        work_id: UUID,
+        *,
+        kinds: frozenset[WorkRelationKind] | None = None,
+        exclude_ids: frozenset[UUID] = frozenset(),
+        limit: int | None = None,
+    ) -> tuple[WorkRelation, ...]: ...

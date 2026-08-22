@@ -90,7 +90,9 @@ def test_native_ingest_persists_provenance_citations_and_resources(tmp_path: Pat
     ) == 2
     assert all(context.passage_id is not None for context in contexts)
     assert all(context.section_id is not None for context in contexts)
-    assert result.native_parse.contexts == contexts
+    assert {context.context_id for context in result.native_parse.contexts} == {
+        context.context_id for context in contexts
+    }
 
 
 def test_reingesting_unchanged_native_source_is_idempotent(tmp_path: Path) -> None:

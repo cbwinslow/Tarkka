@@ -70,7 +70,10 @@ class TraversalTarget:
             raise ValueError("traversal finalization identifiers must be provided together")
         if self.status is TraversalStatus.FINALIZING and not has_artifact:
             raise ValueError("finalizing traversal targets require output identifiers")
-        if self.status not in {TraversalStatus.FINALIZING, TraversalStatus.COMPLETED} and has_artifact:
+        if (
+            self.status not in {TraversalStatus.FINALIZING, TraversalStatus.COMPLETED}
+            and has_artifact
+        ):
             raise ValueError("only finalizing or completed targets may carry output identifiers")
         if self.final_artifact_sha256 is not None:
             _require_sha256(self.final_artifact_sha256)

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 
 from tarkka.domain.bibliography import BibliographyFormat, BibliographyRecord
 from tarkka.infrastructure.bibliography_common import stable_key, year
+from tarkka.infrastructure.bibliography_doi import normalize_doi_identity
 from tarkka.infrastructure.bibliography_errors import BibliographyParseError
 
 _RIS_LINE = re.compile(r"^([A-Z0-9]{2})[ \t]+-[ \t]?(.*)$")
@@ -21,6 +22,12 @@ def parse_ris(text: str) -> tuple[BibliographyRecord, ...]:
         source_key = _ris_first(fields, "ID") or stable_key("ris", ordinal, fields)
         raw_authors = fields.get("AU", ()) or fields.get("A1", ())
         authors = tuple(_normalize_value(value) for value in raw_authors if value.strip())
+        url = _ris_first(fields, "UR", "L1", "L2")
+        doi = normalize_doi_identity(
+            label=f"RIS record {source_key!r}",
+            explicit_doi=_ris_first(fields, "DO"),
+            url=url,
+        )
         records.append(
             BibliographyRecord(
                 source_format=BibliographyFormat.RIS,
@@ -29,8 +36,8 @@ def parse_ris(text: str) -> tuple[BibliographyRecord, ...]:
                 title=title,
                 authors=authors,
                 year=year(_ris_first(fields, "PY", "Y1", "DA")),
-                doi=_ris_first(fields, "DO"),
-                url=_ris_first(fields, "UR", "L1", "L2"),
+                doi=doi,
+                url=url,
                 fields={key: tuple(values) for key, values in fields.items()},
             )
         )

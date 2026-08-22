@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tarkka.interfaces.bibliography_cli import _cmd_import
 from tarkka.interfaces.main import main
 
@@ -110,6 +111,7 @@ def test_bibliography_import_cli_handles_path_resolution_error(
     capsys,
 ) -> None:
     source = tmp_path / "loop.bib"
+    repository = JsonWorkRepository(tmp_path / "works.json")
     original_resolve = Path.resolve
 
     def fail_selected_path(path: Path, *args, **kwargs) -> Path:
@@ -120,7 +122,7 @@ def test_bibliography_import_cli_handles_path_resolution_error(
     monkeypatch.setattr(Path, "resolve", fail_selected_path)
     args = argparse.Namespace(path=source)
 
-    exit_code = _cmd_import(args, None)  # type: ignore[arg-type]
+    exit_code = _cmd_import(args, repository)
 
     captured = capsys.readouterr()
     assert exit_code == 2

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -7,7 +8,10 @@ from typing import ClassVar
 
 import pytest
 
-from tarkka.infrastructure.web.pinned_http_transport import PinnedHttpTransport
+from tarkka.infrastructure.web.pinned_http_transport import (
+    PinnedHttpTransport,
+    SystemHostResolver,
+)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -77,6 +81,34 @@ def test_pinned_transport_does_not_report_overflow_at_exact_limit() -> None:
 
     assert response.body == b"abcdefghij"
     assert response.limit_exceeded is False
+
+
+def test_system_resolver_stops_waiting_when_deadline_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = threading.Event()
+
+    def blocked_getaddrinfo(*args: object, **kwargs: object) -> list[object]:
+        del args, kwargs
+        release.wait(timeout=1.0)
+        return []
+
+    monkeypatch.setattr(socket, "getaddrinfo", blocked_getaddrinfo)
+    resolver = SystemHostResolver(max_concurrent_resolutions=1)
+    try:
+        with pytest.raises(TimeoutError, match="deadline"):
+            resolver.resolve("example.org", timeout_seconds=0.01)
+    finally:
+        release.set()
+
+
+def test_system_resolver_rejects_invalid_limits_and_timeouts() -> None:
+    with pytest.raises(ValueError, match="max_concurrent_resolutions"):
+        SystemHostResolver(max_concurrent_resolutions=0)
+
+    resolver = SystemHostResolver()
+    with pytest.raises(ValueError, match="resolver timeout"):
+        resolver.resolve("example.org", timeout_seconds=0)
 
 
 def test_pinned_transport_rejects_invalid_connection_inputs() -> None:

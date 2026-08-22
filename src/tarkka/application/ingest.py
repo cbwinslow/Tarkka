@@ -111,14 +111,22 @@ class IngestService:
         native_parse: NativeDocumentParseResult | None = None
         if isinstance(parser, NativeStructureParser):
             native_parse = parser.parse_native(artifact, stored_path)
-            if native_parse.mentions and not native_parse.contexts:
-                native_parse = replace(
-                    native_parse,
-                    contexts=build_citation_contexts(
-                        native_parse.document,
-                        native_parse.mentions,
-                    ),
+            covered_mentions = {context.mention_id for context in native_parse.contexts}
+            uncovered_mentions = tuple(
+                mention
+                for mention in native_parse.mentions
+                if mention.mention_id not in covered_mentions
+            )
+            if uncovered_mentions:
+                fallback_contexts = build_citation_contexts(
+                    native_parse.document,
+                    uncovered_mentions,
                 )
+                if fallback_contexts:
+                    native_parse = replace(
+                        native_parse,
+                        contexts=(*native_parse.contexts, *fallback_contexts),
+                    )
             document = native_parse.document
         else:
             document = parser.parse(artifact, stored_path)

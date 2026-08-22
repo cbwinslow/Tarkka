@@ -39,9 +39,7 @@ class LocalArtifactStore:
 
         sha256, size = self._digest_file(source)
         key = self.storage_key_for_digest(sha256)
-        destination = self.root.joinpath(*key.parts)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-
+        destination = self._destination(key)
         if not destination.exists():
             fd, temp_name = tempfile.mkstemp(prefix=".tarkka-", dir=destination.parent)
             os.close(fd)
@@ -55,14 +53,84 @@ class LocalArtifactStore:
                 temp_path.unlink(missing_ok=True)
 
         media_type = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+        return self._artifact(
+            sha256=sha256,
+            size=size,
+            key=key,
+            media_type=media_type,
+            original_name=source.name,
+            source_uri=source.as_uri(),
+        )
+
+    def put_bytes(
+        self,
+        data: bytes,
+        *,
+        original_name: str | None = None,
+        source_uri: str | None = None,
+        media_type: str = "application/octet-stream",
+    ) -> Artifact:
+        """Persist immutable bytes while preserving their original remote provenance."""
+        if not isinstance(data, bytes):
+            raise ValueError("artifact data must be bytes")
+        if original_name is not None and (
+            not isinstance(original_name, str) or not original_name.strip()
+        ):
+            raise ValueError("artifact original_name must be non-blank when provided")
+        if source_uri is not None and (
+            not isinstance(source_uri, str) or not source_uri.strip()
+        ):
+            raise ValueError("artifact source_uri must be non-blank when provided")
+        if not isinstance(media_type, str) or not media_type.strip():
+            raise ValueError("artifact media_type must be non-blank")
+
+        sha256 = hashlib.sha256(data).hexdigest()
+        key = self.storage_key_for_digest(sha256)
+        destination = self._destination(key)
+        if not destination.exists():
+            fd, temp_name = tempfile.mkstemp(prefix=".tarkka-", dir=destination.parent)
+            temp_path = Path(temp_name)
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(data)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_path, destination)
+            finally:
+                temp_path.unlink(missing_ok=True)
+
+        return self._artifact(
+            sha256=sha256,
+            size=len(data),
+            key=key,
+            media_type=media_type.strip(),
+            original_name=original_name.strip() if original_name else None,
+            source_uri=source_uri.strip() if source_uri else None,
+        )
+
+    def _destination(self, key: PurePosixPath) -> Path:
+        destination = self.root.joinpath(*key.parts)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        return destination
+
+    @staticmethod
+    def _artifact(
+        *,
+        sha256: str,
+        size: int,
+        key: PurePosixPath,
+        media_type: str,
+        original_name: str | None,
+        source_uri: str | None,
+    ) -> Artifact:
         return Artifact(
             artifact_id=uuid5(NAMESPACE_URL, f"urn:sha256:{sha256}"),
             sha256=sha256,
             size_bytes=size,
             media_type=media_type,
             storage_key=key,
-            original_name=source.name,
-            source_uri=source.as_uri(),
+            original_name=original_name,
+            source_uri=source_uri,
         )
 
     def path_for(self, artifact: Artifact) -> Path:

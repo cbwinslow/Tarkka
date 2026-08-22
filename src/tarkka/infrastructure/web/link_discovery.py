@@ -41,6 +41,10 @@ class _LinkParser(HTMLParser):
             return
         line, offset = self.getpos()
         if normalized_tag == "a":
+            # HTML does not permit nested anchors. Approximate browser recovery by closing the
+            # active anchor before opening a new one so labels do not become artificially nested.
+            if self._anchors:
+                self._emit_anchor(self._anchors.pop())
             self._anchors.append(_PendingAnchor(values, line, offset))
             return
         self.links.append((normalized_tag, values, None, line, offset))
@@ -58,9 +62,7 @@ class _LinkParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag.lower() != "a" or not self._anchors:
             return
-        anchor = self._anchors.pop()
-        label = " ".join("".join(anchor.text_parts).split()) or None
-        self.links.append(("a", anchor.attrs, label, anchor.line, anchor.offset))
+        self._emit_anchor(self._anchors.pop())
 
     def handle_data(self, data: str) -> None:
         if self._anchors:
@@ -69,9 +71,11 @@ class _LinkParser(HTMLParser):
     def close(self) -> None:
         super().close()
         while self._anchors:
-            anchor = self._anchors.pop()
-            label = " ".join("".join(anchor.text_parts).split()) or None
-            self.links.append(("a", anchor.attrs, label, anchor.line, anchor.offset))
+            self._emit_anchor(self._anchors.pop())
+
+    def _emit_anchor(self, anchor: _PendingAnchor) -> None:
+        label = " ".join("".join(anchor.text_parts).split()) or None
+        self.links.append(("a", anchor.attrs, label, anchor.line, anchor.offset))
 
 
 class HtmlResourceLinkDiscoverer:
@@ -107,19 +111,19 @@ class HtmlResourceLinkDiscoverer:
         parser.close()
 
         values: list[ResourceLinkObservation] = []
-        for tag, attrs, label, line, offset in sorted(
-            parser.links,
-            key=lambda item: (item[3], item[4]),
-        ):
-            raw_target = urljoin(base, attrs["href"])
-            parsed = urlsplit(raw_target)
-            if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-                continue
+        ordered_links = sorted(parser.links, key=lambda item: (item[3], item[4]))
+        for source_ordinal, (tag, attrs, label, line, offset) in enumerate(ordered_links):
             try:
+                raw_target = urljoin(base, attrs["href"])
+                parsed = urlsplit(raw_target)
+                if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+                    continue
                 target = normalize_http_uri(raw_target, field_name="resource target URI")
+                target_host = urlsplit(target).hostname
             except ValueError:
+                # One malformed source link must not poison discovery of later valid links.
                 continue
-            target_host = urlsplit(target).hostname
+
             relation = _relation(attrs)
             rel_tokens = tuple(sorted(set(attrs.get("rel", "").lower().split())))
             scope = (
@@ -129,10 +133,13 @@ class HtmlResourceLinkDiscoverer:
                 and target_host.lower() == base_host.lower()
                 else "outbound"
             )
-            ordinal = len(values)
             values.append(
                 ResourceLinkObservation(
-                    link_id=_stable_link_id(observation.observation_id, ordinal, target),
+                    link_id=_stable_link_id(
+                        observation.observation_id,
+                        source_ordinal,
+                        target,
+                    ),
                     observation_id=observation.observation_id,
                     target_uri=target,
                     relation=relation,
@@ -142,6 +149,7 @@ class HtmlResourceLinkDiscoverer:
                         "tag": tag,
                         "rel": rel_tokens,
                         "scope": scope,
+                        "source_ordinal": source_ordinal,
                         "source_line": line,
                         "source_offset": offset,
                     },

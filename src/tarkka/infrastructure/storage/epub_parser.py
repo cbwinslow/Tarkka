@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import codecs
 import hashlib
 import posixpath
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -32,6 +34,12 @@ _MAX_ENTRIES = 20_000
 _MAX_TOTAL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
 _MAX_MEMBER_BYTES = 128 * 1024 * 1024
 _MAX_PACKAGE_BYTES = 16 * 1024 * 1024
+_XML_ENCODING = re.compile(br"<\?xml[^>]*encoding=[\"']\s*([^\"']+)", re.IGNORECASE)
+_HTML_CHARSET = re.compile(br"charset\s*=\s*[\"']?\s*([A-Za-z0-9._-]+)", re.IGNORECASE)
+
+
+class EpubParseError(ValueError):
+    """Raised when an EPUB cannot be safely or faithfully normalized."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,10 +141,10 @@ class EpubParser:
                     aggregate,
                 )
         except (OSError, zipfile.BadZipFile) as exc:
-            raise ValueError(f"unable to read EPUB {path}: {exc}") from exc
+            raise EpubParseError(f"unable to read EPUB {path}: {exc}") from exc
 
         if not parsed_spine:
-            raise ValueError("EPUB has no supported linear XHTML spine content")
+            raise EpubParseError("EPUB has no supported linear XHTML spine content")
 
         title = _first_metadata_value(package_metadata, "titles")
         if title is None:
@@ -186,7 +194,7 @@ class EpubParser:
             observation=observation,
             references=tuple(aggregate.references),
             mentions=tuple(aggregate.mentions),
-            resource_links=_deduplicate_links(aggregate.resource_links),
+            resource_links=tuple(aggregate.resource_links),
         )
 
     def _parse_spine(
@@ -205,7 +213,7 @@ class EpubParser:
                     continue
                 item = manifest_by_id[spine.idref]
                 if item.media_type not in _XHTML_MEDIA_TYPES:
-                    raise ValueError(
+                    raise EpubParseError(
                         "unsupported linear EPUB spine media type "
                         f"{item.media_type!r} for {item.member_path!r}"
                     )
@@ -214,7 +222,11 @@ class EpubParser:
                     item.member_path,
                     _MAX_MEMBER_BYTES,
                 )
-                source_text = _decode_xhtml(source_bytes, item.member_path)
+                source_text = _decode_spine_text(
+                    source_bytes,
+                    item.member_path,
+                    item.media_type,
+                )
                 temp_path = temp_root / f"spine-{spine_index:05d}.xhtml"
                 temp_path.write_text(source_text, encoding="utf-8")
                 child = self._html_parser.parse_native(
@@ -492,39 +504,42 @@ def _read_package(
 def _validate_archive(archive: zipfile.ZipFile) -> None:
     infos = archive.infolist()
     if not infos:
-        raise ValueError("EPUB archive is empty")
+        raise EpubParseError("EPUB archive is empty")
     if len(infos) > _MAX_ENTRIES:
-        raise ValueError(f"EPUB contains too many archive entries: {len(infos)}")
+        raise EpubParseError(f"EPUB contains too many archive entries: {len(infos)}")
     total = 0
     for info in infos:
         _validate_member_name(info.filename)
         if info.flag_bits & 0x1:
-            raise ValueError(f"encrypted EPUB member is unsupported: {info.filename!r}")
+            raise EpubParseError(
+                f"encrypted EPUB member is unsupported: {info.filename!r}"
+            )
         if info.file_size < 0:
-            raise ValueError(f"invalid EPUB member size: {info.filename!r}")
+            raise EpubParseError(f"invalid EPUB member size: {info.filename!r}")
         total += info.file_size
         if total > _MAX_TOTAL_UNCOMPRESSED_BYTES:
-            raise ValueError("EPUB exceeds the maximum uncompressed size")
+            raise EpubParseError("EPUB exceeds the maximum uncompressed size")
 
 
 def _validate_mimetype(archive: zipfile.ZipFile) -> None:
     first = archive.infolist()[0]
     if first.filename != "mimetype" or first.compress_type != zipfile.ZIP_STORED:
-        raise ValueError("EPUB mimetype entry must be first and uncompressed")
+        raise EpubParseError("EPUB mimetype entry must be first and uncompressed")
     try:
         value = _read_member(archive, "mimetype", 1024).decode("ascii", errors="strict")
     except UnicodeDecodeError as exc:
-        raise ValueError("EPUB mimetype must be ASCII") from exc
+        raise EpubParseError("EPUB mimetype must be ASCII") from exc
     if value != _EPUB_MEDIA_TYPE:
-        raise ValueError(f"invalid EPUB mimetype value: {value!r}")
+        raise EpubParseError(f"invalid EPUB mimetype value: {value!r}")
 
 
 def _validate_member_name(name: str) -> None:
-    if not name or "\\" in name or name.startswith("/"):
-        raise ValueError(f"unsafe EPUB member path: {name!r}")
-    normalized = posixpath.normpath(name)
-    if normalized == ".." or normalized.startswith("../"):
-        raise ValueError(f"unsafe EPUB member path: {name!r}")
+    for candidate in (name, unquote(name)):
+        if not candidate or "\\" in candidate or candidate.startswith("/"):
+            raise EpubParseError(f"unsafe EPUB member path: {name!r}")
+        normalized = posixpath.normpath(candidate)
+        if normalized == ".." or normalized.startswith("../"):
+            raise EpubParseError(f"unsafe EPUB member path: {name!r}")
 
 
 def _read_member(archive: zipfile.ZipFile, name: str, max_bytes: int) -> bytes:
@@ -532,12 +547,14 @@ def _read_member(archive: zipfile.ZipFile, name: str, max_bytes: int) -> bytes:
     try:
         info = archive.getinfo(name)
     except KeyError as exc:
-        raise ValueError(f"missing required EPUB member: {name!r}") from exc
+        raise EpubParseError(f"missing required EPUB member: {name!r}") from exc
     if info.file_size > max_bytes:
-        raise ValueError(f"EPUB member exceeds size limit: {name!r}")
+        raise EpubParseError(f"EPUB member exceeds size limit: {name!r}")
     data = archive.read(info)
     if len(data) > max_bytes:
-        raise ValueError(f"EPUB member exceeds size limit after decompression: {name!r}")
+        raise EpubParseError(
+            f"EPUB member exceeds size limit after decompression: {name!r}"
+        )
     return data
 
 
@@ -545,7 +562,7 @@ def _parse_xml(data: bytes, *, label: str) -> ET.Element:
     try:
         return ET.fromstring(data)
     except ET.ParseError as exc:
-        raise ValueError(f"invalid {label}: {exc}") from exc
+        raise EpubParseError(f"invalid {label}: {exc}") from exc
 
 
 def _package_path(container: ET.Element) -> str:
@@ -563,7 +580,7 @@ def _package_path(container: ET.Element) -> str:
         full_path = rootfiles[0].attrib.get("full-path", "").strip()
         if full_path:
             return _normalize_package_member(full_path)
-    raise ValueError("EPUB container does not identify a package document")
+    raise EpubParseError("EPUB container does not identify a package document")
 
 
 def _normalize_package_member(path: str) -> str:
@@ -579,7 +596,7 @@ def _manifest_items(
 ) -> tuple[_ManifestItem, ...]:
     manifest = _first_child(package, "manifest")
     if manifest is None:
-        raise ValueError("EPUB package is missing manifest")
+        raise EpubParseError("EPUB package is missing manifest")
     values: list[_ManifestItem] = []
     seen_ids: set[str] = set()
     for element in manifest:
@@ -589,14 +606,14 @@ def _manifest_items(
         href = element.attrib.get("href", "").strip()
         media_type = element.attrib.get("media-type", "").strip()
         if not item_id or not href or not media_type:
-            raise ValueError("EPUB manifest items require id, href, and media-type")
+            raise EpubParseError("EPUB manifest items require id, href, and media-type")
         if item_id in seen_ids:
-            raise ValueError(f"duplicate EPUB manifest id: {item_id!r}")
+            raise EpubParseError(f"duplicate EPUB manifest id: {item_id!r}")
         member_path = _resolve_member_path(package_dir, href)
         try:
             archive.getinfo(member_path)
         except KeyError as exc:
-            raise ValueError(
+            raise EpubParseError(
                 f"EPUB manifest member is missing from archive: {member_path!r}"
             ) from exc
         seen_ids.add(item_id)
@@ -610,7 +627,7 @@ def _manifest_items(
             )
         )
     if not values:
-        raise ValueError("EPUB manifest is empty")
+        raise EpubParseError("EPUB manifest is empty")
     return tuple(values)
 
 
@@ -620,19 +637,19 @@ def _spine_items(
 ) -> tuple[_SpineItem, ...]:
     spine = _first_child(package, "spine")
     if spine is None:
-        raise ValueError("EPUB package is missing spine")
+        raise EpubParseError("EPUB package is missing spine")
     values: list[_SpineItem] = []
     for element in spine:
         if _local_name(element.tag) != "itemref":
             continue
         idref = element.attrib.get("idref", "").strip()
         if not idref:
-            raise ValueError("EPUB spine itemref is missing idref")
+            raise EpubParseError("EPUB spine itemref is missing idref")
         if idref not in manifest_by_id:
-            raise ValueError(f"EPUB spine references unknown manifest id: {idref!r}")
+            raise EpubParseError(f"EPUB spine references unknown manifest id: {idref!r}")
         linear_value = element.attrib.get("linear", "yes").strip().lower()
         if linear_value not in {"yes", "no"}:
-            raise ValueError(f"invalid EPUB spine linear value: {linear_value!r}")
+            raise EpubParseError(f"invalid EPUB spine linear value: {linear_value!r}")
         values.append(
             _SpineItem(
                 idref=idref,
@@ -641,7 +658,7 @@ def _spine_items(
             )
         )
     if not values:
-        raise ValueError("EPUB spine is empty")
+        raise EpubParseError("EPUB spine is empty")
     return tuple(values)
 
 
@@ -717,11 +734,15 @@ def _package_resource_links(
     items: tuple[_ManifestItem, ...],
     spine: tuple[_SpineItem, ...],
 ) -> tuple[ResourceLinkObservation, ...]:
-    spine_ids = {item.idref for item in spine}
+    linear_spine_ids = {item.idref for item in spine if item.linear}
     values: list[ResourceLinkObservation] = []
     for item in items:
-        in_spine = item.item_id in spine_ids
-        relation = ResourceRelation.FULL_TEXT if in_spine else ResourceRelation.RELATED
+        in_linear_spine = item.item_id in linear_spine_ids
+        relation = (
+            ResourceRelation.FULL_TEXT
+            if in_linear_spine
+            else ResourceRelation.RELATED
+        )
         values.append(
             ResourceLinkObservation(
                 link_id=_stable_id(
@@ -736,7 +757,7 @@ def _package_resource_links(
                 metadata={
                     "href": item.href,
                     "properties": item.properties,
-                    "in_spine": in_spine,
+                    "in_linear_spine": in_linear_spine,
                 },
             )
         )
@@ -746,10 +767,10 @@ def _package_resource_links(
 def _resolve_member_path(package_dir: PurePosixPath, href: str) -> str:
     parts = urlsplit(href)
     if parts.scheme or parts.netloc:
-        raise ValueError(f"EPUB manifest href must be package-relative: {href!r}")
+        raise EpubParseError(f"EPUB manifest href must be package-relative: {href!r}")
     decoded = unquote(parts.path)
     if not decoded:
-        raise ValueError(f"EPUB manifest href has no path: {href!r}")
+        raise EpubParseError(f"EPUB manifest href has no path: {href!r}")
     combined = posixpath.normpath(posixpath.join(package_dir.as_posix(), decoded))
     _validate_member_name(combined)
     return combined
@@ -767,11 +788,39 @@ def _resolve_resource_target(member_path: str, target: str) -> str:
     return urlunsplit(("", "", resolved, parts.query, parts.fragment))
 
 
-def _decode_xhtml(data: bytes, member_path: str) -> str:
+def _decode_spine_text(data: bytes, member_path: str, media_type: str) -> str:
+    encoding = _declared_encoding(data, media_type)
     try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"EPUB XHTML member is not UTF-8: {member_path!r}") from exc
+        return data.decode(encoding)
+    except (LookupError, UnicodeDecodeError) as exc:
+        raise EpubParseError(
+            f"unable to decode EPUB spine member {member_path!r} as {encoding!r}"
+        ) from exc
+
+
+def _declared_encoding(data: bytes, media_type: str) -> str:
+    if data.startswith(codecs.BOM_UTF8):
+        return "utf-8-sig"
+    if data.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+        return "utf-32"
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return "utf-16"
+    xml_match = _XML_ENCODING.search(data[:1024])
+    if xml_match is not None:
+        return _normalized_encoding(xml_match.group(1))
+    if media_type == "text/html":
+        html_match = _HTML_CHARSET.search(data[:4096])
+        if html_match is not None:
+            return _normalized_encoding(html_match.group(1))
+    return "utf-8"
+
+
+def _normalized_encoding(raw: bytes) -> str:
+    try:
+        value = raw.decode("ascii").strip()
+        return codecs.lookup(value).name
+    except (LookupError, UnicodeDecodeError) as exc:
+        raise EpubParseError(f"unsupported EPUB text encoding: {raw!r}") from exc
 
 
 def _spine_artifact(
@@ -807,20 +856,6 @@ def _aggregate_counts(aggregate: _Aggregate) -> dict[str, int]:
         "citation_mentions": len(aggregate.mentions),
         "resource_links": len(aggregate.resource_links),
     }
-
-
-def _deduplicate_links(
-    links: list[ResourceLinkObservation],
-) -> tuple[ResourceLinkObservation, ...]:
-    seen: set[tuple[str, ResourceRelation, str | None, str | None]] = set()
-    values: list[ResourceLinkObservation] = []
-    for link in links:
-        key = (link.target_uri, link.relation, link.media_type, link.label)
-        if key in seen:
-            continue
-        seen.add(key)
-        values.append(link)
-    return tuple(values)
 
 
 def _prefixed_anchor(member_path: str, anchor: str | None) -> str | None:

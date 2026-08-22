@@ -124,7 +124,8 @@ class IngestService:
                 # Deterministic record IDs and idempotent writes make transient filesystem
                 # interruptions resumable. Validation/conflict errors intentionally pass through.
                 raise NativePersistenceError(
-                    "native parse persistence was interrupted; retry the same source to resume"
+                    "native parse persistence was interrupted; retry the same immutable source "
+                    "to resume"
                 ) from exc
 
         return IngestResult(

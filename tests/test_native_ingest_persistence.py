@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from tarkka.infrastructure.storage.json_citation_repository import JsonCitationR
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
+    SourceObservationConflictError,
 )
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 
@@ -93,12 +95,24 @@ def test_reingesting_unchanged_native_source_is_idempotent(tmp_path: Path) -> No
     assert len(observations.list_resource_links(observation_id)) == 1
 
 
+def test_conflicting_stable_observation_is_not_retryable(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    result = service.ingest(FIXTURE)
+    assert result.native_parse is not None
+
+    observations = JsonSourceObservationRepository(tmp_path / "source_observations.json")
+    conflicting = replace(result.native_parse.observation, source_name="different-parser")
+
+    with pytest.raises(SourceObservationConflictError, match="conflicting observations"):
+        observations.save_observation(conflicting)
+
+
 def test_interrupted_native_persistence_can_resume_by_retry(tmp_path: Path) -> None:
     underlying = JsonSourceObservationRepository(tmp_path / "source_observations.json")
     failing = _FailOneResourceLink(underlying)
     service = _service(tmp_path, observations=failing)
 
-    with pytest.raises(NativePersistenceError, match="retry the same source"):
+    with pytest.raises(NativePersistenceError, match="retry the same immutable source"):
         service.ingest(FIXTURE)
 
     result = service.ingest(FIXTURE)

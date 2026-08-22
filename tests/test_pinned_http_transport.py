@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
@@ -41,6 +42,7 @@ def test_pinned_transport_uses_approved_address_host_header_and_body_cap() -> No
             uri=f"http://example.org:{port}/paper?q=secret#ignored",
             resolved_address="127.0.0.1",
             max_response_bytes=5,
+            timeout_seconds=1.0,
         )
     finally:
         server.shutdown()
@@ -76,6 +78,13 @@ def test_pinned_transport_rejects_invalid_connection_inputs() -> None:
             resolved_address="93.184.216.34",
             max_response_bytes=-1,
         )
+    with pytest.raises(ValueError, match="request timeout"):
+        transport.request(
+            uri="https://example.org/",
+            resolved_address="93.184.216.34",
+            max_response_bytes=10,
+            timeout_seconds=0,
+        )
 
 
 def test_pinned_transport_configuration_fails_closed() -> None:
@@ -83,3 +92,9 @@ def test_pinned_transport_configuration_fails_closed() -> None:
         PinnedHttpTransport(timeout_seconds=0)
     with pytest.raises(ValueError, match="user_agent"):
         PinnedHttpTransport(user_agent=" ")
+
+    insecure_context = ssl.create_default_context()
+    insecure_context.check_hostname = False
+    insecure_context.verify_mode = ssl.CERT_NONE
+    with pytest.raises(ValueError, match="certificate verification"):
+        PinnedHttpTransport(ssl_context=insecure_context)

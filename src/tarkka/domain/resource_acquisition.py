@@ -30,14 +30,10 @@ class ResourceAcquisitionPolicy:
     allow_private_addresses: bool = False
 
     def __post_init__(self) -> None:
-        if self.max_depth < 0:
-            raise ValueError("resource acquisition max_depth must be non-negative")
-        if self.max_requests < 0:
-            raise ValueError("resource acquisition max_requests must be non-negative")
-        if self.max_bytes < 0:
-            raise ValueError("resource acquisition max_bytes must be non-negative")
-        if self.max_retries < 0:
-            raise ValueError("resource acquisition max_retries must be non-negative")
+        _require_non_negative_int(self.max_depth, "resource acquisition max_depth")
+        _require_non_negative_int(self.max_requests, "resource acquisition max_requests")
+        _require_non_negative_int(self.max_bytes, "resource acquisition max_bytes")
+        _require_non_negative_int(self.max_retries, "resource acquisition max_retries")
         if self.max_elapsed_seconds is not None and (
             not math.isfinite(self.max_elapsed_seconds) or self.max_elapsed_seconds <= 0
         ):
@@ -109,8 +105,7 @@ class ResourceAcquisitionPolicy:
 
     def allows_retry(self, retries_used: int) -> bool:
         """Return whether one more retry may be attempted for the current resource."""
-        if retries_used < 0:
-            raise ValueError("retries_used must be non-negative")
+        _require_non_negative_int(retries_used, "retries_used")
         return retries_used < self.max_retries
 
 
@@ -123,10 +118,8 @@ class AcquisitionBudgetState:
     elapsed_seconds: float = 0.0
 
     def __post_init__(self) -> None:
-        if self.requests_used < 0:
-            raise ValueError("acquisition requests_used must be non-negative")
-        if self.bytes_used < 0:
-            raise ValueError("acquisition bytes_used must be non-negative")
+        _require_non_negative_int(self.requests_used, "acquisition requests_used")
+        _require_non_negative_int(self.bytes_used, "acquisition bytes_used")
         if not math.isfinite(self.elapsed_seconds) or self.elapsed_seconds < 0:
             raise ValueError("acquisition elapsed_seconds must be finite and non-negative")
 
@@ -139,10 +132,8 @@ class AcquisitionBudgetState:
         seconds_since_last_request: float | None = None,
     ) -> bool:
         """Evaluate hard scope/budget/rate conditions before a request is attempted."""
-        if depth < 0:
-            raise ValueError("request depth must be non-negative")
-        if expected_bytes < 0:
-            raise ValueError("expected_bytes must be non-negative")
+        _require_non_negative_int(depth, "request depth")
+        _require_non_negative_int(expected_bytes, "expected_bytes")
         if seconds_since_last_request is not None and (
             not math.isfinite(seconds_since_last_request) or seconds_since_last_request < 0
         ):
@@ -166,6 +157,12 @@ class AcquisitionBudgetState:
                 or seconds_since_last_request < policy.min_request_interval_seconds
             )
         )
+
+
+def _require_non_negative_int(value: object, field_name: str) -> None:
+    """Reject booleans, floats, NaN, and other non-integer count inputs."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
 
 
 def _normalize_scheme(value: str) -> str:

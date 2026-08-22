@@ -36,13 +36,23 @@ class _LinkParser(HTMLParser):
         normalized_tag = tag.lower()
         if normalized_tag not in _LINK_TAGS:
             return
-        values = {key.lower(): value or "" for key, value in attrs}
+        values = _attrs(attrs)
         if not values.get("href", "").strip():
             return
         line, offset = self.getpos()
         if normalized_tag == "a":
             self._anchors.append(_PendingAnchor(values, line, offset))
             return
+        self.links.append((normalized_tag, values, None, line, offset))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized_tag = tag.lower()
+        if normalized_tag not in _LINK_TAGS:
+            return
+        values = _attrs(attrs)
+        if not values.get("href", "").strip():
+            return
+        line, offset = self.getpos()
         self.links.append((normalized_tag, values, None, line, offset))
 
     def handle_endtag(self, tag: str) -> None:
@@ -97,7 +107,10 @@ class HtmlResourceLinkDiscoverer:
         parser.close()
 
         values: list[ResourceLinkObservation] = []
-        for tag, attrs, label, line, offset in parser.links:
+        for tag, attrs, label, line, offset in sorted(
+            parser.links,
+            key=lambda item: (item[3], item[4]),
+        ):
             raw_target = urljoin(base, attrs["href"])
             parsed = urlsplit(raw_target)
             if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
@@ -135,6 +148,10 @@ class HtmlResourceLinkDiscoverer:
                 )
             )
         return tuple(values)
+
+
+def _attrs(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
+    return {key.lower(): value or "" for key, value in attrs}
 
 
 def _relation(attrs: dict[str, str]) -> ResourceRelation:

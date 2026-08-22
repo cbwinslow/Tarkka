@@ -24,6 +24,8 @@ def build_citation_contexts(
     for mention in mentions:
         if mention.document_id != document.document_id:
             raise ValueError("citation mention must belong to context document")
+        if not mention.raw_text:
+            raise ValueError("citation mention raw_text must not be empty")
         passage = _anchored_passage(mention, passages, passages_by_id)
         if passage is None:
             continue
@@ -56,12 +58,17 @@ def _anchored_passage(
         _validate_mention_bounds(mention, passage)
         return passage
 
-    candidates = [
-        passage
+    occurrence_counts = [
+        _overlapping_occurrence_count(passage.text, mention.raw_text)
         for passage in passages
-        if _overlapping_occurrence_count(passage.text, mention.raw_text) == 1
     ]
-    return candidates[0] if len(candidates) == 1 else None
+    if sum(occurrence_counts) != 1:
+        return None
+    return next(
+        passage
+        for passage, count in zip(passages, occurrence_counts, strict=True)
+        if count == 1
+    )
 
 
 def _validate_mention_bounds(mention: CitationMention, passage: Passage) -> None:
@@ -76,6 +83,8 @@ def _validate_mention_bounds(mention: CitationMention, passage: Passage) -> None
 
 
 def _overlapping_occurrence_count(text: str, needle: str) -> int:
+    if not needle:
+        return 0
     count = 0
     cursor = 0
     while True:
@@ -83,8 +92,6 @@ def _overlapping_occurrence_count(text: str, needle: str) -> int:
         if index < 0:
             return count
         count += 1
-        if count > 1:
-            return count
         cursor = index + 1
 
 

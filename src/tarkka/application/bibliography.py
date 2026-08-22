@@ -34,6 +34,8 @@ class BibliographyImportService:
         data = source.read_bytes()
         source_sha256 = hashlib.sha256(data).hexdigest()
         records = parse_bibliography_bytes(source.name, data)
+        if not records:
+            raise BibliographyParseError("bibliography source contains no records")
         _ensure_unique_source_keys(records)
         discovery_records = tuple(
             record.to_discovery_record(source_sha256) for record in records

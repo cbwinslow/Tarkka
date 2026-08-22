@@ -33,9 +33,12 @@ def test_reimporting_same_file_is_idempotent(tmp_path: Path) -> None:
 
     assert len(first.works) == 1
     assert second.works[0].work_id == first.works[0].work_id
+    assert first.works[0].publication_type == "article"
     source_records = repository.list_source_records(first.works[0].work_id)
     assert len(source_records) == 1
     assert source_records[0].record.metadata["source_key"] == "smith2024"
+    assert source_records[0].record.metadata["entry_type"] == "article"
+    assert source_records[0].record.metadata["publication_type"] == "article"
 
 
 def test_file_local_keys_do_not_merge_across_different_sources(tmp_path: Path) -> None:
@@ -76,6 +79,18 @@ def test_duplicate_native_keys_fail_closed_before_persistence(tmp_path: Path) ->
     assert catalog["source_records"] == {}
 
 
+def test_empty_bibliography_fails_closed(tmp_path: Path) -> None:
+    source = tmp_path / "empty.bib"
+    source.write_text("@comment{No records}\n", encoding="utf-8")
+    service, repository = _service(tmp_path)
+
+    with pytest.raises(BibliographyParseError, match="contains no records"):
+        service.import_file(source)
+
+    catalog = json.loads(repository.path.read_text(encoding="utf-8"))
+    assert catalog["works"] == {}
+
+
 def test_strong_doi_reconciles_across_bibliography_formats(tmp_path: Path) -> None:
     bib = tmp_path / "refs.bib"
     ris = tmp_path / "refs.ris"
@@ -94,6 +109,7 @@ def test_strong_doi_reconciles_across_bibliography_formats(tmp_path: Path) -> No
     second = service.import_file(ris)
 
     assert first.works[0].work_id == second.works[0].work_id
+    assert first.works[0].publication_type == "article"
     source_records = repository.list_source_records(first.works[0].work_id)
     assert {record.provider for record in source_records} == {
         "bibliography:bibtex",

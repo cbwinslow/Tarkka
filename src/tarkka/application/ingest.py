@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from tarkka.application.citation_context import build_citation_contexts
 from tarkka.domain.manifest import ResourceManifest, build_document_manifest
 from tarkka.domain.models import Acquisition, Artifact, Document, new_id
 from tarkka.ports.acquisitions import AcquisitionRecorder
@@ -110,6 +111,14 @@ class IngestService:
         native_parse: NativeDocumentParseResult | None = None
         if isinstance(parser, NativeStructureParser):
             native_parse = parser.parse_native(artifact, stored_path)
+            if native_parse.mentions and not native_parse.contexts:
+                native_parse = replace(
+                    native_parse,
+                    contexts=build_citation_contexts(
+                        native_parse.document,
+                        native_parse.mentions,
+                    ),
+                )
             document = native_parse.document
         else:
             document = parser.parse(artifact, stored_path)
@@ -146,3 +155,5 @@ class IngestService:
                 self._citation_repository.save_reference(reference)
             for mention in native_parse.mentions:
                 self._citation_repository.save_mention(mention)
+            for context in native_parse.contexts:
+                self._citation_repository.save_context(context)

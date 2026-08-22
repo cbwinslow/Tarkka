@@ -29,6 +29,7 @@ from tarkka.infrastructure.full_text.http import UrllibBinaryFetcher
 from tarkka.infrastructure.full_text.source_record import SourceRecordFullTextResolver
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
+from tarkka.infrastructure.storage.epub_parser import EpubParser
 from tarkka.infrastructure.storage.jats_parser import JatsParser
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -84,7 +85,12 @@ def _snapshot_log() -> JsonlSearchSnapshotLog:
 
 
 def _parsers() -> tuple[DocumentParser, ...]:
-    parsers: list[DocumentParser] = [JatsParser(), SemanticHtmlParser(), PlainTextParser()]
+    parsers: list[DocumentParser] = [
+        JatsParser(),
+        EpubParser(),
+        SemanticHtmlParser(),
+        PlainTextParser(),
+    ]
     if DoclingParser.is_available():
         parsers.append(DoclingParser())
     return tuple(parsers)
@@ -208,7 +214,14 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     service = _ingest_service(store, repo, acquisitions)
     try:
         result = service.ingest(Path(args.path))
-    except (FileNotFoundError, UnsupportedDocumentError, UnicodeDecodeError, RuntimeError) as exc:
+    except (
+        FileNotFoundError,
+        UnsupportedDocumentError,
+        UnicodeDecodeError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(_manifest_yaml(result.manifest))

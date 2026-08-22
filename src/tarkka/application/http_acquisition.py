@@ -94,7 +94,12 @@ class HttpAcquisitionService:
 
         try:
             while True:
-                response = self._request_once(active, policy, current_uri)
+                response = self._request_once(
+                    active,
+                    policy,
+                    current_uri,
+                    started_at=started_at,
+                )
                 active = active.record_response_bytes(
                     target_id,
                     bytes_acquired=len(response.body),
@@ -102,6 +107,7 @@ class HttpAcquisitionService:
                 self._save_checkpoint(active)
                 if active.budget.bytes_used > policy.max_bytes:
                     raise ValueError("HTTP response exceeded the acquisition byte budget")
+                self._remaining_elapsed(active, policy, started_at)
 
                 location = _redirect_location(response)
                 if response.status_code not in _REDIRECT_STATUSES or location is None:
@@ -149,14 +155,18 @@ class HttpAcquisitionService:
         checkpoint: TraversalCheckpoint,
         policy: ResourceAcquisitionPolicy,
         uri: str,
+        *,
+        started_at: float,
     ) -> HttpTransportResponse:
         if not policy.allows_uri(uri):
             raise ValueError("HTTP request URI is not allowed by acquisition policy")
+        timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
         durable_uri = normalize_http_uri(uri)
         hostname = urlsplit(durable_uri).hostname
         if hostname is None:
             raise ValueError("HTTP request URI has no hostname")
         addresses = self._resolver.resolve(hostname)
+        timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
         if not addresses:
             raise ValueError("HTTP hostname resolution returned no addresses")
         resolved_address = next(
@@ -173,6 +183,7 @@ class HttpAcquisitionService:
             uri=uri,
             resolved_address=resolved_address,
             max_response_bytes=remaining_bytes,
+            timeout_seconds=timeout_seconds,
         )
 
     def _finish(
@@ -185,6 +196,7 @@ class HttpAcquisitionService:
         response: HttpTransportResponse,
         started_at: float,
     ) -> HttpAcquisitionResult:
+        self._remaining_elapsed(checkpoint, _unbounded_elapsed_policy(), started_at)
         snapshot = HttpResponseSnapshot(
             requested_uri=requested_uri,
             final_uri=final_uri,
@@ -222,12 +234,9 @@ class HttpAcquisitionService:
         started_at: float,
     ) -> None:
         interval = policy.min_request_interval_seconds
-        current_elapsed = self._elapsed(checkpoint, started_at)
-        if policy.max_elapsed_seconds is not None:
-            if current_elapsed >= policy.max_elapsed_seconds:
-                raise ValueError("HTTP acquisition elapsed-time budget is exhausted")
-            if current_elapsed + interval > policy.max_elapsed_seconds:
-                raise ValueError("HTTP redirect wait would exceed elapsed-time budget")
+        remaining = self._remaining_elapsed(checkpoint, policy, started_at)
+        if remaining is not None and interval > remaining:
+            raise ValueError("HTTP redirect wait would exceed elapsed-time budget")
         if not checkpoint.budget.allows_request(
             policy,
             depth=target.depth,
@@ -236,6 +245,20 @@ class HttpAcquisitionService:
             raise ValueError("HTTP redirect request exceeds the acquisition budget")
         if interval > 0:
             self._sleeper(interval)
+        self._remaining_elapsed(checkpoint, policy, started_at)
+
+    def _remaining_elapsed(
+        self,
+        checkpoint: TraversalCheckpoint,
+        policy: ResourceAcquisitionPolicy,
+        started_at: float,
+    ) -> float | None:
+        if policy.max_elapsed_seconds is None:
+            return None
+        remaining = policy.max_elapsed_seconds - self._elapsed(checkpoint, started_at)
+        if remaining <= 0:
+            raise ValueError("HTTP acquisition elapsed-time budget is exhausted")
+        return remaining
 
     def _elapsed(self, checkpoint: TraversalCheckpoint, started_at: float) -> float:
         elapsed = self._read_clock() - started_at
@@ -289,3 +312,10 @@ def _artifact_name(uri: str) -> str | None:
 
 def _durable_failure_reason(exc: Exception) -> str:
     return f"http acquisition failed: {type(exc).__name__}"
+
+
+def _unbounded_elapsed_policy() -> ResourceAcquisitionPolicy:
+    return ResourceAcquisitionPolicy(
+        allowed_domains=frozenset({"invalid.example"}),
+        max_elapsed_seconds=None,
+    )

@@ -33,26 +33,37 @@ class TraversalTarget:
     last_error: str | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.target_id, UUID):
+            raise ValueError("traversal target ID must be a UUID")
         normalized_uri = normalize_http_uri(self.uri, field_name="traversal target URI")
-        if not isinstance(self.depth, int) or isinstance(self.depth, bool) or self.depth < 0:
-            raise ValueError("traversal target depth must be a non-negative integer")
+        _require_depth(self.depth)
         if not isinstance(self.status, TraversalStatus):
             raise ValueError("traversal target status must be a TraversalStatus")
-        if not isinstance(self.attempts, int) or isinstance(self.attempts, bool) or self.attempts < 0:
-            raise ValueError("traversal target attempts must be a non-negative integer")
-        if (
-            not isinstance(self.bytes_acquired, int)
-            or isinstance(self.bytes_acquired, bool)
-            or self.bytes_acquired < 0
-        ):
-            raise ValueError("traversal target bytes_acquired must be a non-negative integer")
+        _require_non_negative_int(self.attempts, "traversal target attempts")
+        _require_non_negative_int(self.bytes_acquired, "traversal target bytes_acquired")
         if self.last_error is not None and (
             not isinstance(self.last_error, str) or not self.last_error.strip()
         ):
             raise ValueError("traversal target last_error must be non-blank when provided")
+        if self.status in {TraversalStatus.FAILED, TraversalStatus.SKIPPED}:
+            if self.last_error is None:
+                raise ValueError("failed or skipped traversal targets require a reason")
+        elif self.last_error is not None:
+            raise ValueError("only failed or skipped traversal targets may carry last_error")
+        if self.status in {
+            TraversalStatus.IN_PROGRESS,
+            TraversalStatus.COMPLETED,
+            TraversalStatus.FAILED,
+        } and self.attempts == 0:
+            raise ValueError("attempted traversal target states require at least one attempt")
+
+        discovery_ids = _unique_uuids(self.discovery_link_ids)
+        parent_ids = _unique_uuids(self.parent_target_ids)
+        if self.target_id in parent_ids:
+            raise ValueError("traversal target cannot be its own parent")
         object.__setattr__(self, "uri", normalized_uri)
-        object.__setattr__(self, "discovery_link_ids", _unique_uuids(self.discovery_link_ids))
-        object.__setattr__(self, "parent_target_ids", _unique_uuids(self.parent_target_ids))
+        object.__setattr__(self, "discovery_link_ids", discovery_ids)
+        object.__setattr__(self, "parent_target_ids", parent_ids)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +84,13 @@ class TraversalCheckpoint:
             raise ValueError("traversal checkpoint target IDs must be unique")
         if len({target.uri for target in targets}) != len(targets):
             raise ValueError("traversal checkpoint target URIs must be unique")
+        target_ids = {target.target_id for target in targets}
+        if any(
+            parent_id not in target_ids
+            for target in targets
+            for parent_id in target.parent_target_ids
+        ):
+            raise ValueError("traversal checkpoint parent targets must exist")
         if not isinstance(self.budget, AcquisitionBudgetState):
             raise ValueError("traversal checkpoint budget must be AcquisitionBudgetState")
         object.__setattr__(self, "targets", targets)
@@ -97,6 +115,8 @@ class TraversalCheckpoint:
 
         existing = next((target for target in self.targets if target.uri == normalized_uri), None)
         if existing is not None:
+            if parent_target_id == existing.target_id:
+                raise ValueError("traversal target cannot be its own parent")
             discovery_ids = _append_uuid(existing.discovery_link_ids, discovery_link_id)
             parent_ids = _append_uuid(existing.parent_target_ids, parent_target_id)
             updated_depth = (
@@ -112,8 +132,11 @@ class TraversalCheckpoint:
             )
             return self._replace_target(updated)
 
+        target_id = _target_id(self.checkpoint_id, normalized_uri)
+        if parent_target_id == target_id:
+            raise ValueError("traversal target cannot be its own parent")
         target = TraversalTarget(
-            target_id=_target_id(self.checkpoint_id, normalized_uri),
+            target_id=target_id,
             uri=normalized_uri,
             depth=depth,
             discovery_link_ids=(discovery_link_id,) if discovery_link_id else (),
@@ -128,8 +151,7 @@ class TraversalCheckpoint:
         seconds_since_last_request: float | None = None,
     ) -> TraversalTarget | None:
         """Return the first queued target allowed by URI and current budget policy."""
-        if not isinstance(policy, ResourceAcquisitionPolicy):
-            raise ValueError("traversal policy must be a ResourceAcquisitionPolicy")
+        _require_policy(policy)
         for target in self.targets:
             if target.status is not TraversalStatus.QUEUED:
                 continue
@@ -151,6 +173,7 @@ class TraversalCheckpoint:
         seconds_since_last_request: float | None = None,
     ) -> TraversalCheckpoint:
         """Record one actual request attempt and move the target in progress."""
+        _require_policy(policy)
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.QUEUED:
             raise ValueError("only queued traversal targets may be started")
@@ -210,13 +233,12 @@ class TraversalCheckpoint:
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("only in-progress traversal targets may fail")
-        if not isinstance(error, str) or not error.strip():
-            raise ValueError("traversal failure error must be a non-blank string")
+        reason = _require_reason(error, "traversal failure error")
         _require_monotonic_elapsed(elapsed_seconds, self.budget.elapsed_seconds)
         updated = replace(
             target,
             status=TraversalStatus.FAILED,
-            last_error=error.strip(),
+            last_error=reason,
         )
         budget = AcquisitionBudgetState(
             requests_used=self.budget.requests_used,
@@ -225,12 +247,28 @@ class TraversalCheckpoint:
         )
         return replace(self._replace_target(updated), budget=budget)
 
+    def recover_interrupted(
+        self,
+        *,
+        reason: str = "interrupted before request outcome was checkpointed",
+    ) -> TraversalCheckpoint:
+        """Convert restored in-progress targets to failed without double-counting requests."""
+        normalized_reason = _require_reason(reason, "interrupted traversal reason")
+        targets = tuple(
+            replace(target, status=TraversalStatus.FAILED, last_error=normalized_reason)
+            if target.status is TraversalStatus.IN_PROGRESS
+            else target
+            for target in self.targets
+        )
+        return replace(self, targets=targets)
+
     def requeue_failed(
         self,
         target_id: UUID,
         policy: ResourceAcquisitionPolicy,
     ) -> TraversalCheckpoint:
         """Requeue a failed target only while the existing retry policy permits it."""
+        _require_policy(policy)
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.FAILED:
             raise ValueError("only failed traversal targets may be requeued")
@@ -246,13 +284,12 @@ class TraversalCheckpoint:
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.QUEUED:
             raise ValueError("only queued traversal targets may be skipped")
-        if not isinstance(reason, str) or not reason.strip():
-            raise ValueError("traversal skip reason must be a non-blank string")
+        normalized_reason = _require_reason(reason, "traversal skip reason")
         return self._replace_target(
             replace(
                 target,
                 status=TraversalStatus.SKIPPED,
-                last_error=reason.strip(),
+                last_error=normalized_reason,
             )
         )
 
@@ -294,6 +331,11 @@ def _unique_uuids(values: tuple[UUID, ...]) -> tuple[UUID, ...]:
     return tuple(dict.fromkeys(normalized))
 
 
+def _require_policy(policy: ResourceAcquisitionPolicy) -> None:
+    if not isinstance(policy, ResourceAcquisitionPolicy):
+        raise ValueError("traversal policy must be a ResourceAcquisitionPolicy")
+
+
 def _require_depth(value: int) -> None:
     _require_non_negative_int(value, "traversal target depth")
 
@@ -301,6 +343,12 @@ def _require_depth(value: int) -> None:
 def _require_non_negative_int(value: object, field_name: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{field_name} must be a non-negative integer")
+
+
+def _require_reason(value: str, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-blank string")
+    return value.strip()
 
 
 def _require_monotonic_elapsed(value: float, previous: float) -> None:

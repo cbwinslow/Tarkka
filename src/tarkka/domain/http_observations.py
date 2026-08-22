@@ -36,6 +36,8 @@ _SENSITIVE_QUERY_KEYS = frozenset(
         "api_key",
         "auth",
         "authorization",
+        "client_secret",
+        "code",
         "credential",
         "jwt",
         "key",
@@ -73,8 +75,8 @@ class HttpResponseSnapshot:
     observed_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        requested_uri = normalize_http_uri(self.requested_uri, field_name="requested URI")
-        final_uri = normalize_http_uri(self.final_uri, field_name="final URI")
+        requested_uri = normalize_durable_http_uri(self.requested_uri, field_name="requested URI")
+        final_uri = normalize_durable_http_uri(self.final_uri, field_name="final URI")
         if not isinstance(self.status_code, int) or isinstance(self.status_code, bool):
             raise ValueError("HTTP status code must be an integer")
         if self.status_code < 100 or self.status_code > 599:
@@ -121,7 +123,7 @@ class HttpResponseSnapshot:
                 "HTTP redirect chain must be a sequence of HTTP(S) URIs"
             ) from exc
         redirects = tuple(
-            normalize_http_uri(uri, field_name="redirect URI") for uri in raw_redirects
+            normalize_durable_http_uri(uri, field_name="redirect URI") for uri in raw_redirects
         )
         if redirects and redirects[-1] != final_uri:
             raise ValueError("HTTP redirect chain must end at final URI")
@@ -178,11 +180,11 @@ class HttpResponseSnapshot:
 
 
 def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
-    """Normalize HTTP(S) URI and redact common credentials in query or fragment fields.
+    """Normalize HTTP(S) URI and redact common credential parameter values.
 
-    Userinfo is removed, default ports are collapsed, DNS names are IDNA-normalized, and
-    sensitive parameter values are replaced before a URI is eligible for durable provenance.
-    Plain anchor fragments such as ``#results`` are preserved.
+    This normalization is useful while interpreting source links. For durable network provenance,
+    use :func:`normalize_durable_http_uri`, which redacts every query value because arbitrary
+    parameter names can carry credentials.
     """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-blank absolute HTTP(S) URI")
@@ -197,7 +199,6 @@ def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
         raise ValueError(f"{field_name} must be an absolute HTTP(S) URI")
 
     host = _normalize_host(parsed.hostname)
-    # urlsplit returns IPv6 hostnames without brackets; URL netloc syntax requires them.
     if ":" in host:
         host = f"[{host}]"
     default_port = 80 if scheme == "http" else 443
@@ -207,6 +208,28 @@ def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
     return urlunsplit((scheme, netloc, parsed.path or "/", query, fragment))
 
 
+def normalize_durable_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
+    """Normalize a URI for durable network provenance without persisting query values.
+
+    Parameter names and multiplicity remain visible, but every query value is redacted. This is
+    intentionally stricter than key-based sanitization because signed URLs and OAuth callbacks
+    can carry secrets under arbitrary parameter names or nested URL values.
+    """
+    normalized = normalize_http_uri(value, field_name=field_name)
+    parsed = urlsplit(normalized)
+    query = urlencode(
+        [(key, _REDACTED) for key, _ in parse_qsl(parsed.query, keep_blank_values=True)],
+        doseq=True,
+    )
+    fragment = parsed.fragment
+    if "=" in fragment:
+        fragment = urlencode(
+            [(key, _REDACTED) for key, _ in parse_qsl(fragment, keep_blank_values=True)],
+            doseq=True,
+        )
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, fragment))
+
+
 def _sanitize_fragment(fragment: str) -> str:
     if "=" not in fragment:
         return fragment
@@ -214,7 +237,6 @@ def _sanitize_fragment(fragment: str) -> str:
 
 
 def _sanitize_parameter_string(value: str) -> str:
-    # urlencode intentionally provides one deterministic canonical form; spaces normalize to '+'.
     return urlencode(
         [
             (key, _REDACTED if key.lower() in _SENSITIVE_QUERY_KEYS else item)

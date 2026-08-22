@@ -196,7 +196,6 @@ class HttpAcquisitionService:
         response: HttpTransportResponse,
         started_at: float,
     ) -> HttpAcquisitionResult:
-        self._remaining_elapsed(checkpoint, _unbounded_elapsed_policy(), started_at)
         snapshot = HttpResponseSnapshot(
             requested_uri=requested_uri,
             final_uri=final_uri,
@@ -312,10 +311,3 @@ def _artifact_name(uri: str) -> str | None:
 
 def _durable_failure_reason(exc: Exception) -> str:
     return f"http acquisition failed: {type(exc).__name__}"
-
-
-def _unbounded_elapsed_policy() -> ResourceAcquisitionPolicy:
-    return ResourceAcquisitionPolicy(
-        allowed_domains=frozenset({"invalid.example"}),
-        max_elapsed_seconds=None,
-    )

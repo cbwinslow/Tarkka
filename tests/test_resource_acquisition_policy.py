@@ -65,6 +65,8 @@ def test_private_address_access_requires_explicit_policy() -> None:
 
     assert policy.allows_resolved_address("10.0.0.1")
     assert policy.allows_resolved_address("127.0.0.1")
+    assert not policy.allows_resolved_address("169.254.169.254")
+    assert not policy.allows_resolved_address("240.0.0.1")
     assert not policy.allows_resolved_address("0.0.0.0")
     assert not policy.allows_resolved_address("224.0.0.1")
 
@@ -124,12 +126,20 @@ def test_zero_request_budget_disallows_network_attempts() -> None:
 def test_policy_rejects_invalid_bounds_and_allowlists() -> None:
     with pytest.raises(ValueError, match="max_depth"):
         _policy(max_depth=-1)
+    with pytest.raises(ValueError, match="max_depth"):
+        _policy(max_depth=math.nan)
     with pytest.raises(ValueError, match="max_requests"):
         _policy(max_requests=-1)
+    with pytest.raises(ValueError, match="max_requests"):
+        _policy(max_requests=1.5)
     with pytest.raises(ValueError, match="max_bytes"):
         _policy(max_bytes=-1)
+    with pytest.raises(ValueError, match="max_bytes"):
+        _policy(max_bytes=True)
     with pytest.raises(ValueError, match="max_retries"):
         _policy(max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        _policy(max_retries=math.inf)
     with pytest.raises(ValueError, match="max_elapsed_seconds"):
         _policy(max_elapsed_seconds=0)
     with pytest.raises(ValueError, match="max_elapsed_seconds"):
@@ -154,14 +164,22 @@ def test_budget_state_rejects_invalid_counters_and_request_inputs() -> None:
     policy = _policy()
     with pytest.raises(ValueError, match="requests_used"):
         AcquisitionBudgetState(requests_used=-1)
+    with pytest.raises(ValueError, match="requests_used"):
+        AcquisitionBudgetState(requests_used=math.nan)
     with pytest.raises(ValueError, match="bytes_used"):
         AcquisitionBudgetState(bytes_used=-1)
+    with pytest.raises(ValueError, match="bytes_used"):
+        AcquisitionBudgetState(bytes_used=False)
     with pytest.raises(ValueError, match="elapsed_seconds"):
         AcquisitionBudgetState(elapsed_seconds=math.inf)
     with pytest.raises(ValueError, match="request depth"):
         AcquisitionBudgetState().allows_request(policy, depth=-1)
+    with pytest.raises(ValueError, match="request depth"):
+        AcquisitionBudgetState().allows_request(policy, depth=math.nan)
     with pytest.raises(ValueError, match="expected_bytes"):
         AcquisitionBudgetState().allows_request(policy, depth=0, expected_bytes=-1)
+    with pytest.raises(ValueError, match="expected_bytes"):
+        AcquisitionBudgetState().allows_request(policy, depth=0, expected_bytes=math.inf)
     with pytest.raises(ValueError, match="seconds_since_last_request"):
         AcquisitionBudgetState().allows_request(
             policy,
@@ -170,3 +188,5 @@ def test_budget_state_rejects_invalid_counters_and_request_inputs() -> None:
         )
     with pytest.raises(ValueError, match="retries_used"):
         policy.allows_retry(-1)
+    with pytest.raises(ValueError, match="retries_used"):
+        policy.allows_retry(math.nan)

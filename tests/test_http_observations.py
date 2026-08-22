@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 from uuid import UUID
 
 import pytest
 
 from tarkka.application.content_routing import ContentRouter
-from tarkka.domain.http_observations import HttpResponseSnapshot
+from tarkka.domain.http_observations import HttpResponseSnapshot, normalize_durable_http_uri
 from tarkka.domain.source_observations import (
     AdapterKind,
     Capability,
@@ -113,6 +114,43 @@ def test_durable_http_snapshot_redacts_credentials_and_drops_sensitive_headers(
     assert "session=" not in persisted
     assert "user:pass" not in persisted
     assert "secret" not in persisted
+
+
+def test_durable_http_uri_preserves_benign_resource_identity() -> None:
+    first = normalize_durable_http_uri("https://example.org/search?q=alpha&page=2")
+    second = normalize_durable_http_uri("https://example.org/search?q=beta&page=2")
+
+    assert first == "https://example.org/search?q=alpha&page=2"
+    assert second == "https://example.org/search?q=beta&page=2"
+    assert first != second
+
+
+def test_durable_http_uri_recursively_redacts_nested_url_credentials() -> None:
+    normalized = normalize_durable_http_uri(
+        "https://example.org/login?"
+        "next=https%3A%2F%2Fidp.example%2Fcallback%3Fclient-secret%3Dnested-secret%26view%3Dfull"
+        "&tracking=campaign"
+    )
+
+    outer = dict(parse_qsl(urlsplit(normalized).query, keep_blank_values=True))
+    nested = dict(parse_qsl(urlsplit(outer["next"]).query, keep_blank_values=True))
+    assert outer["tracking"] == "campaign"
+    assert nested["client-secret"] == "[REDACTED]"
+    assert nested["view"] == "full"
+    assert "nested-secret" not in normalized
+
+
+def test_durable_http_uri_redacts_credential_key_variants() -> None:
+    normalized = normalize_durable_http_uri(
+        "https://example.org/callback?oauthToken=abc&clientCredential=def&view=full"
+    )
+    values = dict(parse_qsl(urlsplit(normalized).query, keep_blank_values=True))
+
+    assert values == {
+        "oauthToken": "[REDACTED]",
+        "clientCredential": "[REDACTED]",
+        "view": "full",
+    }
 
 
 def test_malformed_content_type_is_preserved_without_forcing_parser_routing() -> None:

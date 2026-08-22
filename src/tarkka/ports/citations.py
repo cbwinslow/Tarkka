@@ -15,11 +15,9 @@ from tarkka.domain.citations import (
 class CitationRepository(Protocol):
     """Persistence boundary for bibliography, citation, and Work-relation state.
 
-    Implementations must serialize writes that target the same stable identity. In
-    particular, one reference has one resolution key: concurrent ``save_resolution``
-    calls must not allow incompatible resolutions to overwrite each other silently.
-    File-backed adapters may use an exclusive lock; SQL adapters should enforce the
-    invariant with a unique constraint plus transactional/upsert semantics.
+    Implementations must serialize writes to a reference's resolution key. They must also
+    implement ``get_or_create_relation`` atomically so concurrent attempts to persist the same
+    deterministic relation return one stored relation rather than surfacing a duplicate race.
     """
 
     def save_reference(self, reference: BibliographicReference) -> None: ...
@@ -28,11 +26,11 @@ class CitationRepository(Protocol):
 
     def save_context(self, context: CitationContext) -> None: ...
 
-    def save_resolution(self, resolution: CitationResolution) -> None:
-        """Persist one auditable resolution without losing a conflicting concurrent write."""
-        ...
+    def save_resolution(self, resolution: CitationResolution) -> None: ...
 
     def save_relation(self, relation: WorkRelation) -> None: ...
+
+    def get_or_create_relation(self, relation: WorkRelation) -> WorkRelation: ...
 
     def list_references(self, document_id: UUID) -> tuple[BibliographicReference, ...]: ...
 

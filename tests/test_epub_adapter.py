@@ -8,7 +8,7 @@ import pytest
 
 from tarkka.domain.models import Artifact
 from tarkka.domain.source_observations import Capability, ObservationBasis, ResourceRelation
-from tarkka.infrastructure.storage.epub_parser import EpubParser
+from tarkka.infrastructure.storage.epub_parser import EpubParseError, EpubParser
 
 _CONTAINER = """<?xml version="1.0" encoding="UTF-8"?>
 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -88,6 +88,8 @@ def _write_epub(
     *,
     package: str = _PACKAGE,
     container: str = _CONTAINER,
+    chapter_1: str | bytes = _CHAPTER_1,
+    chapter_2: str | bytes = _CHAPTER_2,
 ) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
@@ -97,8 +99,8 @@ def _write_epub(
         )
         archive.writestr("META-INF/container.xml", container)
         archive.writestr("OEBPS/package.opf", package)
-        archive.writestr("OEBPS/text/chapter1.xhtml", _CHAPTER_1)
-        archive.writestr("OEBPS/text/chapter2.xhtml", _CHAPTER_2)
+        archive.writestr("OEBPS/text/chapter1.xhtml", chapter_1)
+        archive.writestr("OEBPS/text/chapter2.xhtml", chapter_2)
         archive.writestr("OEBPS/images/plot.png", b"png")
         archive.writestr("OEBPS/styles/book.css", b"body{}")
 
@@ -173,6 +175,13 @@ def test_epub_rebases_bibliography_mentions_and_resource_links(tmp_path: Path) -
     assert ("OEBPS/images/plot.png", ResourceRelation.RELATED) in links
     assert ("OEBPS/data/supplement.csv", ResourceRelation.SUPPLEMENT) in links
 
+    supplement = next(
+        link
+        for link in result.resource_links
+        if link.target_uri == "OEBPS/data/supplement.csv"
+    )
+    assert supplement.metadata["spine_member"] == "OEBPS/text/chapter2.xhtml"
+
 
 def test_epub_ids_and_offsets_are_stable_for_same_artifact(tmp_path: Path) -> None:
     path = tmp_path / "fixture.epub"
@@ -206,6 +215,42 @@ def test_epub_ids_and_offsets_are_stable_for_same_artifact(tmp_path: Path) -> No
     )
 
 
+def test_epub_decodes_utf16_xhtml_spine(tmp_path: Path) -> None:
+    path = tmp_path / "utf16.epub"
+    chapter = _CHAPTER_1.replace(
+        "<!doctype html>",
+        '<?xml version="1.0" encoding="UTF-16"?>',
+    ).encode("utf-16")
+    _write_epub(path, chapter_1=chapter)
+
+    result = EpubParser().parse_native(_artifact(path), path)
+
+    assert result.document.sections[0].title == "Introduction"
+    assert result.document.sections[0].passages[0].text.startswith(
+        "First chapter evidence"
+    )
+
+
+def test_non_linear_spine_resource_is_related_not_full_text(tmp_path: Path) -> None:
+    path = tmp_path / "non-linear.epub"
+    package = _PACKAGE.replace(
+        '<itemref idref="chapter-2"/>',
+        '<itemref idref="chapter-2" linear="no"/>',
+    )
+    _write_epub(path, package=package)
+
+    result = EpubParser().parse_native(_artifact(path), path)
+
+    chapter_2 = next(
+        link
+        for link in result.resource_links
+        if link.target_uri == "OEBPS/text/chapter2.xhtml"
+    )
+    assert chapter_2.relation is ResourceRelation.RELATED
+    assert chapter_2.metadata["in_linear_spine"] is False
+    assert len(result.observation.metadata["parsed_spine"]) == 1
+
+
 def test_epub_capabilities_are_explicit() -> None:
     manifest = EpubParser.manifest
     assert manifest.supports(
@@ -227,7 +272,51 @@ def test_epub_rejects_unsafe_manifest_member(tmp_path: Path) -> None:
     )
     _write_epub(path, package=package)
 
-    with pytest.raises(ValueError, match="unsafe EPUB member path"):
+    with pytest.raises(EpubParseError, match="unsafe EPUB member path"):
+        EpubParser().parse_native(_artifact(path), path)
+
+
+def test_epub_rejects_encoded_archive_traversal(tmp_path: Path) -> None:
+    path = tmp_path / "encoded-traversal.epub"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "mimetype",
+            "application/epub+zip",
+            compress_type=zipfile.ZIP_STORED,
+        )
+        archive.writestr("%2e%2e%2fescape", b"bad")
+
+    with pytest.raises(EpubParseError, match="unsafe EPUB member path"):
+        EpubParser().parse_native(_artifact(path), path)
+
+
+def test_epub_rejects_missing_manifest_resource(tmp_path: Path) -> None:
+    path = tmp_path / "missing-resource.epub"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "mimetype",
+            "application/epub+zip",
+            compress_type=zipfile.ZIP_STORED,
+        )
+        archive.writestr("META-INF/container.xml", _CONTAINER)
+        archive.writestr("OEBPS/package.opf", _PACKAGE)
+        archive.writestr("OEBPS/text/chapter1.xhtml", _CHAPTER_1)
+        archive.writestr("OEBPS/text/chapter2.xhtml", _CHAPTER_2)
+        archive.writestr("OEBPS/images/plot.png", b"png")
+
+    with pytest.raises(EpubParseError, match="manifest member is missing"):
+        EpubParser().parse_native(_artifact(path), path)
+
+
+def test_epub_rejects_unsupported_linear_spine_media(tmp_path: Path) -> None:
+    path = tmp_path / "unsupported-spine.epub"
+    package = _PACKAGE.replace(
+        'id="chapter-1" href="text/chapter1.xhtml" media-type="application/xhtml+xml"',
+        'id="chapter-1" href="text/chapter1.xhtml" media-type="application/pdf"',
+    )
+    _write_epub(path, package=package)
+
+    with pytest.raises(EpubParseError, match="unsupported linear EPUB spine media type"):
         EpubParser().parse_native(_artifact(path), path)
 
 
@@ -237,5 +326,5 @@ def test_epub_requires_first_uncompressed_mimetype_entry(tmp_path: Path) -> None
         archive.writestr("META-INF/container.xml", _CONTAINER)
         archive.writestr("mimetype", "application/epub+zip")
 
-    with pytest.raises(ValueError, match="mimetype entry must be first and uncompressed"):
+    with pytest.raises(EpubParseError, match="mimetype entry must be first and uncompressed"):
         EpubParser().parse_native(_artifact(path), path)

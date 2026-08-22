@@ -42,6 +42,7 @@ from tarkka.infrastructure.storage.search_snapshot_log import (
     JsonlSearchSnapshotLog,
     SnapshotDataError,
 )
+from tarkka.interfaces.bibliography_cli import run as bibliography_main
 from tarkka.interfaces.cli import main as legacy_main
 from tarkka.ports.extraction import StructuredExtractor
 
@@ -363,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
     if arguments and arguments[0] == "claims":
         args = _claims_parser().parse_args(arguments[1:])
         return int(args.func(args))
+    if arguments and arguments[0] == "bibliography":
+        return bibliography_main(arguments[1:], _home())
     return legacy_main(arguments)
 
 

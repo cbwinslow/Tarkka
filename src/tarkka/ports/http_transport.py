@@ -56,7 +56,8 @@ class HttpTransport(Protocol):
 
     Implementations must not follow redirects automatically. ``resolved_address`` must be
     the address actually used for the connection, preventing a second uncontrolled DNS lookup
-    from bypassing SSRF checks.
+    from bypassing SSRF checks. ``timeout_seconds`` is the remaining traversal elapsed-time
+    budget for this exchange when one is configured.
     """
 
     def request(
@@ -65,4 +66,5 @@ class HttpTransport(Protocol):
         uri: str,
         resolved_address: str,
         max_response_bytes: int,
+        timeout_seconds: float | None = None,
     ) -> HttpTransportResponse: ...

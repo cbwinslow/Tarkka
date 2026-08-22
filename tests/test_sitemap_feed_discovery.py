@@ -74,7 +74,7 @@ def test_sitemap_index_preserves_child_sitemap_provenance() -> None:
     assert links[0].metadata["last_modified"] == "2026-08-21T10:00:00Z"
 
 
-def test_rss_feed_preserves_entry_identity_title_and_publication_time() -> None:
+def test_rss_feed_preserves_native_and_normalized_publication_time() -> None:
     xml = """
     <rss version="2.0"><channel>
       <title>Research updates</title>
@@ -97,11 +97,12 @@ def test_rss_feed_preserves_entry_identity_title_and_publication_time() -> None:
     assert links[0].label == "Paper One"
     assert links[0].relation is ResourceRelation.RELATED
     assert links[0].metadata["entry_id"] == "paper-1"
-    assert links[0].metadata["published_at"] == "2026-08-21T15:30:00+00:00"
+    assert links[0].metadata["published_at"] == "Fri, 21 Aug 2026 15:30:00 GMT"
+    assert links[0].metadata["published_at_normalized"] == "2026-08-21T15:30:00+00:00"
     assert links[0].metadata["discovery_kind"] == "rss_item"
 
 
-def test_atom_feed_preserves_entry_links_and_timestamps() -> None:
+def test_atom_feed_preserves_entry_links_timestamps_and_relative_targets() -> None:
     xml = """
     <feed xmlns="http://www.w3.org/2005/Atom">
       <title>Research feed</title>
@@ -110,8 +111,8 @@ def test_atom_feed_preserves_entry_links_and_timestamps() -> None:
         <title>Paper Two</title>
         <published>2026-08-20T12:00:00Z</published>
         <updated>2026-08-21T12:00:00Z</updated>
-        <link rel="alternate" type="text/html" href="https://example.org/papers/two" />
-        <link rel="enclosure" type="application/pdf" href="https://example.org/papers/two.pdf" />
+        <link rel="alternate" type="text/html" href="papers/two" />
+        <link rel="enclosure" type="application/pdf" href="/papers/two.pdf" />
       </entry>
     </feed>
     """
@@ -119,11 +120,11 @@ def test_atom_feed_preserves_entry_links_and_timestamps() -> None:
     links = SitemapFeedDiscoverer().discover(
         _observation(),
         xml=xml,
-        source_uri="https://example.org/atom.xml",
+        source_uri="https://example.org/feeds/atom.xml",
     )
 
     assert [item.target_uri for item in links] == [
-        "https://example.org/papers/two",
+        "https://example.org/feeds/papers/two",
         "https://example.org/papers/two.pdf",
     ]
     assert links[0].relation is ResourceRelation.ALTERNATE
@@ -161,7 +162,7 @@ def test_discovery_is_deterministic_and_malformed_targets_are_isolated() -> None
     assert first[0].metadata["source_ordinal"] == 1
 
 
-def test_invalid_xml_and_unknown_roots_fail_closed() -> None:
+def test_invalid_xml_unknown_roots_and_boundaries_fail_closed() -> None:
     discoverer = SitemapFeedDiscoverer()
     with pytest.raises(ValueError, match="parse sitemap/feed XML"):
         discoverer.discover(
@@ -180,4 +181,10 @@ def test_invalid_xml_and_unknown_roots_fail_closed() -> None:
             _observation(),
             xml="<urlset />",
             source_uri="/relative.xml",
+        )
+    with pytest.raises(ValueError, match="XML must be a string"):
+        discoverer.discover(
+            _observation(),
+            xml=b"<urlset />",  # type: ignore[arg-type]
+            source_uri="https://example.org/sitemap.xml",
         )

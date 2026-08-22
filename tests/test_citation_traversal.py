@@ -185,6 +185,27 @@ def test_relation_limit_is_hard(tmp_path: Path) -> None:
     assert result.stopped_by is TraversalLimit.RELATIONS
 
 
+def test_relation_limit_reports_unseen_edges_on_next_frontier(tmp_path: Path) -> None:
+    root, first, second, child = uuid4(), uuid4(), uuid4(), uuid4()
+    root_first = _relation(root, first)
+    root_second = _relation(root, second)
+    child_relation = _relation(first, child)
+    repository = _repository(tmp_path, root_first, root_second, child_relation)
+
+    result = CitationTraversalService(repository).traverse(
+        root,
+        CitationTraversalPolicy(max_depth=2, max_works=10, max_relations=2),
+    )
+
+    assert {relation.relation_id for relation in result.relations} == {
+        root_first.relation_id,
+        root_second.relation_id,
+    }
+    assert child_relation.relation_id not in {relation.relation_id for relation in result.relations}
+    assert result.stopped_by is TraversalLimit.RELATIONS
+    assert result.max_depth_reached == 1
+
+
 def test_relation_kind_filter_defaults_to_citations(tmp_path: Path) -> None:
     root, cited, dataset = uuid4(), uuid4(), uuid4()
     repository = _repository(

@@ -23,6 +23,7 @@ class ResourceAcquisitionPolicy:
     max_requests: int = 100
     max_bytes: int = 100 * 1024 * 1024
     max_retries: int = 2
+    max_redirects: int = 5
     max_elapsed_seconds: float | None = 300.0
     min_request_interval_seconds: float = 0.0
     allowed_schemes: frozenset[str] = frozenset({"http", "https"})
@@ -34,6 +35,7 @@ class ResourceAcquisitionPolicy:
         _require_non_negative_int(self.max_requests, "resource acquisition max_requests")
         _require_non_negative_int(self.max_bytes, "resource acquisition max_bytes")
         _require_non_negative_int(self.max_retries, "resource acquisition max_retries")
+        _require_non_negative_int(self.max_redirects, "resource acquisition max_redirects")
         if self.max_elapsed_seconds is not None and (
             not math.isfinite(self.max_elapsed_seconds) or self.max_elapsed_seconds <= 0
         ):

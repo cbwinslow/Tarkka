@@ -98,6 +98,10 @@ def _target_to_dict(target: TraversalTarget) -> dict[str, Any]:
         "discovery_link_ids": [str(value) for value in target.discovery_link_ids],
         "parent_target_ids": [str(value) for value in target.parent_target_ids],
         "last_error": target.last_error,
+        "final_artifact_sha256": target.final_artifact_sha256,
+        "final_observation_id": (
+            str(target.final_observation_id) if target.final_observation_id else None
+        ),
     }
 
 
@@ -115,6 +119,7 @@ def _checkpoint_from_dict(raw: dict[str, Any]) -> TraversalCheckpoint:
 
 
 def _target_from_dict(raw: dict[str, Any]) -> TraversalTarget:
+    observation_id = raw.get("final_observation_id")
     return TraversalTarget(
         target_id=UUID(raw["target_id"]),
         uri=raw["uri"],
@@ -125,4 +130,6 @@ def _target_from_dict(raw: dict[str, Any]) -> TraversalTarget:
         discovery_link_ids=tuple(UUID(value) for value in raw["discovery_link_ids"]),
         parent_target_ids=tuple(UUID(value) for value in raw["parent_target_ids"]),
         last_error=raw.get("last_error"),
+        final_artifact_sha256=raw.get("final_artifact_sha256"),
+        final_observation_id=UUID(observation_id) if observation_id else None,
     )

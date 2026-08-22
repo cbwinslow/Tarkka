@@ -33,7 +33,6 @@ class ContentRouter:
                 continue
             for advertised in manifest.media_types:
                 normalized = normalize_media_type(advertised)
-                assert normalized is not None
                 routes.setdefault(normalized, set()).add(manifest.adapter_name)
         self._routes = {
             media_type: tuple(sorted(names)) for media_type, names in routes.items()

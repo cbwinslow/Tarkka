@@ -11,7 +11,10 @@ _YEAR = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 
 
 def stable_key(prefix: str, ordinal: int, raw: Any) -> str:
-    encoded = json.dumps(raw, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+    try:
+        encoded = json.dumps(raw, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise BibliographyParseError("bibliography source data is not deterministically serializable") from exc
     digest = hashlib.sha256(encoded).hexdigest()[:24]
     return f"{prefix}:{ordinal}:{digest}"
 

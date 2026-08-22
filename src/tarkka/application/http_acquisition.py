@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlsplit
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
-from tarkka.domain.http_observations import HttpResponseSnapshot, normalize_http_uri
+from tarkka.domain.http_observations import (
+    HttpResponseSnapshot,
+    normalize_durable_http_uri,
+    normalize_http_uri,
+)
 from tarkka.domain.models import Artifact
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
 from tarkka.domain.source_observations import SourceObservation
@@ -32,7 +37,7 @@ class HttpAcquisitionResult:
 
 
 class HttpAcquisitionError(RuntimeError):
-    """Raised after a started target is durably marked failed."""
+    """Raised after a started network target is durably marked failed."""
 
     def __init__(self, message: str, *, checkpoint: TraversalCheckpoint) -> None:
         super().__init__(message)
@@ -41,6 +46,14 @@ class HttpAcquisitionError(RuntimeError):
 
 class HttpAcquisitionCheckpointError(RuntimeError):
     """Raised when traversal state cannot be durably persisted before more network I/O."""
+
+
+class HttpAcquisitionCommitError(RuntimeError):
+    """Raised when output commit stops after a durable FINALIZING checkpoint exists."""
+
+    def __init__(self, message: str, *, checkpoint: TraversalCheckpoint) -> None:
+        super().__init__(message)
+        self.checkpoint = checkpoint
 
 
 class HttpAcquisitionService:
@@ -76,9 +89,13 @@ class HttpAcquisitionService:
     ) -> HttpAcquisitionResult:
         """Acquire one queued target, following only policy-approved redirects."""
         target = _target(checkpoint, target_id)
+        if request_uri is None and urlsplit(target.uri).query:
+            raise ValueError(
+                "query-bearing traversal targets require the transient original request URI"
+            )
         raw_requested_uri = request_uri or target.uri
-        if normalize_http_uri(raw_requested_uri) != target.uri:
-            raise ValueError("request URI must normalize to the traversal target URI")
+        if normalize_durable_http_uri(raw_requested_uri) != target.uri:
+            raise ValueError("request URI must normalize to the durable traversal target URI")
         if not policy.allows_uri(raw_requested_uri):
             raise ValueError("request URI is not allowed by the acquisition policy")
 
@@ -105,7 +122,7 @@ class HttpAcquisitionService:
                     bytes_acquired=len(response.body),
                 )
                 self._save_checkpoint(active)
-                if active.budget.bytes_used > policy.max_bytes:
+                if response.limit_exceeded or active.budget.bytes_used > policy.max_bytes:
                     raise ValueError("HTTP response exceeded the acquisition byte budget")
                 self._remaining_elapsed(active, policy, started_at)
 
@@ -136,7 +153,7 @@ class HttpAcquisitionService:
                 self._save_checkpoint(active)
                 redirect_chain.append(next_uri)
                 current_uri = next_uri
-        except HttpAcquisitionCheckpointError:
+        except (HttpAcquisitionCheckpointError, HttpAcquisitionCommitError):
             raise
         except Exception as exc:
             failed = active.fail(
@@ -161,8 +178,7 @@ class HttpAcquisitionService:
         if not policy.allows_uri(uri):
             raise ValueError("HTTP request URI is not allowed by acquisition policy")
         timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
-        durable_uri = normalize_http_uri(uri)
-        hostname = urlsplit(durable_uri).hostname
+        hostname = urlsplit(normalize_http_uri(uri)).hostname
         if hostname is None:
             raise ValueError("HTTP request URI has no hostname")
         addresses = self._resolver.resolve(hostname)
@@ -204,20 +220,44 @@ class HttpAcquisitionService:
             redirect_chain=redirect_chain,
             depth=target.depth,
         )
-        artifact = self._artifact_store.put_bytes(
-            response.body,
-            original_name=_artifact_name(snapshot.final_uri),
-            source_uri=snapshot.final_uri,
-            media_type=snapshot.media_type or "application/octet-stream",
-        )
-        observation = snapshot.to_source_observation(native_artifact_id=artifact.artifact_id)
-        self._observation_repository.save_observation(observation)
-        completed = checkpoint.complete(
+        artifact_sha256 = hashlib.sha256(response.body).hexdigest()
+        artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{artifact_sha256}")
+        observation = snapshot.to_source_observation(native_artifact_id=artifact_id)
+        finalizing = checkpoint.begin_finalization(
             target.target_id,
-            bytes_acquired=0,
+            artifact_sha256=artifact_sha256,
+            observation_id=observation.observation_id,
             elapsed_seconds=self._elapsed(checkpoint, started_at),
         )
-        self._save_checkpoint(completed)
+        self._save_checkpoint(finalizing)
+
+        try:
+            artifact = self._artifact_store.put_bytes(
+                response.body,
+                original_name=_artifact_name(snapshot.final_uri),
+                source_uri=snapshot.final_uri,
+                media_type=snapshot.media_type or "application/octet-stream",
+            )
+            if artifact.sha256 != artifact_sha256 or artifact.artifact_id != artifact_id:
+                raise RuntimeError("artifact store returned unexpected finalization identity")
+            self._observation_repository.save_observation(observation)
+        except Exception as exc:
+            raise HttpAcquisitionCommitError(
+                f"HTTP output commit interrupted: {type(exc).__name__}",
+                checkpoint=finalizing,
+            ) from exc
+
+        completed = finalizing.complete_finalization(
+            target.target_id,
+            elapsed_seconds=self._elapsed(finalizing, started_at),
+        )
+        try:
+            self._save_checkpoint(completed)
+        except HttpAcquisitionCheckpointError as exc:
+            raise HttpAcquisitionCommitError(
+                "HTTP outputs are durable but final checkpoint completion was interrupted",
+                checkpoint=finalizing,
+            ) from exc
         return HttpAcquisitionResult(
             checkpoint=completed,
             artifact=artifact,

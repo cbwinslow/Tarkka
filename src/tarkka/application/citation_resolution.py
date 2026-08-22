@@ -121,15 +121,7 @@ class CitationResolutionService:
             source_document_id=reference.document_id,
             source_reference_id=reference.reference_id,
         )
-        existing = self._citations.get_relation(relation.relation_id)
-        if existing is not None:
-            if not _same_relation(existing, relation):
-                raise RuntimeError(
-                    "stored citation relation conflicts with deterministic relation provenance"
-                )
-            return existing
-        self._citations.save_relation(relation)
-        return relation
+        return self._citations.get_or_create_relation(relation)
 
 
 def _resolution_id(reference_id: UUID) -> UUID:
@@ -163,19 +155,4 @@ def _same_resolution(left: CitationResolution, right: CitationResolution) -> boo
         and left.candidate_work_ids == right.candidate_work_ids
         and left.resolver == right.resolver
         and left.source_observation_id == right.source_observation_id
-    )
-
-
-def _same_relation(left: WorkRelation, right: WorkRelation) -> bool:
-    # created_at is event metadata. All identity, direction, kind, basis, and provenance fields
-    # must agree before a deterministic relation can be safely reused.
-    return (
-        left.relation_id == right.relation_id
-        and left.subject_work_id == right.subject_work_id
-        and left.object_work_id == right.object_work_id
-        and left.kind is right.kind
-        and left.basis is right.basis
-        and left.source_observation_id == right.source_observation_id
-        and left.source_document_id == right.source_document_id
-        and left.source_reference_id == right.source_reference_id
     )

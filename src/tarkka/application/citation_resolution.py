@@ -108,15 +108,11 @@ class CitationResolutionService:
         reference: BibliographicReference,
         cited_work_id: UUID,
     ) -> WorkRelation:
-        relation_id = uuid5(
-            NAMESPACE_URL,
-            f"tarkka:cites:{citing_work_id}:{reference.reference_id}:{cited_work_id}",
-        )
-        for existing in self._citations.list_relations_from(citing_work_id):
-            if existing.relation_id == relation_id:
-                return existing
         relation = WorkRelation(
-            relation_id=relation_id,
+            relation_id=uuid5(
+                NAMESPACE_URL,
+                f"tarkka:cites:{citing_work_id}:{reference.reference_id}:{cited_work_id}",
+            ),
             subject_work_id=citing_work_id,
             object_work_id=cited_work_id,
             kind=WorkRelationKind.CITES,
@@ -125,8 +121,7 @@ class CitationResolutionService:
             source_document_id=reference.document_id,
             source_reference_id=reference.reference_id,
         )
-        self._citations.save_relation(relation)
-        return relation
+        return self._citations.get_or_create_relation(relation)
 
 
 def _resolution_id(reference_id: UUID) -> UUID:
@@ -144,12 +139,17 @@ def _normalized_identifier(scheme: str, value: str) -> tuple[str, str] | None:
     if normalized_scheme == "arxiv":
         arxiv_id = try_normalize_arxiv_id(normalized_value)
         return ("arxiv", arxiv_id) if arxiv_id is not None else None
+    # Other schemes intentionally use exact canonical values. Their ingestion adapter owns
+    # scheme-specific normalization until a shared normalizer is explicitly defined.
     return normalized_scheme, normalized_value
 
 
 def _same_resolution(left: CitationResolution, right: CitationResolution) -> bool:
+    # resolved_at is event metadata, not resolution identity. Ignoring it makes repeated
+    # deterministic resolution idempotent and preserves the timestamp of the first result.
     return (
-        left.reference_id == right.reference_id
+        left.resolution_id == right.resolution_id
+        and left.reference_id == right.reference_id
         and left.status is right.status
         and left.work_id == right.work_id
         and left.candidate_work_ids == right.candidate_work_ids

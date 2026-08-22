@@ -645,7 +645,8 @@ def _package_metadata(package: ET.Element) -> dict[str, object]:
             if (text := _element_text(element))
         )
         if matches:
-            values[f"{name}s"] = matches
+            key = "rights" if name == "rights" else f"{name}s"
+            values[key] = matches
     modified = tuple(
         text
         for element in metadata

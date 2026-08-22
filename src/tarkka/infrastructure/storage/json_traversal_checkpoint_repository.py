@@ -42,7 +42,9 @@ class JsonTraversalCheckpointRepository:
         try:
             decoded: Any = json.loads(self.path.read_text(encoding="utf-8"))
         except OSError as exc:
-            raise OSError(f"unable to read traversal checkpoint catalog {self.path}: {exc}") from exc
+            raise OSError(
+                f"unable to read traversal checkpoint catalog {self.path}: {exc}"
+            ) from exc
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"invalid traversal checkpoint JSON {self.path}: {exc}") from exc
         if not isinstance(decoded, dict):

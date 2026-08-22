@@ -16,9 +16,15 @@ from tarkka.domain.source_observations import (
     SourceObservation,
 )
 
+_MAX_XML_CHARS = 5_000_000
+_MAX_XML_ELEMENTS = 100_000
+_MAX_XML_DEPTH = 64
+_XML_CHUNK_CHARS = 64 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class _DiscoveredTarget:
+    source_ordinal: int
     target_uri: str
     relation: ResourceRelation
     media_type: str | None
@@ -65,10 +71,7 @@ class SitemapFeedDiscoverer:
         if not isinstance(xml, str):
             raise ValueError("discovery XML must be a string")
         source = normalize_http_uri(source_uri, field_name="discovery source URI")
-        try:
-            root = ET.fromstring(xml)
-        except ET.ParseError as exc:
-            raise ValueError(f"unable to parse sitemap/feed XML: {exc}") from exc
+        root = _parse_bounded_xml(xml)
 
         root_name = _local_name(root.tag)
         if root_name == "urlset":
@@ -83,7 +86,7 @@ class SitemapFeedDiscoverer:
             raise ValueError(f"unsupported sitemap/feed root element: {root_name or root.tag}")
 
         values: list[ResourceLinkObservation] = []
-        for source_ordinal, target in enumerate(targets):
+        for target in targets:
             try:
                 resolved_target = urljoin(source, target.target_uri)
                 normalized_target = normalize_http_uri(
@@ -95,12 +98,12 @@ class SitemapFeedDiscoverer:
                 continue
             metadata = dict(target.metadata)
             metadata["source_uri"] = source
-            metadata["source_ordinal"] = source_ordinal
+            metadata["source_ordinal"] = target.source_ordinal
             values.append(
                 ResourceLinkObservation(
                     link_id=_stable_link_id(
                         observation.observation_id,
-                        source_ordinal,
+                        target.source_ordinal,
                         normalized_target,
                     ),
                     observation_id=observation.observation_id,
@@ -114,14 +117,67 @@ class SitemapFeedDiscoverer:
         return tuple(values)
 
 
+def _parse_bounded_xml(xml: str) -> ET.Element:
+    if len(xml) > _MAX_XML_CHARS:
+        raise ValueError("sitemap/feed XML exceeds the parser size limit")
+    parser = ET.XMLPullParser(events=("start", "end"))
+    root: ET.Element | None = None
+    element_count = 0
+    depth = 0
+    try:
+        for start in range(0, len(xml), _XML_CHUNK_CHARS):
+            parser.feed(xml[start : start + _XML_CHUNK_CHARS])
+            root, element_count, depth = _consume_xml_events(
+                parser,
+                root=root,
+                element_count=element_count,
+                depth=depth,
+            )
+        parser.close()
+        root, element_count, depth = _consume_xml_events(
+            parser,
+            root=root,
+            element_count=element_count,
+            depth=depth,
+        )
+    except ET.ParseError as exc:
+        raise ValueError(f"unable to parse sitemap/feed XML: {exc}") from exc
+    if root is None:
+        raise ValueError("unable to parse sitemap/feed XML: document has no root element")
+    return root
+
+
+def _consume_xml_events(
+    parser: ET.XMLPullParser,
+    *,
+    root: ET.Element | None,
+    element_count: int,
+    depth: int,
+) -> tuple[ET.Element | None, int, int]:
+    for event, element in parser.read_events():
+        if event == "start":
+            element_count += 1
+            depth += 1
+            if root is None:
+                root = element
+            if element_count > _MAX_XML_ELEMENTS:
+                raise ValueError("sitemap/feed XML exceeds the element limit")
+            if depth > _MAX_XML_DEPTH:
+                raise ValueError("sitemap/feed XML exceeds the nesting-depth limit")
+        else:
+            depth -= 1
+    return root, element_count, depth
+
+
 def _sitemap_urlset(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     values: list[_DiscoveredTarget] = []
-    for element in _children(root, "url"):
+    for source_ordinal, element in enumerate(_children(root, "url")):
         loc = _child_text(element, "loc")
         if not loc:
             continue
         values.append(
             _DiscoveredTarget(
+                source_ordinal=source_ordinal,
                 target_uri=loc,
                 relation=ResourceRelation.RELATED,
                 media_type=None,
@@ -137,12 +193,13 @@ def _sitemap_urlset(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
 
 def _sitemap_index(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     values: list[_DiscoveredTarget] = []
-    for element in _children(root, "sitemap"):
+    for source_ordinal, element in enumerate(_children(root, "sitemap")):
         loc = _child_text(element, "loc")
         if not loc:
             continue
         values.append(
             _DiscoveredTarget(
+                source_ordinal=source_ordinal,
                 target_uri=loc,
                 relation=ResourceRelation.RELATED,
                 media_type="application/xml",
@@ -161,13 +218,14 @@ def _rss_feed(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     if channel is None:
         return ()
     values: list[_DiscoveredTarget] = []
-    for item in _children(channel, "item"):
+    for source_ordinal, item in enumerate(_children(channel, "item")):
         link = _child_text(item, "link")
         if not link:
             continue
         published = _child_text(item, "pubDate")
         values.append(
             _DiscoveredTarget(
+                source_ordinal=source_ordinal,
                 target_uri=link,
                 relation=ResourceRelation.RELATED,
                 media_type=None,
@@ -185,25 +243,24 @@ def _rss_feed(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
 
 def _atom_feed(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     values: list[_DiscoveredTarget] = []
+    source_ordinal = 0
     for entry in _children(root, "entry"):
         entry_id = _child_text(entry, "id")
         title = _child_text(entry, "title")
         published = _child_text(entry, "published")
         updated = _child_text(entry, "updated")
         for link in _children(entry, "link"):
+            current_ordinal = source_ordinal
+            source_ordinal += 1
             href = (link.attrib.get("href") or "").strip()
             if not href:
                 continue
             rel = (link.attrib.get("rel") or "alternate").strip().lower()
-            relation = (
-                ResourceRelation.ALTERNATE
-                if rel == "alternate"
-                else ResourceRelation.RELATED
-            )
             values.append(
                 _DiscoveredTarget(
+                    source_ordinal=current_ordinal,
                     target_uri=href,
-                    relation=relation,
+                    relation=_atom_relation(rel),
                     media_type=(link.attrib.get("type") or "").strip() or None,
                     label=title,
                     metadata={
@@ -216,6 +273,20 @@ def _atom_feed(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
                 )
             )
     return tuple(values)
+
+
+def _atom_relation(rel: str) -> ResourceRelation:
+    if rel == "canonical":
+        return ResourceRelation.CANONICAL
+    if rel == "alternate":
+        return ResourceRelation.ALTERNATE
+    if rel in {"supplement", "supplementary"}:
+        return ResourceRelation.SUPPLEMENT
+    if rel == "dataset":
+        return ResourceRelation.DATASET
+    if rel == "software":
+        return ResourceRelation.SOFTWARE
+    return ResourceRelation.RELATED
 
 
 def _children(element: ET.Element, name: str) -> tuple[ET.Element, ...]:

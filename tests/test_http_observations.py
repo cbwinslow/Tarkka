@@ -68,7 +68,10 @@ def test_durable_http_snapshot_redacts_credentials_and_drops_sensitive_headers(
     tmp_path: Path,
 ) -> None:
     first = HttpResponseSnapshot(
-        requested_uri=" https://user:pass@EXAMPLE.org:443/article?token=secret&view=full ",
+        requested_uri=(
+            " https://user:pass@EXAMPLE.org:443/article?token=secret&view=full"
+            "#access_token=fragment-secret&section=results "
+        ),
         final_uri="https://example.org/article?x-amz-signature=abc&view=full",
         status_code=200,
         headers={
@@ -79,7 +82,10 @@ def test_durable_http_snapshot_redacts_credentials_and_drops_sensitive_headers(
         observed_at=datetime(2026, 8, 22, tzinfo=UTC),
     )
     second = HttpResponseSnapshot(
-        requested_uri="https://example.org/article?token=different&view=full",
+        requested_uri=(
+            "https://example.org/article?token=different&view=full"
+            "#access_token=different&section=results"
+        ),
         final_uri="https://EXAMPLE.org:443/article?x-amz-signature=different&view=full",
         status_code=200,
         headers={"Content-Type": ("text/html",)},
@@ -91,6 +97,7 @@ def test_durable_http_snapshot_redacts_credentials_and_drops_sensitive_headers(
 
     assert first.requested_uri == (
         "https://example.org/article?token=%5BREDACTED%5D&view=full"
+        "#access_token=%5BREDACTED%5D&section=results"
     )
     assert first.final_uri == (
         "https://example.org/article?x-amz-signature=%5BREDACTED%5D&view=full"
@@ -102,9 +109,35 @@ def test_durable_http_snapshot_redacts_credentials_and_drops_sensitive_headers(
     repository.save_observation(first_observation)
     persisted = (tmp_path / "observations.json").read_text(encoding="utf-8")
     assert "top-secret" not in persisted
+    assert "fragment-secret" not in persisted
     assert "session=" not in persisted
     assert "user:pass" not in persisted
     assert "secret" not in persisted
+
+
+def test_malformed_content_type_is_preserved_without_forcing_parser_routing() -> None:
+    snapshot = HttpResponseSnapshot(
+        "https://example.org/a",
+        "https://example.org/a",
+        200,
+        headers={"Content-Type": ("; charset=utf-8",)},
+    )
+
+    observation = snapshot.to_source_observation(native_artifact_id=_ARTIFACT_ID)
+
+    assert snapshot.headers["content-type"] == ("; charset=utf-8",)
+    assert snapshot.media_type is None
+    assert observation.media_type is None
+    assert ContentRouter(()).route(observation.media_type).artifact_only
+
+
+def test_plain_fragment_anchor_is_preserved() -> None:
+    snapshot = HttpResponseSnapshot(
+        "https://example.org/paper#results",
+        "https://example.org/paper#results",
+        200,
+    )
+    assert snapshot.final_uri == "https://example.org/paper#results"
 
 
 def test_http_snapshot_identity_changes_when_transport_facts_change() -> None:
@@ -186,13 +219,6 @@ def test_http_snapshot_rejects_invalid_transport_metadata() -> None:
             "https://example.org/a",
             200,
             observed_at=datetime(2026, 8, 22),
-        )
-    with pytest.raises(ValueError, match="media type"):
-        HttpResponseSnapshot(
-            "https://example.org/a",
-            "https://example.org/a",
-            200,
-            headers={"Content-Type": ("; charset=utf-8",)},
         )
 
 

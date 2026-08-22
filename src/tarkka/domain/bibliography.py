@@ -16,6 +16,52 @@ class BibliographyFormat(StrEnum):
     CSL_JSON = "csl-json"
 
 
+_BIBTEX_PUBLICATION_TYPES = {
+    "article": "article",
+    "book": "book",
+    "inbook": "book-chapter",
+    "incollection": "book-chapter",
+    "inproceedings": "conference-paper",
+    "conference": "conference-paper",
+    "phdthesis": "thesis",
+    "mastersthesis": "thesis",
+    "techreport": "report",
+    "misc": "other",
+}
+_RIS_PUBLICATION_TYPES = {
+    "JOUR": "article",
+    "JFULL": "article",
+    "MGZN": "article",
+    "BOOK": "book",
+    "CHAP": "book-chapter",
+    "CONF": "conference-paper",
+    "CPAPER": "conference-paper",
+    "THES": "thesis",
+    "RPRT": "report",
+    "DATA": "dataset",
+    "ELEC": "web",
+}
+_CSL_PUBLICATION_TYPES = {
+    "article": "article",
+    "article-journal": "article",
+    "article-magazine": "article",
+    "article-newspaper": "article",
+    "book": "book",
+    "chapter": "book-chapter",
+    "entry": "book-chapter",
+    "entry-dictionary": "book-chapter",
+    "entry-encyclopedia": "book-chapter",
+    "paper-conference": "conference-paper",
+    "thesis": "thesis",
+    "report": "report",
+    "dataset": "dataset",
+    "software": "software",
+    "webpage": "web",
+    "post": "web",
+    "post-weblog": "web",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class BibliographyRecord:
     """One source-native bibliography entry before canonical Work resolution."""
@@ -54,6 +100,7 @@ class BibliographyRecord:
             "source_scope": scope,
             "source_key": self.source_key,
             "entry_type": self.entry_type,
+            "publication_type": _publication_type(self.source_format, self.entry_type),
             "authors": self.authors,
             "native_fields": dict(self.fields),
         }
@@ -67,3 +114,12 @@ class BibliographyRecord:
             external_ids=external_ids,
             metadata=metadata,
         )
+
+
+def _publication_type(source_format: BibliographyFormat, entry_type: str) -> str:
+    raw = entry_type.strip()
+    if source_format is BibliographyFormat.BIBTEX:
+        return _BIBTEX_PUBLICATION_TYPES.get(raw.lower(), raw.lower())
+    if source_format is BibliographyFormat.RIS:
+        return _RIS_PUBLICATION_TYPES.get(raw.upper(), raw.lower())
+    return _CSL_PUBLICATION_TYPES.get(raw.lower(), raw.lower())

@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from tarkka.domain.http_observations import normalize_http_uri
+from tarkka.domain.http_observations import normalize_durable_http_uri
 from tarkka.domain.resource_acquisition import AcquisitionBudgetState, ResourceAcquisitionPolicy
 
 
@@ -13,6 +13,7 @@ class TraversalStatus(StrEnum):
 
     QUEUED = "queued"
     IN_PROGRESS = "in_progress"
+    FINALIZING = "finalizing"
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
@@ -31,11 +32,16 @@ class TraversalTarget:
     discovery_link_ids: tuple[UUID, ...] = ()
     parent_target_ids: tuple[UUID, ...] = ()
     last_error: str | None = None
+    final_artifact_sha256: str | None = None
+    final_observation_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.target_id, UUID):
             raise ValueError("traversal target ID must be a UUID")
-        normalized_uri = normalize_http_uri(self.uri, field_name="traversal target URI")
+        normalized_uri = normalize_durable_http_uri(
+            self.uri,
+            field_name="traversal target URI",
+        )
         _require_depth(self.depth)
         if not isinstance(self.status, TraversalStatus):
             raise ValueError("traversal target status must be a TraversalStatus")
@@ -52,10 +58,26 @@ class TraversalTarget:
             raise ValueError("only failed or skipped traversal targets may carry last_error")
         if self.status in {
             TraversalStatus.IN_PROGRESS,
+            TraversalStatus.FINALIZING,
             TraversalStatus.COMPLETED,
             TraversalStatus.FAILED,
         } and self.attempts == 0:
             raise ValueError("attempted traversal target states require at least one attempt")
+
+        has_artifact = self.final_artifact_sha256 is not None
+        has_observation = self.final_observation_id is not None
+        if has_artifact != has_observation:
+            raise ValueError("traversal finalization identifiers must be provided together")
+        if self.status is TraversalStatus.FINALIZING and not has_artifact:
+            raise ValueError("finalizing traversal targets require output identifiers")
+        if self.status not in {TraversalStatus.FINALIZING, TraversalStatus.COMPLETED} and has_artifact:
+            raise ValueError("only finalizing or completed targets may carry output identifiers")
+        if self.final_artifact_sha256 is not None:
+            _require_sha256(self.final_artifact_sha256)
+        if self.final_observation_id is not None and not isinstance(
+            self.final_observation_id, UUID
+        ):
+            raise ValueError("traversal final observation ID must be a UUID")
 
         discovery_ids = _unique_uuids(self.discovery_link_ids)
         parent_ids = _unique_uuids(self.parent_target_ids)
@@ -103,8 +125,8 @@ class TraversalCheckpoint:
         discovery_link_id: UUID | None = None,
         parent_target_id: UUID | None = None,
     ) -> TraversalCheckpoint:
-        """Add or enrich one normalized URI without duplicating the frontier target."""
-        normalized_uri = normalize_http_uri(uri, field_name="traversal target URI")
+        """Add or enrich one durable URI without duplicating the frontier target."""
+        normalized_uri = normalize_durable_http_uri(uri, field_name="traversal target URI")
         _require_depth(depth)
         if discovery_link_id is not None and not isinstance(discovery_link_id, UUID):
             raise ValueError("discovery link ID must be a UUID when provided")
@@ -124,13 +146,14 @@ class TraversalCheckpoint:
                 if existing.status is TraversalStatus.QUEUED
                 else existing.depth
             )
-            updated = replace(
-                existing,
-                depth=updated_depth,
-                discovery_link_ids=discovery_ids,
-                parent_target_ids=parent_ids,
+            return self._replace_target(
+                replace(
+                    existing,
+                    depth=updated_depth,
+                    discovery_link_ids=discovery_ids,
+                    parent_target_ids=parent_ids,
+                )
             )
-            return self._replace_target(updated)
 
         target_id = _target_id(self.checkpoint_id, normalized_uri)
         if parent_target_id == target_id:
@@ -188,6 +211,8 @@ class TraversalCheckpoint:
             status=TraversalStatus.IN_PROGRESS,
             attempts=target.attempts + 1,
             last_error=None,
+            final_artifact_sha256=None,
+            final_observation_id=None,
         )
         budget = AcquisitionBudgetState(
             requests_used=self.budget.requests_used + 1,
@@ -216,12 +241,14 @@ class TraversalCheckpoint:
             seconds_since_last_request=seconds_since_last_request,
         ):
             raise ValueError("follow-up request exceeds the acquisition budget")
-        budget = AcquisitionBudgetState(
-            requests_used=self.budget.requests_used + 1,
-            bytes_used=self.budget.bytes_used,
-            elapsed_seconds=self.budget.elapsed_seconds,
+        return replace(
+            self,
+            budget=AcquisitionBudgetState(
+                requests_used=self.budget.requests_used + 1,
+                bytes_used=self.budget.bytes_used,
+                elapsed_seconds=self.budget.elapsed_seconds,
+            ),
         )
-        return replace(self, budget=budget)
 
     def record_response_bytes(
         self,
@@ -234,16 +261,66 @@ class TraversalCheckpoint:
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("response byte accounting requires an in-progress target")
         _require_non_negative_int(bytes_acquired, "response bytes_acquired")
+        updated = replace(target, bytes_acquired=target.bytes_acquired + bytes_acquired)
+        return replace(
+            self._replace_target(updated),
+            budget=AcquisitionBudgetState(
+                requests_used=self.budget.requests_used,
+                bytes_used=self.budget.bytes_used + bytes_acquired,
+                elapsed_seconds=self.budget.elapsed_seconds,
+            ),
+        )
+
+    def begin_finalization(
+        self,
+        target_id: UUID,
+        *,
+        artifact_sha256: str,
+        observation_id: UUID,
+        elapsed_seconds: float,
+    ) -> TraversalCheckpoint:
+        """Persist expected outputs before committing artifact and observation records."""
+        target = self._require_target(target_id)
+        if target.status is not TraversalStatus.IN_PROGRESS:
+            raise ValueError("only in-progress traversal targets may begin finalization")
+        _require_sha256(artifact_sha256)
+        if not isinstance(observation_id, UUID):
+            raise ValueError("final observation ID must be a UUID")
+        _require_monotonic_elapsed(elapsed_seconds, self.budget.elapsed_seconds)
         updated = replace(
             target,
-            bytes_acquired=target.bytes_acquired + bytes_acquired,
+            status=TraversalStatus.FINALIZING,
+            final_artifact_sha256=artifact_sha256,
+            final_observation_id=observation_id,
         )
-        budget = AcquisitionBudgetState(
-            requests_used=self.budget.requests_used,
-            bytes_used=self.budget.bytes_used + bytes_acquired,
-            elapsed_seconds=self.budget.elapsed_seconds,
+        return replace(
+            self._replace_target(updated),
+            budget=AcquisitionBudgetState(
+                requests_used=self.budget.requests_used,
+                bytes_used=self.budget.bytes_used,
+                elapsed_seconds=elapsed_seconds,
+            ),
         )
-        return replace(self._replace_target(updated), budget=budget)
+
+    def complete_finalization(
+        self,
+        target_id: UUID,
+        *,
+        elapsed_seconds: float,
+    ) -> TraversalCheckpoint:
+        """Mark a finalizing target complete after both expected outputs are durable."""
+        target = self._require_target(target_id)
+        if target.status is not TraversalStatus.FINALIZING:
+            raise ValueError("only finalizing traversal targets may be completed")
+        _require_monotonic_elapsed(elapsed_seconds, self.budget.elapsed_seconds)
+        return replace(
+            self._replace_target(replace(target, status=TraversalStatus.COMPLETED)),
+            budget=AcquisitionBudgetState(
+                requests_used=self.budget.requests_used,
+                bytes_used=self.budget.bytes_used,
+                elapsed_seconds=elapsed_seconds,
+            ),
+        )
 
     def complete(
         self,
@@ -252,7 +329,7 @@ class TraversalCheckpoint:
         bytes_acquired: int,
         elapsed_seconds: float,
     ) -> TraversalCheckpoint:
-        """Record a successful attempt and advance any final byte/time counters."""
+        """Record a successful non-finalization-aware attempt."""
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("only in-progress traversal targets may be completed")
@@ -264,12 +341,14 @@ class TraversalCheckpoint:
             bytes_acquired=target.bytes_acquired + bytes_acquired,
             last_error=None,
         )
-        budget = AcquisitionBudgetState(
-            requests_used=self.budget.requests_used,
-            bytes_used=self.budget.bytes_used + bytes_acquired,
-            elapsed_seconds=elapsed_seconds,
+        return replace(
+            self._replace_target(updated),
+            budget=AcquisitionBudgetState(
+                requests_used=self.budget.requests_used,
+                bytes_used=self.budget.bytes_used + bytes_acquired,
+                elapsed_seconds=elapsed_seconds,
+            ),
         )
-        return replace(self._replace_target(updated), budget=budget)
 
     def fail(
         self,
@@ -279,7 +358,7 @@ class TraversalCheckpoint:
         elapsed_seconds: float,
         bytes_acquired: int = 0,
     ) -> TraversalCheckpoint:
-        """Record a failed attempt while retaining any uncheckpointed response bytes."""
+        """Record a failed network attempt while retaining consumed response bytes."""
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("only in-progress traversal targets may fail")
@@ -292,19 +371,21 @@ class TraversalCheckpoint:
             bytes_acquired=target.bytes_acquired + bytes_acquired,
             last_error=reason,
         )
-        budget = AcquisitionBudgetState(
-            requests_used=self.budget.requests_used,
-            bytes_used=self.budget.bytes_used + bytes_acquired,
-            elapsed_seconds=elapsed_seconds,
+        return replace(
+            self._replace_target(updated),
+            budget=AcquisitionBudgetState(
+                requests_used=self.budget.requests_used,
+                bytes_used=self.budget.bytes_used + bytes_acquired,
+                elapsed_seconds=elapsed_seconds,
+            ),
         )
-        return replace(self._replace_target(updated), budget=budget)
 
     def recover_interrupted(
         self,
         *,
         reason: str = "interrupted before request outcome was checkpointed",
     ) -> TraversalCheckpoint:
-        """Convert restored in-progress targets to failed without double-counting requests."""
+        """Fail interrupted network work while preserving finalizing commit markers."""
         normalized_reason = _require_reason(reason, "interrupted traversal reason")
         targets = tuple(
             replace(target, status=TraversalStatus.FAILED, last_error=normalized_reason)
@@ -338,11 +419,7 @@ class TraversalCheckpoint:
             raise ValueError("only queued traversal targets may be skipped")
         normalized_reason = _require_reason(reason, "traversal skip reason")
         return self._replace_target(
-            replace(
-                target,
-                status=TraversalStatus.SKIPPED,
-                last_error=normalized_reason,
-            )
+            replace(target, status=TraversalStatus.SKIPPED, last_error=normalized_reason)
         )
 
     def _target(self, target_id: UUID) -> TraversalTarget | None:
@@ -401,6 +478,15 @@ def _require_reason(value: str, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-blank string")
     return value.strip()
+
+
+def _require_sha256(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value.lower())
+    ):
+        raise ValueError("traversal artifact SHA-256 must be a 64-character hexadecimal string")
 
 
 def _require_monotonic_elapsed(value: float, previous: float) -> None:

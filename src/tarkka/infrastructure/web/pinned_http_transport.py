@@ -54,9 +54,14 @@ class PinnedHttpTransport:
             raise ValueError("HTTP transport timeout must be finite and positive")
         if not isinstance(user_agent, str) or not user_agent.strip():
             raise ValueError("HTTP transport user_agent must be non-blank")
+        context = ssl_context or ssl.create_default_context()
+        if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+            raise ValueError(
+                "HTTP transport SSL context must require certificate verification"
+            )
         self._timeout_seconds = float(timeout_seconds)
         self._user_agent = user_agent.strip()
-        self._ssl_context = ssl_context or ssl.create_default_context()
+        self._ssl_context = context
 
     def request(
         self,
@@ -64,6 +69,7 @@ class PinnedHttpTransport:
         uri: str,
         resolved_address: str,
         max_response_bytes: int,
+        timeout_seconds: float | None = None,
     ) -> HttpTransportResponse:
         if (
             not isinstance(max_response_bytes, int)
@@ -71,6 +77,16 @@ class PinnedHttpTransport:
             or max_response_bytes < 0
         ):
             raise ValueError("HTTP max_response_bytes must be a non-negative integer")
+        if timeout_seconds is not None and (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or not math.isfinite(float(timeout_seconds))
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("HTTP request timeout must be finite and positive when provided")
+        effective_timeout = self._timeout_seconds
+        if timeout_seconds is not None:
+            effective_timeout = min(effective_timeout, float(timeout_seconds))
         try:
             address = str(ipaddress.ip_address(resolved_address))
         except ValueError as exc:
@@ -93,7 +109,7 @@ class PinnedHttpTransport:
                 host,
                 port or 443,
                 resolved_address=address,
-                timeout=self._timeout_seconds,
+                timeout=effective_timeout,
                 context=self._ssl_context,
             )
         else:
@@ -101,7 +117,7 @@ class PinnedHttpTransport:
                 host,
                 port or 80,
                 resolved_address=address,
-                timeout=self._timeout_seconds,
+                timeout=effective_timeout,
             )
 
         try:

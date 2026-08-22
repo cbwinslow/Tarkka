@@ -7,7 +7,7 @@ import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -104,9 +104,7 @@ class EpubParser:
         self._html_parser = html_parser or SemanticHtmlParser()
 
     def supports(self, artifact: Artifact) -> bool:
-        if artifact.media_type == _EPUB_MEDIA_TYPE:
-            return True
-        return bool(
+        return artifact.media_type == _EPUB_MEDIA_TYPE or bool(
             artifact.original_name
             and Path(artifact.original_name).suffix.lower() == ".epub"
         )
@@ -121,8 +119,7 @@ class EpubParser:
 
         try:
             with zipfile.ZipFile(path) as archive:
-                package_data = _read_package(archive)
-                package_path, package, manifest_items, spine_items = package_data
+                package_path, package, manifest_items, spine_items = _read_package(archive)
                 package_metadata = _package_metadata(package)
                 manifest_by_id = {item.item_id: item for item in manifest_items}
                 aggregate.resource_links.extend(
@@ -149,25 +146,6 @@ class EpubParser:
         title = _first_metadata_value(package_metadata, "titles")
         if title is None:
             title = str(parsed_spine[0]["title"])
-        provider_record_id = _package_identifier(package, package_metadata)
-        metadata: dict[str, object] = {
-            "package_path": package_path,
-            "package_version": package.attrib.get("version"),
-            "package_attributes": dict(package.attrib),
-            "metadata": package_metadata,
-            "manifest": tuple(_manifest_metadata(item) for item in manifest_items),
-            "spine": tuple(
-                {
-                    "index": index,
-                    "idref": item.idref,
-                    "linear": item.linear,
-                    "properties": item.properties,
-                }
-                for index, item in enumerate(spine_items)
-            ),
-            "parsed_spine": tuple(parsed_spine),
-            "counts": _aggregate_counts(aggregate),
-        }
         observation = SourceObservation(
             observation_id=observation_id,
             source_name=self.name,
@@ -175,8 +153,25 @@ class EpubParser:
             basis=ObservationBasis.NATIVE,
             media_type=_EPUB_MEDIA_TYPE,
             native_artifact_id=artifact.artifact_id,
-            provider_record_id=provider_record_id,
-            metadata=metadata,
+            provider_record_id=_package_identifier(package, package_metadata),
+            metadata={
+                "package_path": package_path,
+                "package_version": package.attrib.get("version"),
+                "package_attributes": dict(package.attrib),
+                "metadata": package_metadata,
+                "manifest": tuple(_manifest_metadata(item) for item in manifest_items),
+                "spine": tuple(
+                    {
+                        "index": index,
+                        "idref": item.idref,
+                        "linear": item.linear,
+                        "properties": item.properties,
+                    }
+                    for index, item in enumerate(spine_items)
+                ),
+                "parsed_spine": tuple(parsed_spine),
+                "counts": _aggregate_counts(aggregate),
+            },
         )
         document = Document(
             document_id=document_id,
@@ -205,10 +200,10 @@ class EpubParser:
         spine_items: tuple[_SpineItem, ...],
         aggregate: _Aggregate,
     ) -> list[dict[str, object]]:
-        parsed_spine: list[dict[str, object]] = []
+        parsed: list[dict[str, object]] = []
         with tempfile.TemporaryDirectory(prefix="tarkka-epub-") as temp_dir:
             temp_root = Path(temp_dir)
-            for spine_index, spine in enumerate(spine_items):
+            for index, spine in enumerate(spine_items):
                 if not spine.linear:
                     continue
                 item = manifest_by_id[spine.idref]
@@ -217,17 +212,13 @@ class EpubParser:
                         "unsupported linear EPUB spine media type "
                         f"{item.media_type!r} for {item.member_path!r}"
                     )
-                source_bytes = _read_member(
-                    archive,
-                    item.member_path,
-                    _MAX_MEMBER_BYTES,
-                )
+                source_bytes = _read_member(archive, item.member_path, _MAX_MEMBER_BYTES)
                 source_text = _decode_spine_text(
                     source_bytes,
                     item.member_path,
                     item.media_type,
                 )
-                temp_path = temp_root / f"spine-{spine_index:05d}.xhtml"
+                temp_path = temp_root / f"spine-{index:05d}.xhtml"
                 temp_path.write_text(source_text, encoding="utf-8")
                 child = self._html_parser.parse_native(
                     _spine_artifact(artifact, item, source_bytes),
@@ -236,19 +227,19 @@ class EpubParser:
                 _append_spine_result(
                     aggregate,
                     child,
-                    spine_index=spine_index,
+                    spine_index=index,
                     member_path=item.member_path,
                 )
-                parsed_spine.append(
+                parsed.append(
                     {
-                        "index": spine_index,
+                        "index": index,
                         "idref": spine.idref,
                         "member_path": item.member_path,
                         "media_type": item.media_type,
                         "title": child.document.title,
                     }
                 )
-        return parsed_spine
+        return parsed
 
 
 def _append_spine_result(
@@ -261,7 +252,6 @@ def _append_spine_result(
     chapter_offset = aggregate.cursor
     section_map: dict[UUID, UUID] = {}
     passage_map: dict[UUID, UUID] = {}
-
     for source_section in result.document.sections:
         section_id = _stable_id(
             aggregate.document_id,
@@ -275,31 +265,27 @@ def _append_spine_result(
             start = aggregate.cursor
             end = start + len(source_passage.text)
             passages.append(
-                Passage(
+                replace(
+                    source_passage,
                     passage_id=passage_id,
                     document_id=aggregate.document_id,
                     section_id=section_id,
-                    ordinal=source_passage.ordinal,
-                    text=source_passage.text,
                     char_start=start,
                     char_end=end,
                 )
             )
             aggregate.cursor = end + 1
-
-        parent_id = (
-            section_map.get(source_section.parent_section_id)
-            if source_section.parent_section_id is not None
-            else None
-        )
         aggregate.sections.append(
-            Section(
+            replace(
+                source_section,
                 section_id=section_id,
                 document_id=aggregate.document_id,
                 ordinal=len(aggregate.sections),
-                title=source_section.title,
-                level=source_section.level,
-                parent_section_id=parent_id,
+                parent_section_id=(
+                    section_map.get(source_section.parent_section_id)
+                    if source_section.parent_section_id is not None
+                    else None
+                ),
                 passages=tuple(passages),
             )
         )
@@ -316,7 +302,19 @@ def _append_spine_result(
         passage_map,
         reference_map,
     )
-    _append_resource_links(aggregate, result, spine_index, member_path)
+    for link in result.resource_links:
+        aggregate.resource_links.append(
+            replace(
+                link,
+                link_id=_stable_id(
+                    aggregate.observation_id,
+                    f"spine:{spine_index}:{member_path}:link:{link.link_id}",
+                ),
+                observation_id=aggregate.observation_id,
+                target_uri=_resolve_resource_target(member_path, link.target_uri),
+                metadata={**dict(link.metadata), "spine_member": member_path},
+            )
+        )
 
 
 def _append_source_artifacts(
@@ -325,49 +323,40 @@ def _append_source_artifacts(
     spine_index: int,
     member_path: str,
 ) -> None:
-    for item in result.document.figures:
+    for figure in result.document.figures:
         aggregate.figures.append(
-            Figure(
+            replace(
+                figure,
                 figure_id=_stable_id(
                     aggregate.document_id,
-                    f"spine:{spine_index}:{member_path}:figure:{item.ordinal}",
+                    f"spine:{spine_index}:{member_path}:figure:{figure.ordinal}",
                 ),
                 document_id=aggregate.document_id,
                 ordinal=len(aggregate.figures),
-                page_number=item.page_number,
-                label=item.label,
-                caption=item.caption,
-                figure_type=item.figure_type,
             )
         )
-    for item in result.document.tables:
+    for table in result.document.tables:
         aggregate.tables.append(
-            Table(
+            replace(
+                table,
                 table_id=_stable_id(
                     aggregate.document_id,
-                    f"spine:{spine_index}:{member_path}:table:{item.ordinal}",
+                    f"spine:{spine_index}:{member_path}:table:{table.ordinal}",
                 ),
                 document_id=aggregate.document_id,
                 ordinal=len(aggregate.tables),
-                page_number=item.page_number,
-                label=item.label,
-                caption=item.caption,
-                row_count=item.row_count,
-                column_count=item.column_count,
             )
         )
-    for item in result.document.equations:
+    for equation in result.document.equations:
         aggregate.equations.append(
-            Equation(
+            replace(
+                equation,
                 equation_id=_stable_id(
                     aggregate.document_id,
-                    f"spine:{spine_index}:{member_path}:equation:{item.ordinal}",
+                    f"spine:{spine_index}:{member_path}:equation:{equation.ordinal}",
                 ),
                 document_id=aggregate.document_id,
                 ordinal=len(aggregate.equations),
-                page_number=item.page_number,
-                label=item.label,
-                source_text=item.source_text,
             )
         )
 
@@ -378,28 +367,24 @@ def _append_references(
     spine_index: int,
     member_path: str,
 ) -> dict[UUID, UUID]:
-    reference_map: dict[UUID, UUID] = {}
-    for item in result.references:
+    mapping: dict[UUID, UUID] = {}
+    for reference in result.references:
         reference_id = _stable_id(
             aggregate.document_id,
-            f"spine:{spine_index}:{member_path}:reference:{item.ordinal}",
+            f"spine:{spine_index}:{member_path}:reference:{reference.ordinal}",
         )
-        reference_map[item.reference_id] = reference_id
+        mapping[reference.reference_id] = reference_id
         aggregate.references.append(
-            BibliographicReference(
+            replace(
+                reference,
                 reference_id=reference_id,
                 document_id=aggregate.document_id,
                 ordinal=len(aggregate.references),
-                raw_text=item.raw_text,
-                identifiers=dict(item.identifiers),
-                title=item.title,
-                authors=item.authors,
-                publication_year=item.publication_year,
-                source_anchor=_prefixed_anchor(member_path, item.source_anchor),
+                source_anchor=_prefixed_anchor(member_path, reference.source_anchor),
                 source_observation_id=aggregate.observation_id,
             )
         )
-    return reference_map
+    return mapping
 
 
 def _append_mentions(
@@ -412,77 +397,49 @@ def _append_mentions(
     passage_map: dict[UUID, UUID],
     reference_map: dict[UUID, UUID],
 ) -> None:
-    for item in result.mentions:
+    for mention in result.mentions:
         aggregate.mentions.append(
-            CitationMention(
+            replace(
+                mention,
                 mention_id=_stable_id(
                     aggregate.document_id,
                     f"spine:{spine_index}:{member_path}:mention:{len(aggregate.mentions)}",
                 ),
                 document_id=aggregate.document_id,
-                raw_text=item.raw_text,
                 reference_id=(
-                    reference_map.get(item.reference_id)
-                    if item.reference_id is not None
+                    reference_map.get(mention.reference_id)
+                    if mention.reference_id is not None
                     else None
                 ),
                 section_id=(
-                    section_map.get(item.section_id)
-                    if item.section_id is not None
+                    section_map.get(mention.section_id)
+                    if mention.section_id is not None
                     else None
                 ),
                 passage_id=(
-                    passage_map.get(item.passage_id)
-                    if item.passage_id is not None
+                    passage_map.get(mention.passage_id)
+                    if mention.passage_id is not None
                     else None
                 ),
                 char_start=(
-                    chapter_offset + item.char_start
-                    if item.char_start is not None
+                    chapter_offset + mention.char_start
+                    if mention.char_start is not None
                     else None
                 ),
                 char_end=(
-                    chapter_offset + item.char_end
-                    if item.char_end is not None
+                    chapter_offset + mention.char_end
+                    if mention.char_end is not None
                     else None
                 ),
-                source_anchor=_prefixed_anchor(member_path, item.source_anchor),
+                source_anchor=_prefixed_anchor(member_path, mention.source_anchor),
                 source_observation_id=aggregate.observation_id,
-            )
-        )
-
-
-def _append_resource_links(
-    aggregate: _Aggregate,
-    result: NativeDocumentParseResult,
-    spine_index: int,
-    member_path: str,
-) -> None:
-    for item in result.resource_links:
-        aggregate.resource_links.append(
-            ResourceLinkObservation(
-                link_id=_stable_id(
-                    aggregate.observation_id,
-                    f"spine:{spine_index}:{member_path}:link:{item.link_id}",
-                ),
-                observation_id=aggregate.observation_id,
-                target_uri=_resolve_resource_target(member_path, item.target_uri),
-                relation=item.relation,
-                media_type=item.media_type,
-                label=item.label,
-                metadata={**dict(item.metadata), "spine_member": member_path},
             )
         )
 
 
 def _read_package(
     archive: zipfile.ZipFile,
-) -> tuple[
-    str,
-    ET.Element,
-    tuple[_ManifestItem, ...],
-    tuple[_SpineItem, ...],
-]:
+) -> tuple[str, ET.Element, tuple[_ManifestItem, ...], tuple[_SpineItem, ...]]:
     _validate_archive(archive)
     _validate_mimetype(archive)
     container = _parse_xml(
@@ -494,11 +451,13 @@ def _read_package(
         _read_member(archive, package_path, _MAX_PACKAGE_BYTES),
         label="EPUB package document",
     )
-    package_dir = PurePosixPath(package_path).parent
-    manifest_items = _manifest_items(package, package_dir, archive)
+    manifest_items = _manifest_items(
+        package,
+        PurePosixPath(package_path).parent,
+        archive,
+    )
     manifest_by_id = {item.item_id: item for item in manifest_items}
-    spine_items = _spine_items(package, manifest_by_id)
-    return package_path, package, manifest_items, spine_items
+    return package_path, package, manifest_items, _spine_items(package, manifest_by_id)
 
 
 def _validate_archive(archive: zipfile.ZipFile) -> None:
@@ -817,8 +776,7 @@ def _declared_encoding(data: bytes, media_type: str) -> str:
 
 def _normalized_encoding(raw: bytes) -> str:
     try:
-        value = raw.decode("ascii").strip()
-        return codecs.lookup(value).name
+        return codecs.lookup(raw.decode("ascii").strip()).name
     except (LookupError, UnicodeDecodeError) as exc:
         raise EpubParseError(f"unsupported EPUB text encoding: {raw!r}") from exc
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from tarkka.domain.citations import BibliographicReference, CitationMention
+from tarkka.domain.citations import BibliographicReference, CitationContext, CitationMention
 from tarkka.domain.models import Artifact, Document
 from tarkka.domain.source_observations import (
     CapabilityManifest,
@@ -27,6 +27,7 @@ class NativeDocumentParseResult:
     observation: SourceObservation
     references: tuple[BibliographicReference, ...] = ()
     mentions: tuple[CitationMention, ...] = ()
+    contexts: tuple[CitationContext, ...] = ()
     resource_links: tuple[ResourceLinkObservation, ...] = ()
 
     def __post_init__(self) -> None:
@@ -35,6 +36,23 @@ class NativeDocumentParseResult:
             raise ValueError("native parse references must belong to parsed document")
         if any(mention.document_id != document_id for mention in self.mentions):
             raise ValueError("native parse mentions must belong to parsed document")
+        if any(context.document_id != document_id for context in self.contexts):
+            raise ValueError("native parse contexts must belong to parsed document")
+
+        mention_ids = {mention.mention_id for mention in self.mentions}
+        if any(context.mention_id not in mention_ids for context in self.contexts):
+            raise ValueError("native parse contexts must refer to parsed citation mentions")
+
+        passage_ids = {
+            passage.passage_id
+            for section in self.document.sections
+            for passage in section.passages
+        }
+        if any(
+            context.passage_id is not None and context.passage_id not in passage_ids
+            for context in self.contexts
+        ):
+            raise ValueError("native parse contexts must refer to parsed document passages")
         if any(
             link.observation_id != self.observation.observation_id
             for link in self.resource_links

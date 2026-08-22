@@ -47,12 +47,14 @@ class _Transport:
         uri: str,
         resolved_address: str,
         max_response_bytes: int,
+        timeout_seconds: float | None = None,
     ) -> HttpTransportResponse:
         self.calls.append(
             {
                 "uri": uri,
                 "resolved_address": resolved_address,
                 "max_response_bytes": max_response_bytes,
+                "timeout_seconds": timeout_seconds,
             }
         )
         outcome = self.outcomes.pop(0)
@@ -164,6 +166,7 @@ def test_acquires_artifact_and_persists_only_sanitized_http_provenance(tmp_path:
     assert checkpoints.get(_CHECKPOINT_ID) == result.checkpoint
     assert transport.calls[0]["uri"] == raw_uri
     assert transport.calls[0]["resolved_address"] == _PUBLIC_ADDRESS
+    assert transport.calls[0]["timeout_seconds"] == 60.0
     assert "supersecret" not in (tmp_path / "checkpoints.json").read_text()
     assert "supersecret" not in (tmp_path / "observations.json").read_text()
 
@@ -195,6 +198,8 @@ def test_redirects_are_revalidated_re_resolved_and_charged_per_hop(tmp_path: Pat
         "https://example.org/final",
     ]
     assert transport.calls[1]["max_response_bytes"] == 1022
+    assert transport.calls[0]["timeout_seconds"] == 60.0
+    assert transport.calls[1]["timeout_seconds"] == 60.0
     assert result.response.redirect_chain == ("https://example.org/final",)
     assert result.response.final_uri == "https://example.org/final"
     assert result.checkpoint.budget.requests_used == 2

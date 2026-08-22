@@ -170,9 +170,13 @@ def test_csl_json_requires_item_type() -> None:
 
 
 def test_csl_json_invalid_integer_year_is_treated_as_absent() -> None:
-    record = parse_csl_json(
-        json.dumps({"id": "one", "type": "article-journal", "title": "Study", "issued": {"date-parts": [[-1]]}})
-    )[0]
+    raw = {
+        "id": "one",
+        "type": "article-journal",
+        "title": "Study",
+        "issued": {"date-parts": [[-1]]},
+    }
+    record = parse_csl_json(json.dumps(raw))[0]
 
     assert record.year is None
 

@@ -35,13 +35,16 @@ def run(argv: list[str], home: Path) -> int:
 
 
 def _cmd_import(args: argparse.Namespace, work_repository: JsonWorkRepository) -> int:
-    source = args.path.expanduser().resolve()
-    if not source.is_file():
-        print(f"error: bibliography path is not a readable file: {source}", file=sys.stderr)
-        return 2
-
-    service = BibliographyImportService(WorkCatalogService(work_repository))
     try:
+        source = args.path.expanduser().resolve()
+        if not source.exists():
+            print(f"error: bibliography path does not exist: {source}", file=sys.stderr)
+            return 2
+        if not source.is_file():
+            print(f"error: bibliography path is not a file: {source}", file=sys.stderr)
+            return 2
+
+        service = BibliographyImportService(WorkCatalogService(work_repository))
         result = service.import_file(source)
     except (
         BibliographyParseError,

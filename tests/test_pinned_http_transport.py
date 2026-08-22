@@ -52,9 +52,31 @@ def test_pinned_transport_uses_approved_address_host_header_and_body_cap() -> No
     assert _Handler.seen_paths == ["/paper?q=secret"]
     assert _Handler.seen_hosts == [f"example.org:{port}"]
     assert response.status_code == 200
-    assert response.body == b"abcdef"
+    assert response.body == b"abcde"
+    assert response.limit_exceeded is True
     assert response.headers["content-type"] == ("text/plain",)
     assert response.headers["x-test"] == ("one", "two")
+
+
+def test_pinned_transport_does_not_report_overflow_at_exact_limit() -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        response = PinnedHttpTransport(timeout_seconds=2.0).request(
+            uri=f"http://example.org:{port}/paper",
+            resolved_address="127.0.0.1",
+            max_response_bytes=10,
+            timeout_seconds=1.0,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert response.body == b"abcdefghij"
+    assert response.limit_exceeded is False
 
 
 def test_pinned_transport_rejects_invalid_connection_inputs() -> None:

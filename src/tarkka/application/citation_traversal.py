@@ -75,30 +75,52 @@ class CitationTraversalService:
         frontier: tuple[UUID, ...] = (root_work_id,)
         reached_depth = 0
 
+        if selected.max_depth == 0:
+            stopped = (
+                TraversalLimit.DEPTH
+                if self._has_unseen_relation(frontier, seen_relations, selected)
+                else None
+            )
+            return CitationTraversalResult(
+                root_work_id=root_work_id,
+                work_ids=(root_work_id,),
+                relations=(),
+                max_depth_reached=0,
+                stopped_by=stopped,
+            )
+
         for depth in range(selected.max_depth):
             next_frontier: set[UUID] = set()
             for work_id in sorted(frontier, key=str):
-                for relation in self._relations_for(work_id, selected):
-                    if relation.relation_id in seen_relations:
-                        continue
+                remaining_relations = selected.max_relations - len(ordered_relations)
+                if remaining_relations == 0:
+                    if self._has_unseen_relation((work_id,), seen_relations, selected):
+                        return _result(
+                            root_work_id,
+                            ordered_works,
+                            ordered_relations,
+                            reached_depth,
+                            TraversalLimit.RELATIONS,
+                        )
+                    continue
+
+                relations = self._relations_for(
+                    work_id,
+                    selected,
+                    limit=remaining_relations,
+                    exclude_ids=seen_relations,
+                )
+                for relation in relations:
                     neighbor = _neighbor(work_id, relation)
                     if neighbor is None:
                         continue
-                    if len(ordered_relations) >= selected.max_relations:
-                        return CitationTraversalResult(
-                            root_work_id=root_work_id,
-                            work_ids=tuple(ordered_works),
-                            relations=tuple(ordered_relations),
-                            max_depth_reached=reached_depth,
-                            stopped_by=TraversalLimit.RELATIONS,
-                        )
                     if neighbor not in visited and len(visited) >= selected.max_works:
-                        return CitationTraversalResult(
-                            root_work_id=root_work_id,
-                            work_ids=tuple(ordered_works),
-                            relations=tuple(ordered_relations),
-                            max_depth_reached=reached_depth,
-                            stopped_by=TraversalLimit.WORKS,
+                        return _result(
+                            root_work_id,
+                            ordered_works,
+                            ordered_relations,
+                            reached_depth,
+                            TraversalLimit.WORKS,
                         )
 
                     seen_relations.add(relation.relation_id)
@@ -107,58 +129,101 @@ class CitationTraversalService:
                         visited.add(neighbor)
                         ordered_works.append(neighbor)
                         next_frontier.add(neighbor)
+
+                if len(ordered_relations) == selected.max_relations and self._has_unseen_relation(
+                    (work_id,), seen_relations, selected
+                ):
+                    return _result(
+                        root_work_id,
+                        ordered_works,
+                        ordered_relations,
+                        reached_depth,
+                        TraversalLimit.RELATIONS,
+                    )
+
             reached_depth = depth + 1
             frontier = tuple(sorted(next_frontier, key=str))
             if not frontier:
                 break
         else:
-            if frontier and self._has_unvisited_neighbor(frontier, visited, selected):
-                return CitationTraversalResult(
-                    root_work_id=root_work_id,
-                    work_ids=tuple(ordered_works),
-                    relations=tuple(ordered_relations),
-                    max_depth_reached=reached_depth,
-                    stopped_by=TraversalLimit.DEPTH,
+            if frontier and self._has_unseen_relation(frontier, seen_relations, selected):
+                return _result(
+                    root_work_id,
+                    ordered_works,
+                    ordered_relations,
+                    reached_depth,
+                    TraversalLimit.DEPTH,
                 )
 
-        return CitationTraversalResult(
-            root_work_id=root_work_id,
-            work_ids=tuple(ordered_works),
-            relations=tuple(ordered_relations),
-            max_depth_reached=reached_depth,
+        return _result(
+            root_work_id,
+            ordered_works,
+            ordered_relations,
+            reached_depth,
+            None,
         )
 
     def _relations_for(
         self,
         work_id: UUID,
         policy: CitationTraversalPolicy,
+        *,
+        limit: int,
+        exclude_ids: set[UUID],
     ) -> tuple[WorkRelation, ...]:
+        if limit <= 0:
+            return ()
+        excluded = frozenset(exclude_ids)
         relations: dict[UUID, WorkRelation] = {}
         if policy.direction in {TraversalDirection.OUTBOUND, TraversalDirection.BOTH}:
-            for relation in self._citations.list_relations_from(work_id):
+            for relation in self._citations.list_relations_from(
+                work_id,
+                kinds=policy.relation_kinds,
+                exclude_ids=excluded,
+                limit=limit,
+            ):
                 relations[relation.relation_id] = relation
         if policy.direction in {TraversalDirection.INBOUND, TraversalDirection.BOTH}:
-            for relation in self._citations.list_relations_to(work_id):
+            for relation in self._citations.list_relations_to(
+                work_id,
+                kinds=policy.relation_kinds,
+                exclude_ids=excluded,
+                limit=limit,
+            ):
                 relations[relation.relation_id] = relation
-        allowed = (
-            relation
-            for relation in relations.values()
-            if relation.kind in policy.relation_kinds
-        )
-        return tuple(sorted(allowed, key=_relation_key))
+        return tuple(sorted(relations.values(), key=_relation_key)[:limit])
 
-    def _has_unvisited_neighbor(
+    def _has_unseen_relation(
         self,
         frontier: tuple[UUID, ...],
-        visited: set[UUID],
+        seen_relations: set[UUID],
         policy: CitationTraversalPolicy,
     ) -> bool:
         for work_id in frontier:
-            for relation in self._relations_for(work_id, policy):
-                neighbor = _neighbor(work_id, relation)
-                if neighbor is not None and neighbor not in visited:
-                    return True
+            if self._relations_for(
+                work_id,
+                policy,
+                limit=1,
+                exclude_ids=seen_relations,
+            ):
+                return True
         return False
+
+
+def _result(
+    root_work_id: UUID,
+    ordered_works: list[UUID],
+    ordered_relations: list[WorkRelation],
+    max_depth_reached: int,
+    stopped_by: TraversalLimit | None,
+) -> CitationTraversalResult:
+    return CitationTraversalResult(
+        root_work_id=root_work_id,
+        work_ids=tuple(ordered_works),
+        relations=tuple(ordered_relations),
+        max_depth_reached=max_depth_reached,
+        stopped_by=stopped_by,
+    )
 
 
 def _neighbor(work_id: UUID, relation: WorkRelation) -> UUID | None:

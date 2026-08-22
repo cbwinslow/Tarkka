@@ -35,21 +35,12 @@ class JsonSourceObservationRepository:
                 self._write(_empty_catalog())
 
     def save_observation(self, observation: SourceObservation) -> None:
-        key = str(observation.observation_id)
-        payload = _observation_to_dict(observation)
-        with exclusive_lock(self.path):
-            data = self._read()
-            existing = data["observations"].get(key)
-            if existing is not None:
-                if _same_observation(existing, payload):
-                    # Keep the first-seen timestamp. A stable observation ID describes the same
-                    # source-native fact even when an unchanged artifact is processed again.
-                    return
-                raise SourceObservationConflictError(
-                    f"conflicting observations entry for stable ID {key}"
-                )
-            data["observations"][key] = payload
-            self._write(data)
+        self._save(
+            "observations",
+            observation.observation_id,
+            _observation_to_dict(observation),
+            ignored_fields=frozenset({"observed_at"}),
+        )
 
     def save_resource_link(self, link: ResourceLinkObservation) -> None:
         self._save("resource_links", link.link_id, _resource_link_to_dict(link))
@@ -71,13 +62,21 @@ class JsonSourceObservationRepository:
         )
         return tuple(values)
 
-    def _save(self, bucket: str, stable_id: UUID, payload: dict[str, Any]) -> None:
+    def _save(
+        self,
+        bucket: str,
+        stable_id: UUID,
+        payload: dict[str, Any],
+        *,
+        ignored_fields: frozenset[str] = frozenset(),
+    ) -> None:
         key = str(stable_id)
         with exclusive_lock(self.path):
             data = self._read()
             existing = data[bucket].get(key)
             if existing is not None:
-                if existing == payload:
+                if _same_payload(existing, payload, ignored_fields=ignored_fields):
+                    # Ignored fields are first-seen metadata and are intentionally preserved.
                     return
                 raise SourceObservationConflictError(
                     f"conflicting {bucket} entry for stable ID {key}"
@@ -87,10 +86,14 @@ class JsonSourceObservationRepository:
 
     def _read(self) -> dict[str, Any]:
         try:
-            decoded: Any = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            raw = self.path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OSError(f"unable to read source observation catalog {self.path}: {exc}") from exc
+        try:
+            decoded: Any = json.loads(raw)
+        except json.JSONDecodeError as exc:
             raise RuntimeError(
-                f"unable to read source observation catalog {self.path}: {exc}"
+                f"invalid source observation catalog JSON {self.path}: {exc}"
             ) from exc
         if not isinstance(decoded, dict):
             raise RuntimeError("invalid source observation catalog: root must be an object")
@@ -125,10 +128,19 @@ def _empty_catalog() -> dict[str, Any]:
     return {"schema_version": 1, "observations": {}, "resource_links": {}}
 
 
-def _same_observation(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
-    """Compare stable observation content while treating observed_at as first-seen metadata."""
-    existing_stable = {key: value for key, value in existing.items() if key != "observed_at"}
-    incoming_stable = {key: value for key, value in incoming.items() if key != "observed_at"}
+def _same_payload(
+    existing: dict[str, Any],
+    incoming: dict[str, Any],
+    *,
+    ignored_fields: frozenset[str],
+) -> bool:
+    """Compare stable record content while excluding explicitly first-seen fields."""
+    existing_stable = {
+        key: value for key, value in existing.items() if key not in ignored_fields
+    }
+    incoming_stable = {
+        key: value for key, value in incoming.items() if key not in ignored_fields
+    }
     return existing_stable == incoming_stable
 
 

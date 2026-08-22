@@ -127,8 +127,8 @@ def test_late_identity_conflict_rolls_back_entire_import_batch(tmp_path: Path) -
         "@article{new-first, title={Would Be Partial}}\n"
         "@article{conflicting, title={Conflicting Study}, doi={10.1000/conflict}}\n"
     )
-    source.write_text(content, encoding="utf-8")
-    source_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    source.write_bytes(content.encode("utf-8"))
+    source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
     service, repository = _service(tmp_path)
 
     doi_owner = Work(work_id=uuid4(), title="DOI owner")

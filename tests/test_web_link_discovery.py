@@ -96,6 +96,35 @@ def test_source_order_is_preserved_for_anchor_and_self_closing_link_elements() -
         "https://example.org/second",
         "https://example.org/third",
     ]
+    assert [item.metadata["source_ordinal"] for item in links] == [0, 1, 2]
+
+
+def test_source_occurrence_identity_does_not_collapse_after_filtered_links() -> None:
+    links = HtmlResourceLinkDiscoverer().discover(
+        _observation(),
+        html=(
+            '<a href="mailto:a@example.org">mail</a>'
+            '<a href="/kept">kept</a>'
+        ),
+        base_uri="https://example.org/root",
+    )
+
+    assert len(links) == 1
+    assert links[0].metadata["source_ordinal"] == 1
+
+
+def test_nested_anchor_recovery_avoids_artificially_nested_labels() -> None:
+    links = HtmlResourceLinkDiscoverer().discover(
+        _observation(),
+        html='<a href="/outer">outer <a href="/inner">inner</a> tail</a>',
+        base_uri="https://example.org/root",
+    )
+
+    assert [item.target_uri for item in links] == [
+        "https://example.org/outer",
+        "https://example.org/inner",
+    ]
+    assert [item.label for item in links] == ["outer", "inner"]
 
 
 def test_fragment_links_are_preserved_as_observed_resource_links() -> None:
@@ -115,7 +144,7 @@ def test_discovered_links_use_shared_secret_safe_uri_normalization() -> None:
         _observation(),
         html=(
             '<a href="https://user:pass@EXAMPLE.org:443/download'
-            '?token=secret&view=full">download</a>'
+            '?token=secret&view=full#access_token=fragment-secret&part=one">download</a>'
         ),
         base_uri="https://example.org/paper",
     )
@@ -123,6 +152,7 @@ def test_discovered_links_use_shared_secret_safe_uri_normalization() -> None:
     assert len(links) == 1
     assert links[0].target_uri == (
         "https://example.org/download?token=%5BREDACTED%5D&view=full"
+        "#access_token=%5BREDACTED%5D&part=one"
     )
     assert "secret" not in links[0].target_uri
     assert "user:pass" not in links[0].target_uri
@@ -149,6 +179,7 @@ def test_invalid_non_http_and_malformed_targets_do_not_poison_page_discovery() -
     html = """
       <a href="mailto:author@example.org">mail</a>
       <a href="https://example.org:bad/path">bad port</a>
+      <a href="http://[::1">bad bracket</a>
       <a href="/good">good</a>
     """
 
@@ -159,6 +190,7 @@ def test_invalid_non_http_and_malformed_targets_do_not_poison_page_discovery() -
     )
 
     assert [item.target_uri for item in links] == ["https://example.org/good"]
+    assert links[0].metadata["source_ordinal"] == 3
 
 
 def test_invalid_boundaries_fail_closed() -> None:

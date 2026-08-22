@@ -32,7 +32,7 @@ def parse_csl_json(text: str) -> tuple[BibliographyRecord, ...]:
             raise BibliographyParseError(f"CSL-JSON item {ordinal} must be an object")
         title = required_text(raw.get("title"), f"CSL-JSON item {ordinal} title")
         source_key = optional_text(raw.get("id")) or stable_key("csl-json", ordinal, raw)
-        entry_type = optional_text(raw.get("type")) or "unknown"
+        entry_type = required_text(raw.get("type"), f"CSL-JSON item {ordinal} type")
         authors = _csl_authors(raw.get("author"))
         issued_year = _csl_year(raw.get("issued")) or year(raw.get("published"))
         doi = optional_text(raw.get("DOI")) or optional_text(raw.get("doi"))

@@ -73,8 +73,8 @@ class HttpResponseSnapshot:
     observed_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        requested_uri = _normalize_uri(self.requested_uri, "requested URI")
-        final_uri = _normalize_uri(self.final_uri, "final URI")
+        requested_uri = normalize_http_uri(self.requested_uri, field_name="requested URI")
+        final_uri = normalize_http_uri(self.final_uri, field_name="final URI")
         if not isinstance(self.status_code, int) or isinstance(self.status_code, bool):
             raise ValueError("HTTP status code must be an integer")
         if self.status_code < 100 or self.status_code > 599:
@@ -124,7 +124,9 @@ class HttpResponseSnapshot:
             raise ValueError(
                 "HTTP redirect chain must be a sequence of HTTP(S) URIs"
             ) from exc
-        redirects = tuple(_normalize_uri(uri, "redirect URI") for uri in raw_redirects)
+        redirects = tuple(
+            normalize_http_uri(uri, field_name="redirect URI") for uri in raw_redirects
+        )
         if redirects and redirects[-1] != final_uri:
             raise ValueError("HTTP redirect chain must end at final URI")
 
@@ -174,7 +176,12 @@ class HttpResponseSnapshot:
         )
 
 
-def _normalize_uri(value: str, field_name: str) -> str:
+def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
+    """Normalize an HTTP(S) URI and redact common credential-bearing query values.
+
+    Userinfo is removed, default ports are collapsed, DNS names are IDNA-normalized, and
+    sensitive query values are replaced before the URI is eligible for durable provenance.
+    """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-blank absolute HTTP(S) URI")
     candidate = value.strip()

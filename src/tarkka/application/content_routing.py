@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tarkka.domain.media_types import normalize_media_type
 from tarkka.domain.source_observations import AdapterKind, Capability, CapabilityManifest
 
 
@@ -22,40 +23,29 @@ class ContentRouter:
     """Route acquired content by capability manifest rather than crawler branching."""
 
     def __init__(self, manifests: tuple[CapabilityManifest, ...]) -> None:
-        self._manifests = tuple(manifests)
+        routes: dict[str, set[str]] = {}
+        for manifest in manifests:
+            if not isinstance(manifest, CapabilityManifest):
+                raise ValueError("content router manifests must be CapabilityManifest values")
+            if manifest.adapter_kind is not AdapterKind.PARSER:
+                continue
+            if not manifest.supports(Capability.PARSE):
+                continue
+            for advertised in manifest.media_types:
+                normalized = normalize_media_type(advertised)
+                if normalized is None:
+                    continue
+                routes.setdefault(normalized, set()).add(manifest.adapter_name)
+        self._routes = {
+            media_type: tuple(sorted(names)) for media_type, names in routes.items()
+        }
 
     def route(self, media_type: str | None) -> ContentRouteDecision:
         """Return all parser adapters advertising support for the normalized media type."""
-        normalized = _normalize_media_type(media_type)
+        normalized = normalize_media_type(media_type)
         if normalized is None:
             return ContentRouteDecision(media_type=None, parser_adapters=())
-
-        candidates = sorted(
-            {
-                manifest.adapter_name
-                for manifest in self._manifests
-                if manifest.adapter_kind is AdapterKind.PARSER
-                and manifest.supports(Capability.PARSE)
-                and normalized in {
-                    _normalize_media_type(value) for value in manifest.media_types
-                }
-            }
-        )
         return ContentRouteDecision(
             media_type=normalized,
-            parser_adapters=tuple(candidates),
+            parser_adapters=self._routes.get(normalized, ()),
         )
-
-
-def _normalize_media_type(value: str | None) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("media type must be a non-blank string when provided")
-    normalized = value.split(";", 1)[0].strip().lower()
-    if "/" not in normalized:
-        raise ValueError("media type must contain a type/subtype separator")
-    major, minor = normalized.split("/", 1)
-    if not major or not minor or any(character.isspace() for character in normalized):
-        raise ValueError("media type must be a valid type/subtype value")
-    return normalized

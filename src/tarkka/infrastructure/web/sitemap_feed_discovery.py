@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
+from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -71,24 +72,26 @@ class SitemapFeedDiscoverer:
 
         root_name = _local_name(root.tag)
         if root_name == "urlset":
-            targets = _sitemap_urlset(root, source)
+            targets = _sitemap_urlset(root)
         elif root_name == "sitemapindex":
-            targets = _sitemap_index(root, source)
+            targets = _sitemap_index(root)
         elif root_name == "rss":
-            targets = _rss_feed(root, source)
+            targets = _rss_feed(root)
         elif root_name == "feed":
-            targets = _atom_feed(root, source)
+            targets = _atom_feed(root)
         else:
             raise ValueError(f"unsupported sitemap/feed root element: {root_name or root.tag}")
 
         values: list[ResourceLinkObservation] = []
         for source_ordinal, target in enumerate(targets):
             try:
+                resolved_target = urljoin(source, target.target_uri)
                 normalized_target = normalize_http_uri(
-                    target.target_uri,
+                    resolved_target,
                     field_name="discovered target URI",
                 )
             except ValueError:
+                # One malformed discovery target must not poison later entries.
                 continue
             metadata = dict(target.metadata)
             metadata["source_uri"] = source
@@ -111,7 +114,7 @@ class SitemapFeedDiscoverer:
         return tuple(values)
 
 
-def _sitemap_urlset(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarget, ...]:
+def _sitemap_urlset(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     values: list[_DiscoveredTarget] = []
     for element in _children(root, "url"):
         loc = _child_text(element, "loc")
@@ -132,11 +135,11 @@ def _sitemap_urlset(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarge
     return tuple(values)
 
 
-def _sitemap_index(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarget, ...]:
+def _sitemap_index(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     values: list[_DiscoveredTarget] = []
     for element in _children(root, "sitemap"):
         loc = _child_text(element, "loc")
-        if not loc or loc == source_uri:
+        if not loc:
             continue
         values.append(
             _DiscoveredTarget(
@@ -153,8 +156,7 @@ def _sitemap_index(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarget
     return tuple(values)
 
 
-def _rss_feed(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarget, ...]:
-    del source_uri
+def _rss_feed(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     channel = next(iter(_children(root, "channel")), None)
     if channel is None:
         return ()
@@ -163,7 +165,7 @@ def _rss_feed(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarget, ...
         link = _child_text(item, "link")
         if not link:
             continue
-        published = _normalize_rss_datetime(_child_text(item, "pubDate"))
+        published = _child_text(item, "pubDate")
         values.append(
             _DiscoveredTarget(
                 target_uri=link,
@@ -174,14 +176,14 @@ def _rss_feed(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarget, ...
                     "discovery_kind": "rss_item",
                     "entry_id": _child_text(item, "guid"),
                     "published_at": published,
+                    "published_at_normalized": _normalize_rss_datetime(published),
                 },
             )
         )
     return tuple(values)
 
 
-def _atom_feed(root: ET.Element, source_uri: str) -> tuple[_DiscoveredTarget, ...]:
-    del source_uri
+def _atom_feed(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
     values: list[_DiscoveredTarget] = []
     for entry in _children(root, "entry"):
         entry_id = _child_text(entry, "id")
@@ -239,7 +241,7 @@ def _normalize_rss_datetime(value: str | None) -> str | None:
     try:
         parsed = parsedate_to_datetime(value)
     except (TypeError, ValueError, OverflowError):
-        return value
+        return None
     return parsed.isoformat()
 
 

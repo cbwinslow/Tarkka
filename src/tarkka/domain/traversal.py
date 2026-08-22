@@ -223,6 +223,28 @@ class TraversalCheckpoint:
         )
         return replace(self, budget=budget)
 
+    def record_response_bytes(
+        self,
+        target_id: UUID,
+        *,
+        bytes_acquired: int,
+    ) -> TraversalCheckpoint:
+        """Checkpoint bytes consumed by one response before interpreting the next hop."""
+        target = self._require_target(target_id)
+        if target.status is not TraversalStatus.IN_PROGRESS:
+            raise ValueError("response byte accounting requires an in-progress target")
+        _require_non_negative_int(bytes_acquired, "response bytes_acquired")
+        updated = replace(
+            target,
+            bytes_acquired=target.bytes_acquired + bytes_acquired,
+        )
+        budget = AcquisitionBudgetState(
+            requests_used=self.budget.requests_used,
+            bytes_used=self.budget.bytes_used + bytes_acquired,
+            elapsed_seconds=self.budget.elapsed_seconds,
+        )
+        return replace(self._replace_target(updated), budget=budget)
+
     def complete(
         self,
         target_id: UUID,
@@ -230,7 +252,7 @@ class TraversalCheckpoint:
         bytes_acquired: int,
         elapsed_seconds: float,
     ) -> TraversalCheckpoint:
-        """Record a successful attempt and advance durable byte/time counters."""
+        """Record a successful attempt and advance any final byte/time counters."""
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("only in-progress traversal targets may be completed")
@@ -257,7 +279,7 @@ class TraversalCheckpoint:
         elapsed_seconds: float,
         bytes_acquired: int = 0,
     ) -> TraversalCheckpoint:
-        """Record a failed attempt while retaining bytes already consumed by the network."""
+        """Record a failed attempt while retaining any uncheckpointed response bytes."""
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("only in-progress traversal targets may fail")

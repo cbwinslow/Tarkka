@@ -199,6 +199,7 @@ def _group_headers(values: list[tuple[str, str]]) -> Mapping[str, tuple[str, ...
 
 
 def _read_limited(response: http.client.HTTPResponse, limit: int) -> tuple[bytes, bool]:
+    """Return at most ``limit`` bytes while reading one sentinel byte to detect overflow."""
     body = bytearray()
     while len(body) <= limit:
         remaining_with_sentinel = limit + 1 - len(body)
@@ -208,4 +209,4 @@ def _read_limited(response: http.client.HTTPResponse, limit: int) -> tuple[bytes
         if not chunk:
             break
         body.extend(chunk)
-    return bytes(body), len(body) > limit
+    return bytes(body[:limit]), len(body) > limit

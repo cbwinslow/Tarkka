@@ -158,16 +158,14 @@ class AcquisitionBudgetState:
             and self.elapsed_seconds >= policy.max_elapsed_seconds
         ):
             return False
-        if (
+        return not (
             self.requests_used > 0
             and policy.min_request_interval_seconds > 0
             and (
                 seconds_since_last_request is None
                 or seconds_since_last_request < policy.min_request_interval_seconds
             )
-        ):
-            return False
-        return True
+        )
 
 
 def _normalize_scheme(value: str) -> str:

@@ -73,8 +73,8 @@ class HttpResponseSnapshot:
     observed_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        requested_uri = _normalize_uri(self.requested_uri, "requested URI")
-        final_uri = _normalize_uri(self.final_uri, "final URI")
+        requested_uri = normalize_http_uri(self.requested_uri, field_name="requested URI")
+        final_uri = normalize_http_uri(self.final_uri, field_name="final URI")
         if not isinstance(self.status_code, int) or isinstance(self.status_code, bool):
             raise ValueError("HTTP status code must be an integer")
         if self.status_code < 100 or self.status_code > 599:
@@ -112,10 +112,6 @@ class HttpResponseSnapshot:
                 raise ValueError("HTTP headers must not repeat after case normalization")
             normalized_headers[normalized_name] = normalized_values
 
-        content_type = normalized_headers.get("content-type")
-        if content_type:
-            normalize_media_type(content_type[-1])
-
         if isinstance(self.redirect_chain, (str, bytes)):
             raise ValueError("HTTP redirect chain must be a sequence of HTTP(S) URIs")
         try:
@@ -124,7 +120,9 @@ class HttpResponseSnapshot:
             raise ValueError(
                 "HTTP redirect chain must be a sequence of HTTP(S) URIs"
             ) from exc
-        redirects = tuple(_normalize_uri(uri, "redirect URI") for uri in raw_redirects)
+        redirects = tuple(
+            normalize_http_uri(uri, field_name="redirect URI") for uri in raw_redirects
+        )
         if redirects and redirects[-1] != final_uri:
             raise ValueError("HTTP redirect chain must end at final URI")
 
@@ -135,9 +133,14 @@ class HttpResponseSnapshot:
 
     @property
     def media_type(self) -> str | None:
-        """Return the normalized response media type without parameters when present."""
+        """Return normalized media type, or None while preserving malformed raw headers."""
         values = self.headers.get("content-type")
-        return normalize_media_type(values[-1]) if values else None
+        if not values:
+            return None
+        try:
+            return normalize_media_type(values[-1])
+        except ValueError:
+            return None
 
     @property
     def content_disposition(self) -> str | None:
@@ -174,7 +177,13 @@ class HttpResponseSnapshot:
         )
 
 
-def _normalize_uri(value: str, field_name: str) -> str:
+def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
+    """Normalize HTTP(S) URI and redact common credentials in query or fragment fields.
+
+    Userinfo is removed, default ports are collapsed, DNS names are IDNA-normalized, and
+    sensitive parameter values are replaced before a URI is eligible for durable provenance.
+    Plain anchor fragments such as ``#results`` are preserved.
+    """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-blank absolute HTTP(S) URI")
     candidate = value.strip()
@@ -188,18 +197,31 @@ def _normalize_uri(value: str, field_name: str) -> str:
         raise ValueError(f"{field_name} must be an absolute HTTP(S) URI")
 
     host = _normalize_host(parsed.hostname)
+    # urlsplit returns IPv6 hostnames without brackets; URL netloc syntax requires them.
     if ":" in host:
         host = f"[{host}]"
     default_port = 80 if scheme == "http" else 443
     netloc = host if port in {None, default_port} else f"{host}:{port}"
-    query = urlencode(
+    query = _sanitize_parameter_string(parsed.query)
+    fragment = _sanitize_fragment(parsed.fragment)
+    return urlunsplit((scheme, netloc, parsed.path or "/", query, fragment))
+
+
+def _sanitize_fragment(fragment: str) -> str:
+    if "=" not in fragment:
+        return fragment
+    return _sanitize_parameter_string(fragment)
+
+
+def _sanitize_parameter_string(value: str) -> str:
+    # urlencode intentionally provides one deterministic canonical form; spaces normalize to '+'.
+    return urlencode(
         [
             (key, _REDACTED if key.lower() in _SENSITIVE_QUERY_KEYS else item)
-            for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+            for key, item in parse_qsl(value, keep_blank_values=True)
         ],
         doseq=True,
     )
-    return urlunsplit((scheme, netloc, parsed.path or "/", query, parsed.fragment))
 
 
 def _normalize_host(host: str) -> str:

@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import re
+from typing import overload
 
 _TOKEN_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+
+@overload
+def normalize_media_type(value: None) -> None: ...
+
+
+@overload
+def normalize_media_type(value: str) -> str: ...
 
 
 def normalize_media_type(value: str | None) -> str | None:

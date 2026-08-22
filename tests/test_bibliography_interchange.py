@@ -7,6 +7,7 @@ import pytest
 from tarkka.domain.bibliography import BibliographyFormat
 from tarkka.infrastructure.bibliography_interchange import (
     BibliographyParseError,
+    parse_bibliography_bytes,
     parse_bibtex,
     parse_csl_json,
     parse_ris,
@@ -38,6 +39,24 @@ def test_bibtex_preserves_native_fields_macros_and_identifiers() -> None:
     assert record.doi == "10.1000/example"
     assert record.fields["journal"] == "Journal of {Research}"
     assert record.fields["note"] == "native {field} value"
+
+
+def test_bibtex_ignores_percent_comments_without_dropping_literal_percent() -> None:
+    text = r'''
+% @article{fake, title={Must not appear}}
+@article{real,
+  title = {Observed 50\% response}, % inline comment with @article{fake2,
+  year = 2024,
+  url = "https://example.test/a%20b"
+}
+'''
+
+    records = parse_bibtex(text)
+
+    assert len(records) == 1
+    assert records[0].source_key == "real"
+    assert records[0].title == r"Observed 50\% response"
+    assert records[0].url == "https://example.test/a%20b"
 
 
 def test_ris_preserves_repeated_fields_and_continuations() -> None:
@@ -84,6 +103,11 @@ def test_csl_json_preserves_native_object_and_names() -> None:
     assert record.year == 2022
     assert record.doi == "https://doi.org/10.1000/csl"
     assert record.fields["custom"] == {"preserved": True}
+
+
+def test_parse_bibliography_bytes_rejects_non_utf8_input() -> None:
+    with pytest.raises(BibliographyParseError, match="not UTF-8"):
+        parse_bibliography_bytes("refs.bib", b"\xff\xfe\x00")
 
 
 def test_bibtex_rejects_unterminated_entry() -> None:

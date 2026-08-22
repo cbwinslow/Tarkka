@@ -80,6 +80,20 @@ def test_native_ingest_persists_provenance_citations_and_resources(tmp_path: Pat
     assert len(reopened_citations.list_references(document_id)) == 2
     assert len(reopened_citations.list_mentions(document_id)) == 3
 
+    contexts = reopened_citations.list_contexts(document_id)
+    assert len(contexts) == 3
+    assert [context.text for context in contexts].count(
+        "We preserve native structure and cite [1]."
+    ) == 1
+    assert [context.text for context in contexts].count(
+        "The model follows [1,2]."
+    ) == 2
+    assert all(context.passage_id is not None for context in contexts)
+    assert all(context.section_id is not None for context in contexts)
+    assert {context.context_id for context in result.native_parse.contexts} == {
+        context.context_id for context in contexts
+    }
+
 
 def test_reingesting_unchanged_native_source_is_idempotent(tmp_path: Path) -> None:
     service = _service(tmp_path)
@@ -89,10 +103,16 @@ def test_reingesting_unchanged_native_source_is_idempotent(tmp_path: Path) -> No
 
     assert first.document.document_id == second.document.document_id
     assert first.native_parse is not None
+    assert second.native_parse is not None
+    assert {context.context_id for context in first.native_parse.contexts} == {
+        context.context_id for context in second.native_parse.contexts
+    }
     observation_id = first.native_parse.observation.observation_id
     observations = JsonSourceObservationRepository(tmp_path / "source_observations.json")
     assert observations.get_observation(observation_id) is not None
     assert len(observations.list_resource_links(observation_id)) == 1
+    citations = JsonCitationRepository(tmp_path / "citations.json")
+    assert len(citations.list_contexts(first.document.document_id)) == 3
 
 
 def test_conflicting_stable_observation_is_not_retryable(tmp_path: Path) -> None:
@@ -123,3 +143,4 @@ def test_interrupted_native_persistence_can_resume_by_retry(tmp_path: Path) -> N
     citations = JsonCitationRepository(tmp_path / "citations.json")
     assert len(citations.list_references(result.document.document_id)) == 2
     assert len(citations.list_mentions(result.document.document_id)) == 3
+    assert len(citations.list_contexts(result.document.document_id)) == 3

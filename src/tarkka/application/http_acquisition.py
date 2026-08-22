@@ -94,17 +94,14 @@ class HttpAcquisitionService:
 
         try:
             while True:
-                response = self._request_once(
-                    active,
-                    target,
-                    policy,
-                    current_uri,
-                )
+                response = self._request_once(active, policy, current_uri)
                 active = active.record_response_bytes(
                     target_id,
                     bytes_acquired=len(response.body),
                 )
                 self._save_checkpoint(active)
+                if active.budget.bytes_used > policy.max_bytes:
+                    raise ValueError("HTTP response exceeded the acquisition byte budget")
 
                 location = _redirect_location(response)
                 if response.status_code not in _REDIRECT_STATUSES or location is None:
@@ -138,16 +135,18 @@ class HttpAcquisitionService:
         except Exception as exc:
             failed = active.fail(
                 target_id,
-                error=_failure_reason(exc),
+                error=_durable_failure_reason(exc),
                 elapsed_seconds=self._elapsed(active, started_at),
             )
             self._save_checkpoint(failed)
-            raise HttpAcquisitionError(str(exc), checkpoint=failed) from exc
+            raise HttpAcquisitionError(
+                f"HTTP acquisition failed: {type(exc).__name__}",
+                checkpoint=failed,
+            ) from exc
 
     def _request_once(
         self,
         checkpoint: TraversalCheckpoint,
-        target: TraversalTarget,
         policy: ResourceAcquisitionPolicy,
         uri: str,
     ) -> HttpTransportResponse:
@@ -170,14 +169,11 @@ class HttpAcquisitionService:
         remaining_bytes = policy.max_bytes - checkpoint.budget.bytes_used
         if remaining_bytes < 0:
             raise ValueError("HTTP acquisition byte budget is already exceeded")
-        response = self._transport.request(
+        return self._transport.request(
             uri=uri,
             resolved_address=resolved_address,
             max_response_bytes=remaining_bytes,
         )
-        if len(response.body) > remaining_bytes:
-            raise ValueError("HTTP response exceeded the acquisition byte budget")
-        return response
 
     def _finish(
         self,
@@ -291,6 +287,5 @@ def _artifact_name(uri: str) -> str | None:
     return name or None
 
 
-def _failure_reason(exc: Exception) -> str:
-    text = str(exc).strip()
-    return text or type(exc).__name__
+def _durable_failure_reason(exc: Exception) -> str:
+    return f"http acquisition failed: {type(exc).__name__}"

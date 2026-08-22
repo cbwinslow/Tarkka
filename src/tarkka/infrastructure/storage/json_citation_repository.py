@@ -64,6 +64,24 @@ class JsonCitationRepository:
     def save_relation(self, relation: WorkRelation) -> None:
         self._save("relations", relation.relation_id, _relation_to_dict(relation))
 
+    def get_or_create_relation(self, relation: WorkRelation) -> WorkRelation:
+        """Atomically persist or reuse one deterministic relation identity."""
+        key = str(relation.relation_id)
+        payload = _relation_to_dict(relation)
+        with exclusive_lock(self.path):
+            data = self._read()
+            existing_payload = data["relations"].get(key)
+            if existing_payload is not None:
+                existing = _relation_from_dict(existing_payload)
+                if _relation_identity(existing) != _relation_identity(relation):
+                    raise CitationConflictError(
+                        f"conflicting relation for stable ID {relation.relation_id}"
+                    )
+                return existing
+            data["relations"][key] = payload
+            self._write(data)
+            return relation
+
     def list_references(self, document_id: UUID) -> tuple[BibliographicReference, ...]:
         values = [
             _reference_from_dict(item)
@@ -315,4 +333,17 @@ def _relation_from_dict(raw: dict[str, Any]) -> WorkRelation:
         source_document_id=_optional_uuid(raw.get("source_document_id")),
         source_reference_id=_optional_uuid(raw.get("source_reference_id")),
         created_at=datetime.fromisoformat(raw["created_at"]),
+    )
+
+
+def _relation_identity(value: WorkRelation) -> tuple[object, ...]:
+    return (
+        value.relation_id,
+        value.subject_work_id,
+        value.object_work_id,
+        value.kind,
+        value.basis,
+        value.source_observation_id,
+        value.source_document_id,
+        value.source_reference_id,
     )

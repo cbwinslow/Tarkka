@@ -31,12 +31,7 @@ class SystemHostResolver:
 
 
 class PinnedHttpTransport:
-    """Stdlib GET transport that connects to an already-approved resolved address.
-
-    DNS resolution is deliberately outside this class. For HTTPS, certificate verification and
-    SNI continue to use the URI hostname while the TCP connection is pinned to
-    ``resolved_address``. Redirects are never followed automatically.
-    """
+    """Stdlib GET transport that connects to an already-approved resolved address."""
 
     def __init__(
         self,
@@ -132,11 +127,12 @@ class PinnedHttpTransport:
             )
             response = connection.getresponse()
             headers = _group_headers(response.getheaders())
-            body = _read_limited(response, max_response_bytes)
+            body, limit_exceeded = _read_limited(response, max_response_bytes)
             return HttpTransportResponse(
                 status_code=response.status,
                 headers=headers,
                 body=body,
+                limit_exceeded=limit_exceeded,
             )
         finally:
             connection.close()
@@ -202,7 +198,7 @@ def _group_headers(values: list[tuple[str, str]]) -> Mapping[str, tuple[str, ...
     return {name: tuple(items) for name, items in grouped.items()}
 
 
-def _read_limited(response: http.client.HTTPResponse, limit: int) -> bytes:
+def _read_limited(response: http.client.HTTPResponse, limit: int) -> tuple[bytes, bool]:
     body = bytearray()
     while len(body) <= limit:
         remaining_with_sentinel = limit + 1 - len(body)
@@ -212,4 +208,4 @@ def _read_limited(response: http.client.HTTPResponse, limit: int) -> bytes:
         if not chunk:
             break
         body.extend(chunk)
-    return bytes(body)
+    return bytes(body), len(body) > limit

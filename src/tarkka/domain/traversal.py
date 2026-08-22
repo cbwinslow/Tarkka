@@ -196,6 +196,33 @@ class TraversalCheckpoint:
         )
         return replace(self._replace_target(updated), budget=budget)
 
+    def record_followup_request(
+        self,
+        target_id: UUID,
+        policy: ResourceAcquisitionPolicy,
+        *,
+        expected_bytes: int = 0,
+        seconds_since_last_request: float | None = None,
+    ) -> TraversalCheckpoint:
+        """Charge one redirect/follow-up request before its network connection is opened."""
+        _require_policy(policy)
+        target = self._require_target(target_id)
+        if target.status is not TraversalStatus.IN_PROGRESS:
+            raise ValueError("follow-up requests require an in-progress traversal target")
+        if not self.budget.allows_request(
+            policy,
+            depth=target.depth,
+            expected_bytes=expected_bytes,
+            seconds_since_last_request=seconds_since_last_request,
+        ):
+            raise ValueError("follow-up request exceeds the acquisition budget")
+        budget = AcquisitionBudgetState(
+            requests_used=self.budget.requests_used + 1,
+            bytes_used=self.budget.bytes_used,
+            elapsed_seconds=self.budget.elapsed_seconds,
+        )
+        return replace(self, budget=budget)
+
     def complete(
         self,
         target_id: UUID,
@@ -203,7 +230,7 @@ class TraversalCheckpoint:
         bytes_acquired: int,
         elapsed_seconds: float,
     ) -> TraversalCheckpoint:
-        """Record a successful request and advance durable byte/time counters."""
+        """Record a successful attempt and advance durable byte/time counters."""
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("only in-progress traversal targets may be completed")
@@ -212,7 +239,7 @@ class TraversalCheckpoint:
         updated = replace(
             target,
             status=TraversalStatus.COMPLETED,
-            bytes_acquired=bytes_acquired,
+            bytes_acquired=target.bytes_acquired + bytes_acquired,
             last_error=None,
         )
         budget = AcquisitionBudgetState(
@@ -228,21 +255,24 @@ class TraversalCheckpoint:
         *,
         error: str,
         elapsed_seconds: float,
+        bytes_acquired: int = 0,
     ) -> TraversalCheckpoint:
-        """Record a failed request without losing its deterministic frontier identity."""
+        """Record a failed attempt while retaining bytes already consumed by the network."""
         target = self._require_target(target_id)
         if target.status is not TraversalStatus.IN_PROGRESS:
             raise ValueError("only in-progress traversal targets may fail")
         reason = _require_reason(error, "traversal failure error")
+        _require_non_negative_int(bytes_acquired, "failed bytes_acquired")
         _require_monotonic_elapsed(elapsed_seconds, self.budget.elapsed_seconds)
         updated = replace(
             target,
             status=TraversalStatus.FAILED,
+            bytes_acquired=target.bytes_acquired + bytes_acquired,
             last_error=reason,
         )
         budget = AcquisitionBudgetState(
             requests_used=self.budget.requests_used,
-            bytes_used=self.budget.bytes_used,
+            bytes_used=self.budget.bytes_used + bytes_acquired,
             elapsed_seconds=elapsed_seconds,
         )
         return replace(self._replace_target(updated), budget=budget)

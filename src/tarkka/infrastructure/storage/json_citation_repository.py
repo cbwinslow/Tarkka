@@ -168,7 +168,7 @@ class JsonCitationRepository:
             raise ValueError("relation query limit must be non-negative")
         if limit == 0:
             return ()
-        allowed = frozenset(kinds) if kinds is not None else None
+        allowed_values = {kind.value for kind in kinds} if kinds is not None else None
         excluded = {str(item) for item in exclude_ids}
         work_key = str(work_id)
         raw_relations = self._read()["relations"].values()
@@ -177,10 +177,12 @@ class JsonCitationRepository:
             for item in raw_relations
             if item[field] == work_key
             and item["relation_id"] not in excluded
-            and (allowed is None or WorkRelationKind(item["kind"]) in allowed)
+            and (allowed_values is None or item["kind"] in allowed_values)
         )
         if limit is None:
             return tuple(sorted(candidates, key=_relation_sort_key))
+        # The JSON catalog is not indexed, so deterministic top-N still scans candidate rows.
+        # nsmallest keeps extra memory O(limit); SQL adapters should use ORDER BY ... LIMIT.
         return tuple(heapq.nsmallest(limit, candidates, key=_relation_sort_key))
 
     def _save(self, bucket: str, stable_id: UUID, payload: dict[str, Any]) -> None:

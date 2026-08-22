@@ -106,18 +106,10 @@ def test_bibliography_import_cli_rejects_directory_input(
 
 def test_bibliography_import_cli_handles_path_resolution_error(
     tmp_path: Path,
-    monkeypatch,
     capsys,
 ) -> None:
     source = tmp_path / "loop.bib"
-    original_resolve = Path.resolve
-
-    def fail_selected_path(path: Path, *args, **kwargs) -> Path:
-        if path.name == source.name:
-            raise OSError("simulated symlink loop")
-        return original_resolve(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "resolve", fail_selected_path)
+    source.symlink_to(source.name)
     args = argparse.Namespace(path=source)
 
     exit_code = _cmd_import(args, tmp_path / "home")
@@ -125,7 +117,7 @@ def test_bibliography_import_cli_handles_path_resolution_error(
     captured = capsys.readouterr()
     assert exit_code == 2
     assert captured.out == ""
-    assert "simulated symlink loop" in captured.err
+    assert "error:" in captured.err
 
 
 def test_bibliography_import_cli_handles_unusable_home(

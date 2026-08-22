@@ -29,25 +29,38 @@ def parse_bibtex(text: str) -> tuple[BibliographyRecord, ...]:
     records: list[BibliographyRecord] = []
     for entry_type, source_key, field_text in entries:
         fields = _bibtex_fields(field_text, macros)
-        title = required_text(fields.get("title"), f"BibTeX entry {source_key!r} title")
+        title = required_text(
+            _field_value(fields, "title"),
+            f"BibTeX entry {source_key!r} title",
+        )
         records.append(
             BibliographyRecord(
                 source_format=BibliographyFormat.BIBTEX,
                 source_key=source_key,
                 entry_type=entry_type,
                 title=_clean_bibtex_text(title),
-                authors=_bibtex_authors(fields.get("author")),
-                year=year(fields.get("year")),
-                doi=optional_text(fields.get("doi")),
-                url=optional_text(fields.get("url")),
+                authors=_bibtex_authors(_field_value(fields, "author")),
+                year=year(_field_value(fields, "year")),
+                doi=optional_text(_field_value(fields, "doi")),
+                url=optional_text(_field_value(fields, "url")),
                 fields=fields,
             )
         )
     return tuple(records)
 
 
+def _field_value(fields: Mapping[str, str], name: str) -> str | None:
+    """Read a BibTeX field case-insensitively without rewriting native keys."""
+    result: str | None = None
+    folded_name = name.casefold()
+    for key, value in fields.items():
+        if key.casefold() == folded_name:
+            result = value
+    return result
+
+
 def _strip_percent_comments(text: str) -> str:
-    """Remove unescaped `%` comments outside nested braced/quoted values."""
+    """Remove unescaped `%` comments outside braced or quoted field values."""
     output: list[str] = []
     brace_depth = 0
     paren_depth = 0
@@ -80,13 +93,20 @@ def _strip_percent_comments(text: str) -> str:
                 paren_depth += 1
             elif char == ")":
                 paren_depth = max(0, paren_depth - 1)
-            elif char == "%" and brace_depth <= 1 and paren_depth <= 1:
+            elif char == "%" and _is_comment_position(brace_depth, paren_depth):
                 while cursor < len(text) and text[cursor] not in "\r\n":
                     cursor += 1
                 continue
         output.append(char)
         cursor += 1
     return "".join(output)
+
+
+def _is_comment_position(brace_depth: int, paren_depth: int) -> bool:
+    """Allow comments outside values, including between fields inside an entry."""
+    return (brace_depth == 0 and paren_depth <= 1) or (
+        paren_depth == 0 and brace_depth <= 1
+    )
 
 
 def _bibtex_entries(text: str) -> tuple[list[tuple[str, str, str]], dict[str, str]]:
@@ -139,7 +159,7 @@ def _bibtex_fields(text: str, macros: Mapping[str, str]) -> dict[str, str]:
         match = _BIBTEX_NAME.match(text, cursor)
         if match is None:
             raise BibliographyParseError(f"invalid BibTeX field near {text[cursor:cursor + 30]!r}")
-        key = match.group(0).lower()
+        key = match.group(0)
         cursor = _skip_space(text, match.end())
         if cursor >= len(text) or text[cursor] != "=":
             raise BibliographyParseError(f"BibTeX field {key!r} is missing '='")

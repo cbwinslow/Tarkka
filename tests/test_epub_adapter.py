@@ -47,8 +47,15 @@ _CHAPTER_1 = """<!doctype html>
 <article>
   <h1 id="intro">Introduction</h1>
   <p>First chapter evidence <a epub:type="noteref" href="#note-1">[1]</a>.</p>
-  <figure id="fig-1"><img src="../images/plot.png" alt="Figure 1"/><figcaption>Observed values.</figcaption></figure>
-  <table id="tab-1"><caption>Coefficients</caption><tr><th>x</th><th>y</th></tr><tr><td>1</td><td>2</td></tr></table>
+  <figure id="fig-1">
+    <img src="../images/plot.png" alt="Figure 1"/>
+    <figcaption>Observed values.</figcaption>
+  </figure>
+  <table id="tab-1">
+    <caption>Coefficients</caption>
+    <tr><th>x</th><th>y</th></tr>
+    <tr><td>1</td><td>2</td></tr>
+  </table>
   <math id="eq-1"><mi>x</mi><mo>=</mo><mn>1</mn></math>
   <aside id="note-1" epub:type="footnote"><p>Chapter note.</p></aside>
 </article>
@@ -65,7 +72,9 @@ _CHAPTER_2 = """<!doctype html>
   <p>Second chapter text cites <a role="doc-biblioref" href="#ref-1">[2]</a>.</p>
   <section role="doc-bibliography">
     <h2>References</h2>
-    <p id="ref-1" role="doc-biblioentry">Example Study. <a href="https://doi.org/10.1000/epub.example">doi</a></p>
+    <p id="ref-1" role="doc-biblioentry">
+      Example Study. <a href="https://doi.org/10.1000/epub.example">doi</a>
+    </p>
   </section>
   <a rel="supplement" href="../data/supplement.csv" type="text/csv">Supplement</a>
 </article>
@@ -74,9 +83,18 @@ _CHAPTER_2 = """<!doctype html>
 """
 
 
-def _write_epub(path: Path, *, package: str = _PACKAGE, container: str = _CONTAINER) -> None:
+def _write_epub(
+    path: Path,
+    *,
+    package: str = _PACKAGE,
+    container: str = _CONTAINER,
+) -> None:
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        archive.writestr(
+            "mimetype",
+            "application/epub+zip",
+            compress_type=zipfile.ZIP_STORED,
+        )
         archive.writestr("META-INF/container.xml", container)
         archive.writestr("OEBPS/package.opf", package)
         archive.writestr("OEBPS/text/chapter1.xhtml", _CHAPTER_1)
@@ -110,8 +128,12 @@ def test_epub_preserves_package_spine_and_semantic_structure(tmp_path: Path) -> 
         "Results",
         "References",
     ]
-    assert result.document.sections[0].passages[0].text.startswith("First chapter evidence")
-    assert result.document.sections[1].passages[0].text.startswith("Second chapter text")
+    assert result.document.sections[0].passages[0].text.startswith(
+        "First chapter evidence"
+    )
+    assert result.document.sections[1].passages[0].text.startswith(
+        "Second chapter text"
+    )
 
     assert len(result.document.figures) == 1
     assert result.document.figures[0].caption == "Observed values."
@@ -136,10 +158,14 @@ def test_epub_rebases_bibliography_mentions_and_resource_links(tmp_path: Path) -
     assert dict(reference.identifiers) == {"doi": "10.1000/epub.example"}
     assert reference.source_anchor == "OEBPS/text/chapter2.xhtml::ref-1"
 
-    bibliography_mentions = [mention for mention in result.mentions if mention.raw_text == "[2]"]
+    bibliography_mentions = [
+        mention for mention in result.mentions if mention.raw_text == "[2]"
+    ]
     assert len(bibliography_mentions) == 1
     assert bibliography_mentions[0].reference_id == reference.reference_id
-    assert bibliography_mentions[0].source_anchor == "OEBPS/text/chapter2.xhtml::ref-1"
+    assert bibliography_mentions[0].source_anchor == (
+        "OEBPS/text/chapter2.xhtml::ref-1"
+    )
 
     links = {(link.target_uri, link.relation) for link in result.resource_links}
     assert ("OEBPS/text/chapter1.xhtml", ResourceRelation.FULL_TEXT) in links
@@ -164,9 +190,16 @@ def test_epub_ids_and_offsets_are_stable_for_same_artifact(tmp_path: Path) -> No
     assert first.references[0].reference_id == second.references[0].reference_id
     assert first.mentions[-1].mention_id == second.mentions[-1].mention_id
 
-    passages = [passage for section in first.document.sections for passage in section.passages]
+    passages = [
+        passage
+        for section in first.document.sections
+        for passage in section.passages
+    ]
     assert passages
-    assert all(passage.char_end - passage.char_start == len(passage.text) for passage in passages)
+    assert all(
+        passage.char_end - passage.char_start == len(passage.text)
+        for passage in passages
+    )
     assert all(
         current.char_start > previous.char_end
         for previous, current in zip(passages, passages[1:], strict=False)

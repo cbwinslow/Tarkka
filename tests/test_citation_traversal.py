@@ -68,6 +68,45 @@ def test_outbound_traversal_is_cycle_safe_and_depth_bounded(tmp_path: Path) -> N
     assert complete.stopped_by is None
 
 
+def test_depth_limit_reports_omitted_edge_back_to_visited_work(tmp_path: Path) -> None:
+    root, second = uuid4(), uuid4()
+    repository = _repository(
+        tmp_path,
+        _relation(root, second),
+        _relation(second, root),
+    )
+
+    result = CitationTraversalService(repository).traverse(
+        root,
+        CitationTraversalPolicy(max_depth=1, max_works=10, max_relations=10),
+    )
+
+    assert result.work_ids == (root, second)
+    assert len(result.relations) == 1
+    assert result.stopped_by is TraversalLimit.DEPTH
+
+
+def test_zero_depth_distinguishes_empty_graph_from_truncation(tmp_path: Path) -> None:
+    root, cited = uuid4(), uuid4()
+    populated = _repository(tmp_path, _relation(root, cited))
+
+    truncated = CitationTraversalService(populated).traverse(
+        root,
+        CitationTraversalPolicy(max_depth=0),
+    )
+    assert truncated.work_ids == (root,)
+    assert truncated.relations == ()
+    assert truncated.max_depth_reached == 0
+    assert truncated.stopped_by is TraversalLimit.DEPTH
+
+    empty = JsonCitationRepository(tmp_path / "empty-citations.json")
+    complete = CitationTraversalService(empty).traverse(
+        root,
+        CitationTraversalPolicy(max_depth=0),
+    )
+    assert complete.stopped_by is None
+
+
 def test_inbound_traversal_walks_citing_works(tmp_path: Path) -> None:
     root, citer, citer_of_citer = uuid4(), uuid4(), uuid4()
     repository = _repository(
@@ -179,6 +218,26 @@ def test_zero_relation_budget_returns_only_root(tmp_path: Path) -> None:
     assert result.work_ids == (root,)
     assert result.relations == ()
     assert result.stopped_by is TraversalLimit.RELATIONS
+
+
+def test_repository_relation_query_applies_filter_exclusion_and_limit(tmp_path: Path) -> None:
+    root = uuid4()
+    first = _relation(root, uuid4())
+    second = _relation(root, uuid4())
+    dataset = _relation(root, uuid4(), kind=WorkRelationKind.USES_DATASET)
+    repository = _repository(tmp_path, first, second, dataset)
+
+    results = repository.list_relations_from(
+        root,
+        kinds=frozenset({WorkRelationKind.CITES}),
+        exclude_ids=frozenset({first.relation_id}),
+        limit=1,
+    )
+
+    assert len(results) == 1
+    assert results[0].relation_id == second.relation_id
+    assert results[0].kind is WorkRelationKind.CITES
+    assert repository.list_relations_from(root, limit=0) == ()
 
 
 def test_policy_rejects_invalid_bounds() -> None:

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin
-from xml.etree import ElementTree as ET
 from uuid import NAMESPACE_URL, UUID, uuid5
+from xml.etree import ElementTree as ET
 
 from tarkka.domain.http_observations import normalize_http_uri
 from tarkka.domain.source_observations import (
@@ -219,12 +219,14 @@ def _atom_feed(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:
 
 
 def _children(element: ET.Element, name: str) -> tuple[ET.Element, ...]:
-    return tuple(child for child in element if _local_name(child.tag) == name)
+    target_name = name.lower()
+    return tuple(child for child in element if _local_name(child.tag) == target_name)
 
 
 def _child_text(element: ET.Element, name: str) -> str | None:
+    target_name = name.lower()
     for child in element:
-        if _local_name(child.tag) != name:
+        if _local_name(child.tag) != target_name:
             continue
         value = " ".join("".join(child.itertext()).split())
         return value or None

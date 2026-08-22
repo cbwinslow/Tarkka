@@ -76,6 +76,16 @@ def test_bibtex_ignores_percent_comments_without_dropping_literal_percent() -> N
     assert records[0].url == "https://example.test/a%20b"
 
 
+def test_parenthesized_bibtex_ignores_closing_paren_inside_braced_value() -> None:
+    record = parse_bibtex(
+        "@article(paren, title={Analysis (with nested ) punctuation)}, year={2024})"
+    )[0]
+
+    assert record.source_key == "paren"
+    assert record.title == "Analysis (with nested ) punctuation)"
+    assert record.year == 2024
+
+
 def test_bibtex_doi_url_ignores_query_fragment_and_citation_punctuation() -> None:
     record = parse_bibtex(
         "@article{doi-url, title={Study}, "
@@ -131,6 +141,19 @@ def test_ris_accepts_common_spacing_variations() -> None:
     assert record.title == "Spacing Study"
 
 
+def test_ris_derives_doi_from_url_and_rejects_conflicts() -> None:
+    record = parse_ris(
+        "TY  - JOUR\nTI  - DOI Study\nUR  - https://doi.org/10.1000/ris-url.\nER  -\n"
+    )[0]
+    assert record.doi == "10.1000/ris-url"
+
+    with pytest.raises(BibliographyParseError, match="conflicting DOI"):
+        parse_ris(
+            "TY  - JOUR\nTI  - Conflict\nDO  - 10.1000/a\n"
+            "UR  - https://doi.org/10.1000/b\nER  -\n"
+        )
+
+
 def test_csl_json_preserves_native_object_and_names() -> None:
     raw = {
         "id": "csl-1",
@@ -151,7 +174,7 @@ def test_csl_json_preserves_native_object_and_names() -> None:
     assert record.source_format is BibliographyFormat.CSL_JSON
     assert record.authors == ("Smith, Jane", "Example Consortium")
     assert record.year == 2022
-    assert record.doi == "https://doi.org/10.1000/csl"
+    assert record.doi == "10.1000/csl"
     assert record.fields["custom"] == {"preserved": True}
 
 
@@ -162,6 +185,45 @@ def test_csl_json_items_wrapper_is_supported() -> None:
 
     assert record.source_key == "one"
     assert record.entry_type == "book"
+
+
+def test_csl_json_preserves_numeric_ids_but_not_boolean_ids() -> None:
+    numeric = parse_csl_json(
+        json.dumps({"id": 42, "type": "book", "title": "Numeric ID"})
+    )[0]
+    boolean = parse_csl_json(
+        json.dumps({"id": True, "type": "book", "title": "Boolean ID"})
+    )[0]
+
+    assert numeric.source_key == "42"
+    assert boolean.source_key.startswith("csl-json:0:")
+
+
+def test_csl_json_derives_doi_from_url_and_rejects_conflicts() -> None:
+    record = parse_csl_json(
+        json.dumps(
+            {
+                "id": "url-doi",
+                "type": "article-journal",
+                "title": "CSL DOI URL",
+                "URL": "https://doi.org/10.1000/csl-url#fragment",
+            }
+        )
+    )[0]
+    assert record.doi == "10.1000/csl-url"
+
+    with pytest.raises(BibliographyParseError, match="conflicting DOI"):
+        parse_csl_json(
+            json.dumps(
+                {
+                    "id": "conflict",
+                    "type": "article-journal",
+                    "title": "Conflict",
+                    "DOI": "10.1000/a",
+                    "URL": "https://doi.org/10.1000/b",
+                }
+            )
+        )
 
 
 def test_csl_json_requires_item_type() -> None:

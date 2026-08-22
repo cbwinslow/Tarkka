@@ -167,6 +167,53 @@ class HttpAcquisitionService:
                 checkpoint=failed,
             ) from exc
 
+    def recover_finalization(
+        self,
+        checkpoint: TraversalCheckpoint,
+        target_id: UUID,
+    ) -> TraversalCheckpoint:
+        """Complete a FINALIZING target only after verifying both expected outputs are durable."""
+        target = _lookup_target(checkpoint, target_id)
+        if target.status is TraversalStatus.COMPLETED:
+            return checkpoint
+        if target.status is not TraversalStatus.FINALIZING:
+            raise ValueError("HTTP finalization recovery requires a finalizing target")
+        artifact_sha256 = target.final_artifact_sha256
+        observation_id = target.final_observation_id
+        if artifact_sha256 is None or observation_id is None:
+            raise ValueError("finalizing target is missing expected output identifiers")
+
+        expected_artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{artifact_sha256}")
+        if not self._artifact_store.exists(artifact_sha256):
+            raise HttpAcquisitionCommitError(
+                "HTTP finalization artifact is not durable",
+                checkpoint=checkpoint,
+            )
+        observation = self._observation_repository.get_observation(observation_id)
+        if observation is None:
+            raise HttpAcquisitionCommitError(
+                "HTTP finalization observation is not durable",
+                checkpoint=checkpoint,
+            )
+        if observation.native_artifact_id != expected_artifact_id:
+            raise HttpAcquisitionCommitError(
+                "HTTP finalization observation references an unexpected artifact",
+                checkpoint=checkpoint,
+            )
+
+        completed = checkpoint.complete_finalization(
+            target_id,
+            elapsed_seconds=checkpoint.budget.elapsed_seconds,
+        )
+        try:
+            self._save_checkpoint(completed)
+        except HttpAcquisitionCheckpointError as exc:
+            raise HttpAcquisitionCommitError(
+                "HTTP outputs are durable but final checkpoint completion is still interrupted",
+                checkpoint=checkpoint,
+            ) from exc
+        return completed
+
     def _request_once(
         self,
         checkpoint: TraversalCheckpoint,
@@ -326,7 +373,7 @@ class HttpAcquisitionService:
             ) from exc
 
 
-def _target(checkpoint: TraversalCheckpoint, target_id: UUID) -> TraversalTarget:
+def _lookup_target(checkpoint: TraversalCheckpoint, target_id: UUID) -> TraversalTarget:
     if not isinstance(checkpoint, TraversalCheckpoint):
         raise ValueError("checkpoint must be a TraversalCheckpoint")
     if not isinstance(target_id, UUID):
@@ -334,6 +381,11 @@ def _target(checkpoint: TraversalCheckpoint, target_id: UUID) -> TraversalTarget
     target = next((item for item in checkpoint.targets if item.target_id == target_id), None)
     if target is None:
         raise ValueError("target does not exist in traversal checkpoint")
+    return target
+
+
+def _target(checkpoint: TraversalCheckpoint, target_id: UUID) -> TraversalTarget:
+    target = _lookup_target(checkpoint, target_id)
     if target.status is not TraversalStatus.QUEUED:
         raise ValueError("HTTP acquisition target must be queued")
     return target

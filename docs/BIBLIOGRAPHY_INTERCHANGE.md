@@ -2,6 +2,16 @@
 
 Tarkka supports BibTeX, RIS, and CSL-JSON as bibliography interchange sources. These files are not treated as full-text documents. Each entry is preserved as a source-native bibliography record and then adapted into the existing canonical Work identity pipeline.
 
+## Command-line import
+
+Import one bibliography file into Tarkka's canonical Work catalog with:
+
+```text
+tarkka bibliography import references.bib
+```
+
+The command accepts the same BibTeX, RIS, and CSL-JSON formats described below, persists through `TARKKA_HOME/works.json` (default `~/.tarkka/works.json`), and prints a deterministic JSON summary containing the source path and SHA-256, record/work counts, and canonical Work IDs and core metadata. Re-importing the same immutable file is idempotent. Import errors are written to stderr and return exit status `2`.
+
 ## Identity rules
 
 A bibliography citation key such as `smith2024` is only local to its source file. Tarkka therefore scopes provider-record identity by the SHA-256 digest of the exact byte buffer that is parsed:

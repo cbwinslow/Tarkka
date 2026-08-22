@@ -7,7 +7,6 @@ from tarkka.domain.bibliography import BibliographyFormat, BibliographyRecord
 from tarkka.infrastructure.bibliography_common import optional_text, required_text, year
 from tarkka.infrastructure.bibliography_errors import BibliographyParseError
 
-_DOI_URL = re.compile(r"https?://(?:dx\.)?doi\.org/(.+)", re.IGNORECASE)
 _BIBTEX_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 _MONTHS = {
     "jan": "January",
@@ -31,12 +30,6 @@ def parse_bibtex(text: str) -> tuple[BibliographyRecord, ...]:
     for entry_type, source_key, field_text in entries:
         fields = _bibtex_fields(field_text, macros)
         title = required_text(fields.get("title"), f"BibTeX entry {source_key!r} title")
-        doi = optional_text(fields.get("doi"))
-        url = optional_text(fields.get("url"))
-        if doi is None and url:
-            match = _DOI_URL.fullmatch(url.strip())
-            if match:
-                doi = match.group(1)
         records.append(
             BibliographyRecord(
                 source_format=BibliographyFormat.BIBTEX,
@@ -45,8 +38,8 @@ def parse_bibtex(text: str) -> tuple[BibliographyRecord, ...]:
                 title=_clean_bibtex_text(title),
                 authors=_bibtex_authors(fields.get("author")),
                 year=year(fields.get("year")),
-                doi=doi,
-                url=url,
+                doi=optional_text(fields.get("doi")),
+                url=optional_text(fields.get("url")),
                 fields=fields,
             )
         )
@@ -199,6 +192,8 @@ def _bibtex_atom(
 def _balanced_body(text: str, cursor: int, opener: str, closer: str) -> tuple[str, int]:
     start = cursor
     depth = 1
+    brace_depth = 0
+    quoted = False
     escaped = False
     while cursor < len(text):
         char = text[cursor]
@@ -206,6 +201,14 @@ def _balanced_body(text: str, cursor: int, opener: str, closer: str) -> tuple[st
             escaped = False
         elif char == "\\":
             escaped = True
+        elif opener == "(" and char == "{" and not quoted:
+            brace_depth += 1
+        elif opener == "(" and char == "}" and brace_depth and not quoted:
+            brace_depth -= 1
+        elif opener == "(" and char == '"' and brace_depth == 0:
+            quoted = not quoted
+        elif opener == "(" and (brace_depth > 0 or quoted):
+            pass
         elif char == opener:
             depth += 1
         elif char == closer:

@@ -31,37 +31,50 @@ class WorkCatalogService:
         self._repository = repository
 
     def persist_candidate(self, candidate: CanonicalWorkCandidate) -> Work:
+        return self.persist_candidates((candidate,))[0]
+
+    def persist_candidates(
+        self,
+        candidates: Iterable[CanonicalWorkCandidate],
+    ) -> tuple[Work, ...]:
+        """Persist a candidate batch atomically when the repository supports transactions."""
+        candidate_tuple = tuple(candidates)
+        if not candidate_tuple:
+            return ()
         with self._repository.transaction():
-            aliases = _candidate_aliases(candidate)
-            matched: dict[UUID, Work] = {}
-            for scheme, value in aliases:
-                existing_match = self._repository.find_work_by_identifier(scheme, value)
-                if existing_match is not None:
-                    matched[existing_match.work_id] = existing_match
-            if len(matched) > 1:
-                raise WorkIdentityConflictError(
-                    "candidate identifiers resolve to multiple canonical Works: "
-                    + ", ".join(str(work_id) for work_id in sorted(matched, key=str))
-                )
+            return tuple(self._persist_candidate(candidate) for candidate in candidate_tuple)
 
-            existing = next(iter(matched.values()), None)
-            if existing is None:
-                work = Work(
-                    work_id=uuid4(),
-                    title=candidate.title,
-                    publication_type=_first_metadata_str(candidate.records, "publication_type")
-                    or "unknown",
-                    publication_year=candidate.year,
-                    abstract=_first_abstract(candidate.records),
-                    venue=_first_metadata_str(candidate.records, "venue"),
-                )
-            else:
-                work = _fill_missing_work_metadata(existing, candidate.records, candidate.year)
+    def _persist_candidate(self, candidate: CanonicalWorkCandidate) -> Work:
+        aliases = _candidate_aliases(candidate)
+        matched: dict[UUID, Work] = {}
+        for scheme, value in aliases:
+            existing_match = self._repository.find_work_by_identifier(scheme, value)
+            if existing_match is not None:
+                matched[existing_match.work_id] = existing_match
+        if len(matched) > 1:
+            raise WorkIdentityConflictError(
+                "candidate identifiers resolve to multiple canonical Works: "
+                + ", ".join(str(work_id) for work_id in sorted(matched, key=str))
+            )
 
-            self._repository.save_work(work)
-            self._save_aliases(work.work_id, aliases)
-            self._save_records(work.work_id, candidate.records)
-            return work
+        existing = next(iter(matched.values()), None)
+        if existing is None:
+            work = Work(
+                work_id=uuid4(),
+                title=candidate.title,
+                publication_type=_first_metadata_str(candidate.records, "publication_type")
+                or "unknown",
+                publication_year=candidate.year,
+                abstract=_first_abstract(candidate.records),
+                venue=_first_metadata_str(candidate.records, "venue"),
+            )
+        else:
+            work = _fill_missing_work_metadata(existing, candidate.records, candidate.year)
+
+        self._repository.save_work(work)
+        self._save_aliases(work.work_id, aliases)
+        self._save_records(work.work_id, candidate.records)
+        return work
 
     def enrich_by_doi(self, work_id: UUID, enricher: WorkMetadataEnricher) -> Work:
         record: DiscoveryRecord

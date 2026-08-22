@@ -10,7 +10,7 @@ from tarkka.domain.bibliography import BibliographyRecord
 from tarkka.domain.models import Work
 from tarkka.infrastructure.bibliography_interchange import (
     BibliographyParseError,
-    parse_bibliography,
+    parse_bibliography_bytes,
 )
 
 
@@ -31,8 +31,9 @@ class BibliographyImportService:
 
     def import_file(self, path: Path) -> BibliographyImportResult:
         source = path.expanduser().resolve()
-        source_sha256 = _sha256_file(source)
-        records = parse_bibliography(source)
+        data = source.read_bytes()
+        source_sha256 = hashlib.sha256(data).hexdigest()
+        records = parse_bibliography_bytes(source.name, data)
         _ensure_unique_source_keys(records)
         discovery_records = tuple(
             record.to_discovery_record(source_sha256) for record in records
@@ -57,11 +58,3 @@ def _ensure_unique_source_keys(records: tuple[BibliographyRecord, ...]) -> None:
                 f"{record.source_key!r}"
             )
         seen.add(key)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()

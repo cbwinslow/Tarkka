@@ -25,7 +25,13 @@ class CitationResolutionResult:
 
 
 class CitationResolutionService:
-    """Resolve preserved references through exact canonical identifiers only."""
+    """Resolve preserved references through exact canonical identifiers only.
+
+    Repository implementations are responsible for serializing writes to a reference's
+    resolution key. Production SQL adapters should enforce this with a unique constraint and
+    transactional/upsert semantics; the local JSON repository provides the same serialization
+    with its file lock.
+    """
 
     def __init__(
         self,
@@ -112,9 +118,12 @@ class CitationResolutionService:
             NAMESPACE_URL,
             f"tarkka:cites:{citing_work_id}:{reference.reference_id}:{cited_work_id}",
         )
-        for existing in self._citations.list_relations_from(citing_work_id):
-            if existing.relation_id == relation_id:
-                return existing
+        existing = self._citations.get_relation(relation_id)
+        if existing is not None:
+            # The deterministic relation ID already includes the reference, so repeated
+            # resolution should reuse its original provenance instead of manufacturing a
+            # second edge with the same semantic identity.
+            return existing
         relation = WorkRelation(
             relation_id=relation_id,
             subject_work_id=citing_work_id,
@@ -144,10 +153,14 @@ def _normalized_identifier(scheme: str, value: str) -> tuple[str, str] | None:
     if normalized_scheme == "arxiv":
         arxiv_id = try_normalize_arxiv_id(normalized_value)
         return ("arxiv", arxiv_id) if arxiv_id is not None else None
+    # Other schemes intentionally use exact canonical values. Their ingestion adapter owns
+    # scheme-specific normalization until a shared normalizer is explicitly defined.
     return normalized_scheme, normalized_value
 
 
 def _same_resolution(left: CitationResolution, right: CitationResolution) -> bool:
+    # resolved_at is event metadata, not resolution identity. Ignoring it makes repeated
+    # deterministic resolution idempotent and preserves the timestamp of the first result.
     return (
         left.reference_id == right.reference_id
         and left.status is right.status

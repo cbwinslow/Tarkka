@@ -67,3 +67,20 @@ def test_bibliography_import_cli_returns_error_for_bad_source(
     assert captured.out == ""
     assert "error:" in captured.err
     assert "unterminated" in captured.err
+
+
+def test_bibliography_import_cli_rejects_directory_input(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    source = tmp_path / "not-a-file"
+    source.mkdir()
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
+
+    exit_code = main(["bibliography", "import", str(source)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "not a readable file" in captured.err

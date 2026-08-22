@@ -119,6 +119,29 @@ def test_unknown_and_invalid_identifiers_remain_unresolved(tmp_path: Path) -> No
     assert resolution.candidate_work_ids == ()
 
 
+def test_exact_non_specialized_identifier_resolves(tmp_path: Path) -> None:
+    citations, works = _repositories(tmp_path)
+    target = _save_work_with_identifier(
+        works,
+        title="PMID target",
+        scheme="pmid",
+        value="123456",
+    )
+    reference = BibliographicReference(
+        reference_id=uuid4(),
+        document_id=uuid4(),
+        ordinal=0,
+        raw_text="PMID target",
+        identifiers={"PMID": "123456"},
+    )
+    citations.save_reference(reference)
+
+    resolution = CitationResolutionService(citations, works).resolve_reference(reference)
+
+    assert resolution.status is CitationResolutionStatus.RESOLVED
+    assert resolution.work_id == target.work_id
+
+
 def test_document_resolution_creates_native_cites_relation_once(tmp_path: Path) -> None:
     citations, works = _repositories(tmp_path)
     citing = Work(work_id=uuid4(), title="Citing work")
@@ -156,4 +179,5 @@ def test_document_resolution_creates_native_cites_relation_once(tmp_path: Path) 
     assert relation.source_document_id == document_id
     assert relation.source_reference_id == reference.reference_id
     assert relation.source_observation_id == observation_id
+    assert citations.get_relation(relation.relation_id) == relation
     assert citations.list_relations_from(citing.work_id) == (relation,)

@@ -100,6 +100,10 @@ class JsonCitationRepository:
         payload = self._read()["resolutions"].get(str(reference_id))
         return _resolution_from_dict(payload) if payload is not None else None
 
+    def get_relation(self, relation_id: UUID) -> WorkRelation | None:
+        payload = self._read()["relations"].get(str(relation_id))
+        return _relation_from_dict(payload) if payload is not None else None
+
     def list_relations_from(self, work_id: UUID) -> tuple[WorkRelation, ...]:
         return self._relations_matching("subject_work_id", work_id)
 

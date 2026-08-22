@@ -10,6 +10,8 @@ from tarkka.application.works import WorkCatalogService, WorkIdentityConflictErr
 from tarkka.infrastructure.bibliography_interchange import BibliographyParseError
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 
+_WORK_CATALOG_FILENAME = "works.json"
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -28,21 +30,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(argv: list[str], home: Path) -> int:
     args = build_parser().parse_args(argv)
-    repository = JsonWorkRepository(home / "works.json")
+    repository = JsonWorkRepository(home / _WORK_CATALOG_FILENAME)
     return int(args.func(args, repository))
 
 
 def _cmd_import(args: argparse.Namespace, work_repository: JsonWorkRepository) -> int:
+    source = args.path.expanduser().resolve()
+    if not source.is_file():
+        print(f"error: bibliography path is not a readable file: {source}", file=sys.stderr)
+        return 2
+
     service = BibliographyImportService(WorkCatalogService(work_repository))
     try:
-        result = service.import_file(args.path)
+        result = service.import_file(source)
     except (
         BibliographyParseError,
         WorkIdentityConflictError,
         FileNotFoundError,
         OSError,
         RuntimeError,
-        ValueError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

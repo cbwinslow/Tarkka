@@ -181,7 +181,7 @@ class HttpAcquisitionService:
         hostname = urlsplit(normalize_http_uri(uri)).hostname
         if hostname is None:
             raise ValueError("HTTP request URI has no hostname")
-        addresses = self._resolver.resolve(hostname)
+        addresses = self._resolver.resolve(hostname, timeout_seconds=timeout_seconds)
         timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
         if not addresses:
             raise ValueError("HTTP hostname resolution returned no addresses")

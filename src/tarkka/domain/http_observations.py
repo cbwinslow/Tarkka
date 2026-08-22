@@ -54,6 +54,17 @@ _SENSITIVE_QUERY_KEYS = frozenset(
         "x-amz-signature",
     }
 )
+_SENSITIVE_KEY_FRAGMENTS = (
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "credential",
+    "signature",
+    "authorization",
+    "apikey",
+    "session",
+)
 _REDACTED = "[REDACTED]"
 
 
@@ -180,12 +191,7 @@ class HttpResponseSnapshot:
 
 
 def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
-    """Normalize HTTP(S) URI and redact common credential parameter values.
-
-    This normalization is useful while interpreting source links. For durable network provenance,
-    use :func:`normalize_durable_http_uri`, which redacts every query value because arbitrary
-    parameter names can carry credentials.
-    """
+    """Normalize an HTTP(S) URI while removing credential-bearing parameter values."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-blank absolute HTTP(S) URI")
     candidate = value.strip()
@@ -209,25 +215,13 @@ def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
 
 
 def normalize_durable_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
-    """Normalize a URI for durable network provenance without persisting query values.
+    """Normalize secret-safe durable HTTP provenance without collapsing resource identity.
 
-    Parameter names and multiplicity remain visible, but every query value is redacted. This is
-    intentionally stricter than key-based sanitization because signed URLs and OAuth callbacks
-    can carry secrets under arbitrary parameter names or nested URL values.
+    Benign parameter values are retained because they can distinguish resources. Credential-like
+    keys are redacted conservatively, including common key-name variants and secrets nested inside
+    URL-valued parameters such as ``next`` or ``redirect_uri``.
     """
-    normalized = normalize_http_uri(value, field_name=field_name)
-    parsed = urlsplit(normalized)
-    query = urlencode(
-        [(key, _REDACTED) for key, _ in parse_qsl(parsed.query, keep_blank_values=True)],
-        doseq=True,
-    )
-    fragment = parsed.fragment
-    if "=" in fragment:
-        fragment = urlencode(
-            [(key, _REDACTED) for key, _ in parse_qsl(fragment, keep_blank_values=True)],
-            doseq=True,
-        )
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, fragment))
+    return normalize_http_uri(value, field_name=field_name)
 
 
 def _sanitize_fragment(fragment: str) -> str:
@@ -239,10 +233,50 @@ def _sanitize_fragment(fragment: str) -> str:
 def _sanitize_parameter_string(value: str) -> str:
     return urlencode(
         [
-            (key, _REDACTED if key.lower() in _SENSITIVE_QUERY_KEYS else item)
+            (key, _sanitize_parameter_value(key, item))
             for key, item in parse_qsl(value, keep_blank_values=True)
         ],
         doseq=True,
+    )
+
+
+def _sanitize_parameter_value(key: str, value: str) -> str:
+    if _is_sensitive_query_key(key):
+        return _REDACTED
+    nested = _sanitize_nested_uri(value)
+    return nested if nested is not None else value
+
+
+def _is_sensitive_query_key(key: str) -> bool:
+    normalized = key.strip().lower()
+    if normalized in _SENSITIVE_QUERY_KEYS:
+        return True
+    compact = "".join(character for character in normalized if character.isalnum())
+    return any(fragment in compact for fragment in _SENSITIVE_KEY_FRAGMENTS)
+
+
+def _sanitize_nested_uri(value: str) -> str | None:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+
+    if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+        return normalize_http_uri(value, field_name="nested HTTP URI")
+
+    is_relative_uri = not parsed.scheme and (
+        parsed.path.startswith(("/", "./", "../")) or bool(parsed.query) or bool(parsed.fragment)
+    )
+    if not is_relative_uri or not (parsed.query or "=" in parsed.fragment):
+        return None
+    return urlunsplit(
+        (
+            "",
+            "",
+            parsed.path,
+            _sanitize_parameter_string(parsed.query),
+            _sanitize_fragment(parsed.fragment),
+        )
     )
 
 

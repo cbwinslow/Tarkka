@@ -80,14 +80,39 @@ def test_repeated_marker_across_passages_remains_uncontextualized() -> None:
     assert build_citation_contexts(document, (mention,)) == ()
 
 
+def test_repeated_marker_within_passage_remains_uncontextualized() -> None:
+    document = _document("See [1] and [1] again.")
+    mention = CitationMention(
+        mention_id=uuid4(),
+        document_id=document.document_id,
+        raw_text="[1]",
+    )
+
+    assert build_citation_contexts(document, (mention,)) == ()
+
+
+def test_overlapping_marker_occurrences_remain_uncontextualized() -> None:
+    document = _document("aaaa")
+    mention = CitationMention(
+        mention_id=uuid4(),
+        document_id=document.document_id,
+        raw_text="aaa",
+    )
+
+    assert build_citation_contexts(document, (mention,)) == ()
+
+
 def test_explicit_passage_anchor_wins_over_other_marker_occurrences() -> None:
     document = _document("Prior work [1].", "Target work [1].")
     passage = document.sections[0].passages[1]
+    marker_start = passage.text.index("[1]")
     mention = CitationMention(
         mention_id=uuid4(),
         document_id=document.document_id,
         raw_text="[1]",
         passage_id=passage.passage_id,
+        char_start=passage.char_start + marker_start,
+        char_end=passage.char_start + marker_start + 3,
     )
 
     context = build_citation_contexts(document, (mention,))[0]
@@ -106,6 +131,36 @@ def test_invalid_explicit_passage_anchor_fails_closed() -> None:
     )
 
     with pytest.raises(ValueError, match="unknown passage"):
+        build_citation_contexts(document, (mention,))
+
+
+def test_explicit_anchor_with_missing_marker_fails_closed() -> None:
+    document = _document("Target work without marker.")
+    passage = document.sections[0].passages[0]
+    mention = CitationMention(
+        mention_id=uuid4(),
+        document_id=document.document_id,
+        raw_text="[1]",
+        passage_id=passage.passage_id,
+    )
+
+    with pytest.raises(ValueError, match="raw_text is absent"):
+        build_citation_contexts(document, (mention,))
+
+
+def test_explicit_anchor_with_inconsistent_character_range_fails_closed() -> None:
+    document = _document("Target work [1].")
+    passage = document.sections[0].passages[0]
+    mention = CitationMention(
+        mention_id=uuid4(),
+        document_id=document.document_id,
+        raw_text="[1]",
+        passage_id=passage.passage_id,
+        char_start=0,
+        char_end=3,
+    )
+
+    with pytest.raises(ValueError, match="does not match anchored passage text"):
         build_citation_contexts(document, (mention,))
 
 

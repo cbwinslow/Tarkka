@@ -81,29 +81,24 @@ class CitationTraversalService:
                 if self._has_unseen_relation(frontier, seen_relations, selected)
                 else None
             )
-            return CitationTraversalResult(
-                root_work_id=root_work_id,
-                work_ids=(root_work_id,),
-                relations=(),
-                max_depth_reached=0,
-                stopped_by=stopped,
-            )
+            return _result(root_work_id, ordered_works, ordered_relations, 0, stopped)
 
         for depth in range(selected.max_depth):
+            if len(ordered_relations) == selected.max_relations:
+                if self._has_unseen_relation(frontier, seen_relations, selected):
+                    return _result(
+                        root_work_id,
+                        ordered_works,
+                        ordered_relations,
+                        reached_depth,
+                        TraversalLimit.RELATIONS,
+                    )
+                break
+
             next_frontier: set[UUID] = set()
+            frontier_exhausted = False
             for work_id in sorted(frontier, key=str):
                 remaining_relations = selected.max_relations - len(ordered_relations)
-                if remaining_relations == 0:
-                    if self._has_unseen_relation((work_id,), seen_relations, selected):
-                        return _result(
-                            root_work_id,
-                            ordered_works,
-                            ordered_relations,
-                            reached_depth,
-                            TraversalLimit.RELATIONS,
-                        )
-                    continue
-
                 relations = self._relations_for(
                     work_id,
                     selected,
@@ -130,19 +125,22 @@ class CitationTraversalService:
                         ordered_works.append(neighbor)
                         next_frontier.add(neighbor)
 
-                if len(ordered_relations) == selected.max_relations and self._has_unseen_relation(
-                    (work_id,), seen_relations, selected
-                ):
-                    return _result(
-                        root_work_id,
-                        ordered_works,
-                        ordered_relations,
-                        reached_depth,
-                        TraversalLimit.RELATIONS,
-                    )
+                if len(ordered_relations) == selected.max_relations:
+                    if self._has_unseen_relation(frontier, seen_relations, selected):
+                        return _result(
+                            root_work_id,
+                            ordered_works,
+                            ordered_relations,
+                            reached_depth,
+                            TraversalLimit.RELATIONS,
+                        )
+                    frontier_exhausted = True
+                    break
 
             reached_depth = depth + 1
             frontier = tuple(sorted(next_frontier, key=str))
+            if frontier_exhausted and not frontier:
+                break
             if not frontier:
                 break
         else:

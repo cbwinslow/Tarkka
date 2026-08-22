@@ -43,16 +43,31 @@ class NativeDocumentParseResult:
         if any(context.mention_id not in mention_ids for context in self.contexts):
             raise ValueError("native parse contexts must refer to parsed citation mentions")
 
-        passage_ids = {
-            passage.passage_id
+        sections = {section.section_id: section for section in self.document.sections}
+        passages = {
+            passage.passage_id: passage
             for section in self.document.sections
             for passage in section.passages
         }
-        if any(
-            context.passage_id is not None and context.passage_id not in passage_ids
-            for context in self.contexts
-        ):
-            raise ValueError("native parse contexts must refer to parsed document passages")
+        for context in self.contexts:
+            if context.section_id is not None and context.section_id not in sections:
+                raise ValueError("native parse contexts must refer to parsed document sections")
+            # Parser-native contexts may describe a source-local window that has no normalized
+            # passage anchor yet. Once passage_id is supplied, however, correspondence is exact.
+            if context.passage_id is None:
+                continue
+            passage = passages.get(context.passage_id)
+            if passage is None:
+                raise ValueError("native parse contexts must refer to parsed document passages")
+            if context.section_id != passage.section_id:
+                raise ValueError("native parse context section must match anchored passage")
+            if (
+                context.text != passage.text
+                or context.char_start != passage.char_start
+                or context.char_end != passage.char_end
+            ):
+                raise ValueError("native parse context must exactly match anchored passage")
+
         if any(
             link.observation_id != self.observation.observation_id
             for link in self.resource_links

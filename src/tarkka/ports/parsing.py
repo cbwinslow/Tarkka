@@ -53,13 +53,14 @@ class NativeDocumentParseResult:
             if context.section_id is not None and context.section_id not in sections:
                 raise ValueError("native parse contexts must refer to parsed document sections")
             # Parser-native contexts may describe a source-local window that has no normalized
-            # passage anchor yet. Once passage_id is supplied, however, correspondence is exact.
+            # passage anchor yet. Once passage_id is supplied, text/range correspondence is exact;
+            # section_id may be omitted because the passage itself already determines its section.
             if context.passage_id is None:
                 continue
             passage = passages.get(context.passage_id)
             if passage is None:
                 raise ValueError("native parse contexts must refer to parsed document passages")
-            if context.section_id != passage.section_id:
+            if context.section_id is not None and context.section_id != passage.section_id:
                 raise ValueError("native parse context section must match anchored passage")
             if (
                 context.text != passage.text

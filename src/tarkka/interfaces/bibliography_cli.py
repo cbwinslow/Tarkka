@@ -26,9 +26,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(argv: list[str], work_repository: JsonWorkRepository) -> int:
+def run(argv: list[str], home: Path) -> int:
     args = build_parser().parse_args(argv)
-    return int(args.func(args, work_repository))
+    repository = JsonWorkRepository(home / "works.json")
+    return int(args.func(args, repository))
 
 
 def _cmd_import(args: argparse.Namespace, work_repository: JsonWorkRepository) -> int:

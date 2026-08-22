@@ -91,6 +91,17 @@ def test_repeated_marker_within_passage_remains_uncontextualized() -> None:
     assert build_citation_contexts(document, (mention,)) == ()
 
 
+def test_ambiguous_passage_plus_unique_passage_remains_uncontextualized() -> None:
+    document = _document("See [1] and [1] again.", "Another [1].")
+    mention = CitationMention(
+        mention_id=uuid4(),
+        document_id=document.document_id,
+        raw_text="[1]",
+    )
+
+    assert build_citation_contexts(document, (mention,)) == ()
+
+
 def test_overlapping_marker_occurrences_remain_uncontextualized() -> None:
     document = _document("aaaa")
     mention = CitationMention(

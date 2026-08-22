@@ -41,7 +41,16 @@ def test_bibtex_preserves_native_fields_macros_and_identifiers() -> None:
 
 
 def test_ris_preserves_repeated_fields_and_continuations() -> None:
-    text = """TY  - JOUR\nID  - local-1\nTI  - Evidence across\n      multiple lines\nAU  - Smith, Jane\nAU  - Doe, John\nPY  - 2023/05/01\nDO  - 10.1000/ris\nER  -\n"""
+    text = """TY  - JOUR
+ID  - local-1
+TI  - Evidence across
+      multiple lines
+AU  - Smith, Jane
+AU  - Doe, John
+PY  - 2023/05/01
+DO  - 10.1000/ris
+ER  -
+"""
 
     record = parse_ris(text)[0]
 

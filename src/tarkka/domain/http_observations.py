@@ -44,8 +44,15 @@ class HttpResponseSnapshot:
         for name, values in self.headers.items():
             if not isinstance(name, str) or not name.strip():
                 raise ValueError("HTTP header names must be non-blank strings")
+            if isinstance(values, (str, bytes)):
+                raise ValueError("HTTP header values must be non-empty string sequences")
             normalized_name = name.strip().lower()
-            normalized_values = tuple(values)
+            try:
+                normalized_values = tuple(values)
+            except TypeError as exc:
+                raise ValueError(
+                    "HTTP header values must be non-empty string sequences"
+                ) from exc
             if not normalized_values or any(
                 not isinstance(value, str) for value in normalized_values
             ):

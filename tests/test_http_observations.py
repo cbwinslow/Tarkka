@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -20,7 +21,7 @@ from tarkka.infrastructure.storage.json_source_observation_repository import (
 _ARTIFACT_ID = UUID("00000000-0000-0000-0000-000000000111")
 
 
-def test_http_snapshot_projects_to_deterministic_source_observation(tmp_path) -> None:
+def test_http_snapshot_projects_to_deterministic_source_observation(tmp_path: Path) -> None:
     snapshot = HttpResponseSnapshot(
         requested_uri="https://example.org/article",
         final_uri="https://www.example.org/article",
@@ -63,6 +64,49 @@ def test_http_snapshot_projects_to_deterministic_source_observation(tmp_path) ->
     assert restored.observed_at == observation.observed_at
 
 
+def test_durable_http_snapshot_redacts_credentials_and_drops_sensitive_headers(
+    tmp_path: Path,
+) -> None:
+    first = HttpResponseSnapshot(
+        requested_uri=" https://user:pass@EXAMPLE.org:443/article?token=secret&view=full ",
+        final_uri="https://example.org/article?x-amz-signature=abc&view=full",
+        status_code=200,
+        headers={
+            "Content-Type": ("text/html",),
+            "Set-Cookie": ("session=top-secret",),
+            "WWW-Authenticate": ("Bearer secret",),
+        },
+        observed_at=datetime(2026, 8, 22, tzinfo=UTC),
+    )
+    second = HttpResponseSnapshot(
+        requested_uri="https://example.org/article?token=different&view=full",
+        final_uri="https://EXAMPLE.org:443/article?x-amz-signature=different&view=full",
+        status_code=200,
+        headers={"Content-Type": ("text/html",)},
+        observed_at=datetime(2026, 8, 23, tzinfo=UTC),
+    )
+
+    first_observation = first.to_source_observation(native_artifact_id=_ARTIFACT_ID)
+    second_observation = second.to_source_observation(native_artifact_id=_ARTIFACT_ID)
+
+    assert first.requested_uri == (
+        "https://example.org/article?token=%5BREDACTED%5D&view=full"
+    )
+    assert first.final_uri == (
+        "https://example.org/article?x-amz-signature=%5BREDACTED%5D&view=full"
+    )
+    assert first.headers == {"content-type": ("text/html",)}
+    assert first_observation.observation_id == second_observation.observation_id
+
+    repository = JsonSourceObservationRepository(tmp_path / "observations.json")
+    repository.save_observation(first_observation)
+    persisted = (tmp_path / "observations.json").read_text(encoding="utf-8")
+    assert "top-secret" not in persisted
+    assert "session=" not in persisted
+    assert "user:pass" not in persisted
+    assert "secret" not in persisted
+
+
 def test_http_snapshot_identity_changes_when_transport_facts_change() -> None:
     base = HttpResponseSnapshot(
         requested_uri="https://example.org/a",
@@ -88,13 +132,39 @@ def test_http_snapshot_rejects_invalid_transport_metadata() -> None:
     with pytest.raises(ValueError, match="status code"):
         HttpResponseSnapshot("https://example.org/a", "https://example.org/a", 700)
     with pytest.raises(ValueError, match="discovery depth"):
-        HttpResponseSnapshot("https://example.org/a", "https://example.org/a", 200, depth=1.5)  # type: ignore[arg-type]
+        HttpResponseSnapshot(
+            "https://example.org/a",
+            "https://example.org/a",
+            200,
+            depth=1.5,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="headers must be a mapping"):
+        HttpResponseSnapshot(
+            "https://example.org/a",
+            "https://example.org/a",
+            200,
+            headers=None,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="header values"):
+        HttpResponseSnapshot(
+            "https://example.org/a",
+            "https://example.org/a",
+            200,
+            headers={"Content-Type": "text/html"},  # type: ignore[dict-item]
+        )
     with pytest.raises(ValueError, match="repeat after case normalization"):
         HttpResponseSnapshot(
             "https://example.org/a",
             "https://example.org/a",
             200,
             headers={"Content-Type": ("text/html",), "content-type": ("text/plain",)},
+        )
+    with pytest.raises(ValueError, match="redirect chain"):
+        HttpResponseSnapshot(
+            "https://example.org/a",
+            "https://example.org/a",
+            200,
+            redirect_chain="https://example.org/a",  # type: ignore[arg-type]
         )
     with pytest.raises(ValueError, match="end at final URI"):
         HttpResponseSnapshot(
@@ -103,6 +173,37 @@ def test_http_snapshot_rejects_invalid_transport_metadata() -> None:
             200,
             redirect_chain=("https://example.org/b",),
         )
+    with pytest.raises(ValueError, match="observed_at must be a datetime"):
+        HttpResponseSnapshot(
+            "https://example.org/a",
+            "https://example.org/a",
+            200,
+            observed_at="now",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="timezone-aware"):
+        HttpResponseSnapshot(
+            "https://example.org/a",
+            "https://example.org/a",
+            200,
+            observed_at=datetime(2026, 8, 22),
+        )
+    with pytest.raises(ValueError, match="media type"):
+        HttpResponseSnapshot(
+            "https://example.org/a",
+            "https://example.org/a",
+            200,
+            headers={"Content-Type": ("; charset=utf-8",)},
+        )
+
+
+def test_http_snapshot_rejects_invalid_artifact_identifier() -> None:
+    snapshot = HttpResponseSnapshot(
+        "https://example.org/a",
+        "https://example.org/a",
+        200,
+    )
+    with pytest.raises(ValueError, match="artifact ID"):
+        snapshot.to_source_observation(native_artifact_id="not-a-uuid")  # type: ignore[arg-type]
 
 
 def test_content_router_uses_parser_manifests_without_crawler_specific_logic() -> None:
@@ -161,7 +262,18 @@ def test_content_router_returns_all_matching_parsers_deterministically() -> None
 
 def test_content_router_rejects_malformed_media_types() -> None:
     router = ContentRouter(())
-    with pytest.raises(ValueError, match="non-blank"):
-        router.route(" ")
-    with pytest.raises(ValueError, match="type/subtype"):
-        router.route("html")
+    for malformed in (" ", "html", "text/html/foo", "text//html", "text/html/"):
+        with pytest.raises(ValueError, match="media type"):
+            router.route(malformed)
+
+
+def test_content_router_rejects_invalid_parser_manifest_media_type_at_registration() -> None:
+    invalid = CapabilityManifest(
+        adapter_name="broken",
+        adapter_kind=AdapterKind.PARSER,
+        version="1",
+        capabilities=frozenset({Capability.PARSE}),
+        media_types=frozenset({"invalid"}),
+    )
+    with pytest.raises(ValueError, match="media type"):
+        ContentRouter((invalid,))

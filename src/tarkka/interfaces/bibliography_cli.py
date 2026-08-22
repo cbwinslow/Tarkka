@@ -30,11 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(argv: list[str], home: Path) -> int:
     args = build_parser().parse_args(argv)
-    repository = JsonWorkRepository(home / _WORK_CATALOG_FILENAME)
-    return int(args.func(args, repository))
+    return int(args.func(args, home))
 
 
-def _cmd_import(args: argparse.Namespace, work_repository: JsonWorkRepository) -> int:
+def _cmd_import(args: argparse.Namespace, home: Path) -> int:
     try:
         source = args.path.expanduser().resolve()
         if not source.exists():
@@ -44,7 +43,8 @@ def _cmd_import(args: argparse.Namespace, work_repository: JsonWorkRepository) -
             print(f"error: bibliography path is not a file: {source}", file=sys.stderr)
             return 2
 
-        service = BibliographyImportService(WorkCatalogService(work_repository))
+        repository = JsonWorkRepository(home / _WORK_CATALOG_FILENAME)
+        service = BibliographyImportService(WorkCatalogService(repository))
         result = service.import_file(source)
     except (
         BibliographyParseError,

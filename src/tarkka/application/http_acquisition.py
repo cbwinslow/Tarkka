@@ -195,12 +195,15 @@ class HttpAcquisitionService:
         remaining_bytes = policy.max_bytes - checkpoint.budget.bytes_used
         if remaining_bytes < 0:
             raise ValueError("HTTP acquisition byte budget is already exceeded")
-        return self._transport.request(
+        response = self._transport.request(
             uri=uri,
             resolved_address=resolved_address,
             max_response_bytes=remaining_bytes,
             timeout_seconds=timeout_seconds,
         )
+        if len(response.body) > remaining_bytes:
+            raise ValueError("HTTP transport returned a body larger than its requested cap")
+        return response
 
     def _finish(
         self,
@@ -340,7 +343,11 @@ def _redirect_location(response: HttpTransportResponse) -> str | None:
     values = response.headers.get("location")
     if not values:
         return None
-    value = values[-1].strip()
+    if len(values) != 1:
+        raise ValueError("HTTP redirect response must contain exactly one Location header")
+    value = values[0].strip()
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        raise ValueError("HTTP redirect Location must not contain control characters")
     return value or None
 
 

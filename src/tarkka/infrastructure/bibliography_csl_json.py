@@ -5,6 +5,7 @@ from typing import Any
 
 from tarkka.domain.bibliography import BibliographyFormat, BibliographyRecord
 from tarkka.infrastructure.bibliography_common import optional_text, required_text, stable_key, year
+from tarkka.infrastructure.bibliography_doi import normalize_doi_identity
 from tarkka.infrastructure.bibliography_errors import BibliographyParseError
 
 
@@ -31,12 +32,16 @@ def parse_csl_json(text: str) -> tuple[BibliographyRecord, ...]:
         if not isinstance(raw, dict):
             raise BibliographyParseError(f"CSL-JSON item {ordinal} must be an object")
         title = required_text(raw.get("title"), f"CSL-JSON item {ordinal} title")
-        source_key = optional_text(raw.get("id")) or stable_key("csl-json", ordinal, raw)
+        source_key = _csl_id(raw.get("id")) or stable_key("csl-json", ordinal, raw)
         entry_type = required_text(raw.get("type"), f"CSL-JSON item {ordinal} type")
         authors = _csl_authors(raw.get("author"))
         issued_year = _csl_year(raw.get("issued")) or year(raw.get("published"))
-        doi = optional_text(raw.get("DOI")) or optional_text(raw.get("doi"))
         url = optional_text(raw.get("URL")) or optional_text(raw.get("url"))
+        doi = normalize_doi_identity(
+            label=f"CSL-JSON item {source_key!r}",
+            explicit_doi=optional_text(raw.get("DOI")) or optional_text(raw.get("doi")),
+            url=url,
+        )
         records.append(
             BibliographyRecord(
                 source_format=BibliographyFormat.CSL_JSON,
@@ -51,6 +56,14 @@ def parse_csl_json(text: str) -> tuple[BibliographyRecord, ...]:
             )
         )
     return tuple(records)
+
+
+def _csl_id(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return str(value)
+    return optional_text(value)
 
 
 def _csl_authors(value: Any) -> tuple[str, ...]:

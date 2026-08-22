@@ -10,9 +10,10 @@ from typing import Protocol
 class HttpTransportResponse:
     """One redirect-disabled HTTP exchange returned by an injected transport.
 
-    A transport that observes a response larger than ``max_response_bytes`` must either raise
-    before returning or set ``limit_exceeded=True``. It must never silently truncate a response
-    while reporting success.
+    ``body`` must never contain more than the caller's ``max_response_bytes``. When a
+    transport observes evidence that the response is larger than that cap, it must either
+    raise before returning or return the capped body with ``limit_exceeded=True``. A transport
+    must never silently truncate while reporting success.
     """
 
     status_code: int
@@ -65,8 +66,9 @@ class HttpTransport(Protocol):
     Implementations must not follow redirects automatically. ``resolved_address`` must be
     the address actually used for the connection, preventing a second uncontrolled DNS lookup
     from bypassing SSRF checks. ``timeout_seconds`` is the remaining traversal elapsed-time
-    budget for this exchange when one is configured. Oversized responses must be rejected or
-    returned with ``limit_exceeded=True``; silent truncation is forbidden.
+    budget for this exchange when one is configured. Returned ``body`` bytes must never exceed
+    ``max_response_bytes``. If the remote body is larger, the transport must reject it or return
+    the capped body with ``limit_exceeded=True``; silent truncation is forbidden.
     """
 
     def request(

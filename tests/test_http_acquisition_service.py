@@ -208,6 +208,50 @@ def test_redirects_are_revalidated_re_resolved_and_charged_per_hop(tmp_path: Pat
     assert artifacts.read_bytes(result.artifact) == b"done"
 
 
+def test_multiple_location_headers_fail_closed_without_followup_request(tmp_path: Path) -> None:
+    checkpoint, target_id = _checkpoint("https://example.org/start")
+    resolver = _Resolver({"example.org": (_PUBLIC_ADDRESS,)})
+    transport = _Transport(
+        [
+            HttpTransportResponse(
+                status_code=302,
+                headers={"Location": ("/first", "/second")},
+                body=b"go",
+            )
+        ]
+    )
+    service, _, _, _ = _service(tmp_path, resolver=resolver, transport=transport)
+
+    with pytest.raises(HttpAcquisitionError) as caught:
+        service.acquire(checkpoint, target_id, _policy())
+
+    assert resolver.calls == ["example.org"]
+    assert len(transport.calls) == 1
+    assert caught.value.checkpoint.budget.requests_used == 1
+    assert caught.value.checkpoint.budget.bytes_used == 2
+    assert caught.value.checkpoint.targets[0].status is TraversalStatus.FAILED
+
+
+def test_redirect_location_rejects_control_characters(tmp_path: Path) -> None:
+    checkpoint, target_id = _checkpoint("https://example.org/start")
+    resolver = _Resolver({"example.org": (_PUBLIC_ADDRESS,)})
+    transport = _Transport(
+        [
+            HttpTransportResponse(
+                status_code=302,
+                headers={"Location": ("/first\tsecond",)},
+                body=b"go",
+            )
+        ]
+    )
+    service, _, _, _ = _service(tmp_path, resolver=resolver, transport=transport)
+
+    with pytest.raises(HttpAcquisitionError):
+        service.acquire(checkpoint, target_id, _policy())
+
+    assert len(transport.calls) == 1
+
+
 def test_disallowed_dns_addresses_fail_before_transport_connection(tmp_path: Path) -> None:
     checkpoint, target_id = _checkpoint("https://example.org/private")
     resolver = _Resolver({"example.org": ("127.0.0.1", "169.254.1.2")})
@@ -276,7 +320,9 @@ def test_redirect_limit_fails_after_accounting_first_response(tmp_path: Path) ->
 def test_transport_overflow_is_charged_then_failed_without_artifact(tmp_path: Path) -> None:
     checkpoint, target_id = _checkpoint("https://example.org/large")
     resolver = _Resolver({"example.org": (_PUBLIC_ADDRESS,)})
-    transport = _Transport([HttpTransportResponse(status_code=200, body=b"123456")])
+    transport = _Transport(
+        [HttpTransportResponse(status_code=200, body=b"12345", limit_exceeded=True)]
+    )
     service, checkpoints, observations, _ = _service(
         tmp_path,
         resolver=resolver,
@@ -288,8 +334,8 @@ def test_transport_overflow_is_charged_then_failed_without_artifact(tmp_path: Pa
 
     failed = caught.value.checkpoint
     assert transport.calls[0]["max_response_bytes"] == 5
-    assert failed.budget.bytes_used == 6
-    assert failed.targets[0].bytes_acquired == 6
+    assert failed.budget.bytes_used == 5
+    assert failed.targets[0].bytes_acquired == 5
     assert failed.targets[0].status is TraversalStatus.FAILED
     assert checkpoints.get(_CHECKPOINT_ID) == failed
     assert observations.list_resource_links(UUID(int=0)) == ()

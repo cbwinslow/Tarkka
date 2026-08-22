@@ -30,9 +30,16 @@ class _Resolver:
     def __init__(self, values: dict[str, tuple[str, ...]]) -> None:
         self.values = values
         self.calls: list[str] = []
+        self.timeouts: list[float | None] = []
 
-    def resolve(self, hostname: str) -> tuple[str, ...]:
+    def resolve(
+        self,
+        hostname: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[str, ...]:
         self.calls.append(hostname)
+        self.timeouts.append(timeout_seconds)
         return self.values.get(hostname, ())
 
 
@@ -164,6 +171,7 @@ def test_acquires_artifact_and_persists_only_sanitized_http_provenance(tmp_path:
     assert result.observation.metadata["requested_uri"] == result.artifact.source_uri
     assert observations.get_observation(result.observation.observation_id) == result.observation
     assert checkpoints.get(_CHECKPOINT_ID) == result.checkpoint
+    assert resolver.timeouts == [60.0]
     assert transport.calls[0]["uri"] == raw_uri
     assert transport.calls[0]["resolved_address"] == _PUBLIC_ADDRESS
     assert transport.calls[0]["timeout_seconds"] == 60.0
@@ -193,6 +201,7 @@ def test_redirects_are_revalidated_re_resolved_and_charged_per_hop(tmp_path: Pat
     result = service.acquire(checkpoint, target_id, _policy())
 
     assert resolver.calls == ["example.org", "example.org"]
+    assert resolver.timeouts == [60.0, 60.0]
     assert [call["uri"] for call in transport.calls] == [
         "https://example.org/start",
         "https://example.org/final",

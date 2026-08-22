@@ -27,8 +27,7 @@ class SystemHostResolver:
             )
         except socket.gaierror as exc:
             raise OSError("unable to resolve HTTP hostname") from exc
-        addresses = tuple(dict.fromkeys(record[4][0] for record in records))
-        return addresses
+        return tuple(dict.fromkeys(str(record[4][0]) for record in records))
 
 
 class PinnedHttpTransport:
@@ -143,7 +142,6 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
         self.sock = socket.create_connection(
             (self._resolved_address, self.port),
             self.timeout,
-            self.source_address,
         )
 
 
@@ -159,15 +157,18 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     ) -> None:
         super().__init__(host, port=port, timeout=timeout, context=context)
         self._resolved_address = resolved_address
+        self._ssl_context = context
 
     def connect(self) -> None:
         raw_socket = socket.create_connection(
             (self._resolved_address, self.port),
             self.timeout,
-            self.source_address,
         )
         try:
-            self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+            self.sock = self._ssl_context.wrap_socket(
+                raw_socket,
+                server_hostname=self.host,
+            )
         except Exception:
             raw_socket.close()
             raise

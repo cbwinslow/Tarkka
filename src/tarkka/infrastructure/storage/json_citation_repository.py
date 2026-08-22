@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import heapq
 import json
 import os
 import tempfile
@@ -122,20 +123,67 @@ class JsonCitationRepository:
         payload = self._read()["relations"].get(str(relation_id))
         return _relation_from_dict(payload) if payload is not None else None
 
-    def list_relations_from(self, work_id: UUID) -> tuple[WorkRelation, ...]:
-        return self._relations_matching("subject_work_id", work_id)
+    def list_relations_from(
+        self,
+        work_id: UUID,
+        *,
+        kinds: frozenset[WorkRelationKind] | None = None,
+        exclude_ids: frozenset[UUID] = frozenset(),
+        limit: int | None = None,
+    ) -> tuple[WorkRelation, ...]:
+        return self._relations_matching(
+            "subject_work_id",
+            work_id,
+            kinds=kinds,
+            exclude_ids=exclude_ids,
+            limit=limit,
+        )
 
-    def list_relations_to(self, work_id: UUID) -> tuple[WorkRelation, ...]:
-        return self._relations_matching("object_work_id", work_id)
+    def list_relations_to(
+        self,
+        work_id: UUID,
+        *,
+        kinds: frozenset[WorkRelationKind] | None = None,
+        exclude_ids: frozenset[UUID] = frozenset(),
+        limit: int | None = None,
+    ) -> tuple[WorkRelation, ...]:
+        return self._relations_matching(
+            "object_work_id",
+            work_id,
+            kinds=kinds,
+            exclude_ids=exclude_ids,
+            limit=limit,
+        )
 
-    def _relations_matching(self, field: str, work_id: UUID) -> tuple[WorkRelation, ...]:
-        values = [
+    def _relations_matching(
+        self,
+        field: str,
+        work_id: UUID,
+        *,
+        kinds: frozenset[WorkRelationKind] | None,
+        exclude_ids: frozenset[UUID],
+        limit: int | None,
+    ) -> tuple[WorkRelation, ...]:
+        if limit is not None and limit < 0:
+            raise ValueError("relation query limit must be non-negative")
+        if limit == 0:
+            return ()
+        allowed_values = {kind.value for kind in kinds} if kinds is not None else None
+        excluded = {str(item) for item in exclude_ids}
+        work_key = str(work_id)
+        raw_relations = self._read()["relations"].values()
+        candidates = (
             _relation_from_dict(item)
-            for item in self._read()["relations"].values()
-            if item[field] == str(work_id)
-        ]
-        values.sort(key=lambda item: (item.kind.value, str(item.relation_id)))
-        return tuple(values)
+            for item in raw_relations
+            if item[field] == work_key
+            and item["relation_id"] not in excluded
+            and (allowed_values is None or item["kind"] in allowed_values)
+        )
+        if limit is None:
+            return tuple(sorted(candidates, key=_relation_sort_key))
+        # The JSON catalog is not indexed, so deterministic top-N still scans candidate rows.
+        # nsmallest keeps extra memory O(limit); SQL adapters should use ORDER BY ... LIMIT.
+        return tuple(heapq.nsmallest(limit, candidates, key=_relation_sort_key))
 
     def _save(self, bucket: str, stable_id: UUID, payload: dict[str, Any]) -> None:
         key = str(stable_id)
@@ -333,6 +381,15 @@ def _relation_from_dict(raw: dict[str, Any]) -> WorkRelation:
         source_document_id=_optional_uuid(raw.get("source_document_id")),
         source_reference_id=_optional_uuid(raw.get("source_reference_id")),
         created_at=datetime.fromisoformat(raw["created_at"]),
+    )
+
+
+def _relation_sort_key(relation: WorkRelation) -> tuple[str, str, str, str]:
+    return (
+        relation.kind.value,
+        str(relation.subject_work_id),
+        str(relation.object_work_id),
+        str(relation.relation_id),
     )
 
 

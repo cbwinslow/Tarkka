@@ -29,13 +29,17 @@ def _policy(**overrides: object) -> ResourceAcquisitionPolicy:
 
 
 def test_enqueue_normalizes_deduplicates_and_preserves_multi_source_provenance() -> None:
-    checkpoint = TraversalCheckpoint(_CHECKPOINT_ID)
+    checkpoint = TraversalCheckpoint(_CHECKPOINT_ID).enqueue(
+        "https://example.org/root",
+        depth=0,
+    )
+    parent_id = checkpoint.targets[0].target_id
     checkpoint = checkpoint.enqueue(
         "HTTPS://EXAMPLE.org:443/paper?token=secret",
         depth=2,
         discovery_link_id=_LINK_A,
+        parent_target_id=parent_id,
     )
-    parent_id = checkpoint.targets[0].target_id
     checkpoint = checkpoint.enqueue(
         "https://example.org/paper?token=different",
         depth=1,
@@ -43,12 +47,27 @@ def test_enqueue_normalizes_deduplicates_and_preserves_multi_source_provenance()
         parent_target_id=parent_id,
     )
 
-    assert len(checkpoint.targets) == 1
-    target = checkpoint.targets[0]
+    assert len(checkpoint.targets) == 2
+    target = checkpoint.targets[1]
     assert target.uri == "https://example.org/paper?token=%5BREDACTED%5D"
     assert target.depth == 1
     assert target.discovery_link_ids == (_LINK_A, _LINK_B)
     assert target.parent_target_ids == (parent_id,)
+
+
+def test_enqueue_rejects_self_parent_provenance() -> None:
+    checkpoint = TraversalCheckpoint(_CHECKPOINT_ID).enqueue(
+        "https://example.org/a",
+        depth=0,
+    )
+    target_id = checkpoint.targets[0].target_id
+
+    with pytest.raises(ValueError, match="own parent"):
+        checkpoint.enqueue(
+            "https://example.org/a",
+            depth=1,
+            parent_target_id=target_id,
+        )
 
 
 def test_next_eligible_reuses_scope_depth_and_request_budget_policy() -> None:
@@ -91,6 +110,27 @@ def test_start_complete_and_retry_transitions_account_for_budget() -> None:
     assert checkpoint.budget.requests_used == 2
     assert checkpoint.budget.bytes_used == 120
     assert checkpoint.budget.elapsed_seconds == 2.5
+
+
+def test_interrupted_request_recovery_preserves_spent_request_budget() -> None:
+    policy = _policy()
+    checkpoint = TraversalCheckpoint(_CHECKPOINT_ID).enqueue(
+        "https://example.org/a",
+        depth=0,
+    )
+    target_id = checkpoint.targets[0].target_id
+    checkpoint = checkpoint.start(target_id, policy)
+
+    recovered = checkpoint.recover_interrupted()
+
+    assert recovered.targets[0].status is TraversalStatus.FAILED
+    assert recovered.targets[0].attempts == 1
+    assert recovered.targets[0].last_error == (
+        "interrupted before request outcome was checkpointed"
+    )
+    assert recovered.budget.requests_used == 1
+    requeued = recovered.requeue_failed(target_id, policy)
+    assert requeued.targets[0].status is TraversalStatus.QUEUED
 
 
 def test_retry_budget_and_rate_limit_fail_closed() -> None:
@@ -149,8 +189,30 @@ def test_json_checkpoint_repository_round_trips_evolving_state(tmp_path: Path) -
 
     assert restored == checkpoint
     assert restored is not None
-    assert restored.next_eligible(policy) is not None
-    assert restored.next_eligible(policy).uri == "https://example.org/child"  # type: ignore[union-attr]
+    next_target = restored.next_eligible(policy)
+    assert next_target is not None
+    assert next_target.uri == "https://example.org/child"
+
+
+def test_repository_round_trip_recovers_interrupted_state(tmp_path: Path) -> None:
+    repository = JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json")
+    policy = _policy()
+    checkpoint = TraversalCheckpoint(_CHECKPOINT_ID).enqueue(
+        "https://example.org/a",
+        depth=0,
+    )
+    target_id = checkpoint.targets[0].target_id
+    repository.save(checkpoint.start(target_id, policy))
+
+    restored = repository.get(_CHECKPOINT_ID)
+    assert restored is not None
+    recovered = restored.recover_interrupted()
+    repository.save(recovered)
+
+    final = repository.get(_CHECKPOINT_ID)
+    assert final == recovered
+    assert final is not None
+    assert final.targets[0].status is TraversalStatus.FAILED
 
 
 def test_checkpoint_rejects_invalid_transitions_and_non_monotonic_time() -> None:

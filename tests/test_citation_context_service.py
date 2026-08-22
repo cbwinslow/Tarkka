@@ -6,7 +6,7 @@ import pytest
 
 from tarkka.application.citation_context import build_citation_contexts
 from tarkka.domain.citations import CitationMention
-from tarkka.domain.models import Artifact, Document, Passage, Section
+from tarkka.domain.models import Document, Passage, Section
 
 
 def _document(*texts: str) -> Document:

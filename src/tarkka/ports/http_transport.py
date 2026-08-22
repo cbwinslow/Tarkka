@@ -8,11 +8,17 @@ from typing import Protocol
 
 @dataclass(frozen=True, slots=True)
 class HttpTransportResponse:
-    """One redirect-disabled HTTP exchange returned by an injected transport."""
+    """One redirect-disabled HTTP exchange returned by an injected transport.
+
+    A transport that observes a response larger than ``max_response_bytes`` must either raise
+    before returning or set ``limit_exceeded=True``. It must never silently truncate a response
+    while reporting success.
+    """
 
     status_code: int
     headers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     body: bytes = b""
+    limit_exceeded: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.status_code, int) or isinstance(self.status_code, bool):
@@ -42,6 +48,8 @@ class HttpTransportResponse:
             normalized_headers[normalized_name] = normalized_values
         if not isinstance(self.body, bytes):
             raise ValueError("transport body must be bytes")
+        if not isinstance(self.limit_exceeded, bool):
+            raise ValueError("transport limit_exceeded must be boolean")
         object.__setattr__(self, "headers", MappingProxyType(normalized_headers))
 
 
@@ -57,7 +65,8 @@ class HttpTransport(Protocol):
     Implementations must not follow redirects automatically. ``resolved_address`` must be
     the address actually used for the connection, preventing a second uncontrolled DNS lookup
     from bypassing SSRF checks. ``timeout_seconds`` is the remaining traversal elapsed-time
-    budget for this exchange when one is configured.
+    budget for this exchange when one is configured. Oversized responses must be rejected or
+    returned with ``limit_exceeded=True``; silent truncation is forbidden.
     """
 
     def request(

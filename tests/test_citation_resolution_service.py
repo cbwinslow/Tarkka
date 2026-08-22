@@ -15,7 +15,10 @@ from tarkka.domain.citations import (
 from tarkka.domain.models import Work
 from tarkka.domain.source_observations import ObservationBasis
 from tarkka.domain.work_identity import WorkIdentifier
-from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
+from tarkka.infrastructure.storage.json_citation_repository import (
+    CitationConflictError,
+    JsonCitationRepository,
+)
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 
 
@@ -223,7 +226,7 @@ def test_document_resolution_rejects_conflicting_relation_provenance(tmp_path: P
         )
     )
 
-    with pytest.raises(RuntimeError, match="conflicts with deterministic relation provenance"):
+    with pytest.raises(CitationConflictError, match="conflicting relation"):
         CitationResolutionService(citations, works).resolve_document(
             reference.document_id,
             citing_work_id=citing.work_id,

@@ -55,9 +55,18 @@ class HttpTransportResponse:
 
 
 class HostResolver(Protocol):
-    """Resolve one DNS hostname immediately before a network connection."""
+    """Resolve one DNS hostname immediately before a network connection.
 
-    def resolve(self, hostname: str) -> tuple[str, ...]: ...
+    ``timeout_seconds`` is the remaining acquisition elapsed-time budget when configured.
+    Implementations must stop waiting and raise when that deadline is exhausted.
+    """
+
+    def resolve(
+        self,
+        hostname: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[str, ...]: ...
 
 
 class HttpTransport(Protocol):

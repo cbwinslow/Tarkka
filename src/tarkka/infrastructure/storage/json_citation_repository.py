@@ -129,9 +129,13 @@ class JsonCitationRepository:
 
     def _read(self) -> dict[str, Any]:
         try:
-            decoded: Any = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"unable to read citation catalog {self.path}: {exc}") from exc
+            raw = self.path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OSError(f"unable to read citation catalog {self.path}: {exc}") from exc
+        try:
+            decoded: Any = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"invalid citation catalog JSON {self.path}: {exc}") from exc
         if not isinstance(decoded, dict):
             raise RuntimeError("invalid citation catalog: root must be an object")
         data = cast(dict[str, Any], decoded)

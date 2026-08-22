@@ -51,12 +51,8 @@ def parse_bibtex(text: str) -> tuple[BibliographyRecord, ...]:
 
 def _field_value(fields: Mapping[str, str], name: str) -> str | None:
     """Read a BibTeX field case-insensitively without rewriting native keys."""
-    result: str | None = None
     folded_name = name.casefold()
-    for key, value in fields.items():
-        if key.casefold() == folded_name:
-            result = value
-    return result
+    return next((value for key, value in fields.items() if key.casefold() == folded_name), None)
 
 
 def _strip_percent_comments(text: str) -> str:
@@ -103,10 +99,10 @@ def _strip_percent_comments(text: str) -> str:
 
 
 def _is_comment_position(brace_depth: int, paren_depth: int) -> bool:
-    """Allow comments outside values, including between fields inside an entry."""
-    return (brace_depth == 0 and paren_depth <= 1) or (
-        paren_depth == 0 and brace_depth <= 1
-    )
+    """Allow comments outside values for either valid entry delimiter style."""
+    in_brace_entry = brace_depth == 1 and paren_depth == 0
+    in_paren_entry = paren_depth == 1 and brace_depth == 0
+    return (brace_depth == 0 and paren_depth == 0) or in_brace_entry or in_paren_entry
 
 
 def _bibtex_entries(text: str) -> tuple[list[tuple[str, str, str]], dict[str, str]]:
@@ -132,6 +128,7 @@ def _bibtex_entries(text: str) -> tuple[list[tuple[str, str, str]], dict[str, st
             continue
         if entry_type == "string":
             macro_fields = _bibtex_fields(body, macros)
+            # Macro lookup is case-insensitive; ordinary field keys retain source casing.
             macros.update({key.lower(): value for key, value in macro_fields.items()})
             continue
         source_key, field_text = _split_bibtex_key(body, entry_type)
@@ -151,6 +148,7 @@ def _split_bibtex_key(body: str, entry_type: str) -> tuple[str, str]:
 
 def _bibtex_fields(text: str, macros: Mapping[str, str]) -> dict[str, str]:
     fields: dict[str, str] = {}
+    folded_keys: set[str] = set()
     cursor = 0
     while cursor < len(text):
         cursor = _skip_space_and_commas(text, cursor)
@@ -160,6 +158,12 @@ def _bibtex_fields(text: str, macros: Mapping[str, str]) -> dict[str, str]:
         if match is None:
             raise BibliographyParseError(f"invalid BibTeX field near {text[cursor:cursor + 30]!r}")
         key = match.group(0)
+        folded_key = key.casefold()
+        if folded_key in folded_keys:
+            raise BibliographyParseError(
+                f"duplicate BibTeX field is ambiguous case-insensitively: {key!r}"
+            )
+        folded_keys.add(folded_key)
         cursor = _skip_space(text, match.end())
         if cursor >= len(text) or text[cursor] != "=":
             raise BibliographyParseError(f"BibTeX field {key!r} is missing '='")
@@ -221,6 +225,7 @@ def _balanced_body(text: str, cursor: int, opener: str, closer: str) -> tuple[st
             escaped = False
         elif char == "\\":
             escaped = True
+        # Paren-delimited entries may contain parentheses inside braced/quoted values.
         elif opener == "(" and char == "{" and not quoted:
             brace_depth += 1
         elif opener == "(" and char == "}" and brace_depth and not quoted:

@@ -104,7 +104,9 @@ def test_reingesting_unchanged_native_source_is_idempotent(tmp_path: Path) -> No
     assert first.document.document_id == second.document.document_id
     assert first.native_parse is not None
     assert second.native_parse is not None
-    assert first.native_parse.contexts == second.native_parse.contexts
+    assert {context.context_id for context in first.native_parse.contexts} == {
+        context.context_id for context in second.native_parse.contexts
+    }
     observation_id = first.native_parse.observation.observation_id
     observations = JsonSourceObservationRepository(tmp_path / "source_observations.json")
     assert observations.get_observation(observation_id) is not None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
+from typing import Any, cast
 from urllib.parse import urljoin
 from uuid import NAMESPACE_URL, UUID, uuid5
 from xml.etree import ElementTree as ET
@@ -30,6 +31,29 @@ class _DiscoveredTarget:
     media_type: str | None
     label: str | None
     metadata: dict[str, str | int | None]
+
+
+class _BoundedTreeBuilder(ET.TreeBuilder):
+    """Tree builder that rejects excessive element counts and nesting while parsing."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._element_count = 0
+        self._depth = 0
+
+    def start(self, tag: str, attrs: dict[str, str]) -> ET.Element:
+        self._element_count += 1
+        self._depth += 1
+        if self._element_count > _MAX_XML_ELEMENTS:
+            raise ValueError("sitemap/feed XML exceeds the element limit")
+        if self._depth > _MAX_XML_DEPTH:
+            raise ValueError("sitemap/feed XML exceeds the nesting-depth limit")
+        return super().start(tag, attrs)
+
+    def end(self, tag: str) -> ET.Element:
+        element = super().end(tag)
+        self._depth -= 1
+        return element
 
 
 class SitemapFeedDiscoverer:
@@ -120,53 +144,17 @@ class SitemapFeedDiscoverer:
 def _parse_bounded_xml(xml: str) -> ET.Element:
     if len(xml) > _MAX_XML_CHARS:
         raise ValueError("sitemap/feed XML exceeds the parser size limit")
-    parser = ET.XMLPullParser(events=("start", "end"))
-    root: ET.Element | None = None
-    element_count = 0
-    depth = 0
+    builder = _BoundedTreeBuilder()
+    parser = ET.XMLParser(target=builder)
     try:
         for start in range(0, len(xml), _XML_CHUNK_CHARS):
             parser.feed(xml[start : start + _XML_CHUNK_CHARS])
-            root, element_count, depth = _consume_xml_events(
-                parser,
-                root=root,
-                element_count=element_count,
-                depth=depth,
-            )
-        parser.close()
-        root, element_count, depth = _consume_xml_events(
-            parser,
-            root=root,
-            element_count=element_count,
-            depth=depth,
-        )
+        root = cast(Any, parser.close())
     except ET.ParseError as exc:
         raise ValueError(f"unable to parse sitemap/feed XML: {exc}") from exc
-    if root is None:
+    if not isinstance(root, ET.Element):
         raise ValueError("unable to parse sitemap/feed XML: document has no root element")
     return root
-
-
-def _consume_xml_events(
-    parser: ET.XMLPullParser,
-    *,
-    root: ET.Element | None,
-    element_count: int,
-    depth: int,
-) -> tuple[ET.Element | None, int, int]:
-    for event, element in parser.read_events():
-        if event == "start":
-            element_count += 1
-            depth += 1
-            if root is None:
-                root = element
-            if element_count > _MAX_XML_ELEMENTS:
-                raise ValueError("sitemap/feed XML exceeds the element limit")
-            if depth > _MAX_XML_DEPTH:
-                raise ValueError("sitemap/feed XML exceeds the nesting-depth limit")
-        else:
-            depth -= 1
-    return root, element_count, depth
 
 
 def _sitemap_urlset(root: ET.Element) -> tuple[_DiscoveredTarget, ...]:

@@ -78,6 +78,26 @@ def test_discovery_is_deterministic_for_same_observation_and_source() -> None:
     assert first[0].target_uri == first[1].target_uri
 
 
+def test_source_order_is_preserved_for_anchor_and_self_closing_link_elements() -> None:
+    html = """
+      <a href="/first">first</a>
+      <link rel="alternate" href="/second" />
+      <a href="/third">third</a>
+    """
+
+    links = HtmlResourceLinkDiscoverer().discover(
+        _observation(),
+        html=html,
+        base_uri="https://example.org/root",
+    )
+
+    assert [item.target_uri for item in links] == [
+        "https://example.org/first",
+        "https://example.org/second",
+        "https://example.org/third",
+    ]
+
+
 def test_fragment_links_are_preserved_as_observed_resource_links() -> None:
     links = HtmlResourceLinkDiscoverer().discover(
         _observation(),

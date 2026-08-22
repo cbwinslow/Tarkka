@@ -25,13 +25,7 @@ class CitationResolutionResult:
 
 
 class CitationResolutionService:
-    """Resolve preserved references through exact canonical identifiers only.
-
-    Repository implementations are responsible for serializing writes to a reference's
-    resolution key. Production SQL adapters should enforce this with a unique constraint and
-    transactional/upsert semantics; the local JSON repository provides the same serialization
-    with its file lock.
-    """
+    """Resolve preserved references through exact canonical identifiers only."""
 
     def __init__(
         self,
@@ -114,18 +108,11 @@ class CitationResolutionService:
         reference: BibliographicReference,
         cited_work_id: UUID,
     ) -> WorkRelation:
-        relation_id = uuid5(
-            NAMESPACE_URL,
-            f"tarkka:cites:{citing_work_id}:{reference.reference_id}:{cited_work_id}",
-        )
-        existing = self._citations.get_relation(relation_id)
-        if existing is not None:
-            # The deterministic relation ID already includes the reference, so repeated
-            # resolution should reuse its original provenance instead of manufacturing a
-            # second edge with the same semantic identity.
-            return existing
         relation = WorkRelation(
-            relation_id=relation_id,
+            relation_id=uuid5(
+                NAMESPACE_URL,
+                f"tarkka:cites:{citing_work_id}:{reference.reference_id}:{cited_work_id}",
+            ),
             subject_work_id=citing_work_id,
             object_work_id=cited_work_id,
             kind=WorkRelationKind.CITES,
@@ -134,6 +121,13 @@ class CitationResolutionService:
             source_document_id=reference.document_id,
             source_reference_id=reference.reference_id,
         )
+        existing = self._citations.get_relation(relation.relation_id)
+        if existing is not None:
+            if not _same_relation(existing, relation):
+                raise RuntimeError(
+                    "stored citation relation conflicts with deterministic relation provenance"
+                )
+            return existing
         self._citations.save_relation(relation)
         return relation
 
@@ -162,10 +156,26 @@ def _same_resolution(left: CitationResolution, right: CitationResolution) -> boo
     # resolved_at is event metadata, not resolution identity. Ignoring it makes repeated
     # deterministic resolution idempotent and preserves the timestamp of the first result.
     return (
-        left.reference_id == right.reference_id
+        left.resolution_id == right.resolution_id
+        and left.reference_id == right.reference_id
         and left.status is right.status
         and left.work_id == right.work_id
         and left.candidate_work_ids == right.candidate_work_ids
         and left.resolver == right.resolver
         and left.source_observation_id == right.source_observation_id
+    )
+
+
+def _same_relation(left: WorkRelation, right: WorkRelation) -> bool:
+    # created_at is event metadata. All identity, direction, kind, basis, and provenance fields
+    # must agree before a deterministic relation can be safely reused.
+    return (
+        left.relation_id == right.relation_id
+        and left.subject_work_id == right.subject_work_id
+        and left.object_work_id == right.object_work_id
+        and left.kind is right.kind
+        and left.basis is right.basis
+        and left.source_observation_id == right.source_observation_id
+        and left.source_document_id == right.source_document_id
+        and left.source_reference_id == right.source_reference_id
     )

@@ -16,14 +16,18 @@ pytestmark = [pytest.mark.unit, pytest.mark.contract]
 def test_system_host_resolver_contract_returns_valid_unique_addresses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Synthetic socket records; no external fixture source or license applies.
     records = [
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
-        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 0, 0, 0)),
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:0db8:0:0:0:0:0:1", 0, 0, 0)),
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::1", 0, 0, 0)),
     ]
     monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: records)
 
-    HostResolverContract.assert_valid_unique_addresses(SystemHostResolver(), "example.org")
+    resolver = SystemHostResolver()
+    HostResolverContract.assert_valid_unique_addresses(resolver, "example.org")
+    assert resolver.resolve("example.org") == ("127.0.0.1", "2001:db8::1")
 
 
 def test_system_host_resolver_contract_rejects_invalid_inputs() -> None:
@@ -45,6 +49,7 @@ def test_system_host_resolver_fails_closed_on_empty_result(
 def test_system_host_resolver_fails_closed_on_malformed_address(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Synthetic malformed socket record; no external fixture source or license applies.
     records = [
         (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("not-an-ip", 0)),
     ]

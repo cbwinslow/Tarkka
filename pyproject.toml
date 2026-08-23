@@ -45,6 +45,8 @@ markers = [
     "integration: collaboration between multiple Tarkka components",
     "regression: a previously observed failure that must not recur",
     "property: property-based invariant tests generated across many inputs",
+    "security: adversarial security and provenance boundary coverage",
+    "slow: intentionally expensive deterministic tests excluded from fast feedback loops",
     "external: opt-in tests requiring network, databases, models, or other services",
 ]
 

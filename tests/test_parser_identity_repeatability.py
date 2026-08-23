@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from tarkka.domain.models import Artifact
+from tarkka.domain.models import Artifact, Document
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.markdown_normalizer import document_from_markdown
 
@@ -27,7 +27,7 @@ def _artifact() -> Artifact:
     )
 
 
-def _document_identity(document: object) -> tuple[object, ...]:
+def _document_identity(document: Document) -> tuple[object, ...]:
     sections = document.sections
     return (
         document.document_id,

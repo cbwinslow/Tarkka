@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 
@@ -77,26 +77,11 @@ def test_identity_decision_log_reopen_preserves_committed_records(tmp_path: Path
     assert [row["matcher_version"] for row in rows] == ["test-v1", "test-v1"]
 
 
-@pytest.mark.parametrize(
-    ("factory", "logger_factory", "id_field"),
-    [
-        (_acquisition, JsonlAcquisitionLog, "acquisition_id"),
-        (_decision, JsonlIdentityDecisionLog, "candidate_id"),
-    ],
-)
-def test_jsonl_audit_logs_keep_concurrent_records_as_complete_json_lines(
-    tmp_path: Path,
-    factory: object,
-    logger_factory: object,
-    id_field: str,
-) -> None:
-    path = tmp_path / f"{id_field}.jsonl"
-    record_factory = factory
-    log_type = logger_factory
+def test_acquisition_log_serializes_concurrent_writers(tmp_path: Path) -> None:
+    path = tmp_path / "acquisitions.jsonl"
 
     def write(index: int) -> None:
-        log = log_type(path)  # type: ignore[operator]
-        log.record(record_factory(index))  # type: ignore[operator]
+        JsonlAcquisitionLog(path).record(_acquisition(index))
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         list(executor.map(write, range(8)))
@@ -104,5 +89,21 @@ def test_jsonl_audit_logs_keep_concurrent_records_as_complete_json_lines(
     rows = _read_jsonl(path)
 
     assert len(rows) == 8
-    assert len({row[id_field] for row in rows}) == 8
+    assert len({row["acquisition_id"] for row in rows}) == 8
+    assert not path.with_name(f"{path.name}.lock").exists()
+
+
+def test_identity_decision_log_serializes_concurrent_writers(tmp_path: Path) -> None:
+    path = tmp_path / "identity-decisions.jsonl"
+
+    def write(index: int) -> None:
+        JsonlIdentityDecisionLog(path).record(_decision(index))
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(write, range(8)))
+
+    rows = _read_jsonl(path)
+
+    assert len(rows) == 8
+    assert len({row["candidate_id"] for row in rows}) == 8
     assert not path.with_name(f"{path.name}.lock").exists()

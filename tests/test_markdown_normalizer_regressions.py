@@ -33,7 +33,10 @@ def _normalize(text: str):
 
 
 def test_markdown_preserves_paragraph_boundaries_as_passages() -> None:
-    text = "First paragraph.\n\nSecond paragraph.\n\n# Methods\nLine one\nline two\n\nFinal paragraph.\n"
+    text = (
+        "First paragraph.\n\nSecond paragraph.\n\n# Methods\n"
+        "Line one\nline two\n\nFinal paragraph.\n"
+    )
 
     document = _normalize(text)
 
@@ -67,7 +70,10 @@ def test_markdown_recognizes_setext_headings() -> None:
         "Intro paragraph.",
         "Method paragraph.",
     ]
-    assert all("====" not in passage.text and "----" not in passage.text for section in document.sections for passage in section.passages)
+    passage_texts = [
+        passage.text for section in document.sections for passage in section.passages
+    ]
+    assert all("====" not in value and "----" not in value for value in passage_texts)
 
 
 def test_markdown_leading_and_repeated_blank_lines_do_not_create_empty_passages() -> None:
@@ -102,6 +108,10 @@ def test_markdown_normalization_is_stable_for_explicit_document_id() -> None:
     assert [section.section_id for section in first.sections] == [
         section.section_id for section in second.sections
     ]
-    assert [passage.passage_id for section in first.sections for passage in section.passages] == [
+    first_passage_ids = [
+        passage.passage_id for section in first.sections for passage in section.passages
+    ]
+    second_passage_ids = [
         passage.passage_id for section in second.sections for passage in section.passages
     ]
+    assert first_passage_ids == second_passage_ids

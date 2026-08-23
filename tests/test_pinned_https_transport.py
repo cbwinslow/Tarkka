@@ -48,11 +48,11 @@ def test_pinned_https_connects_to_approved_ip_but_uses_origin_hostname_for_sni(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_socket = _FakeSocket()
-    connection_calls: list[tuple[tuple[str, int], float | object]] = []
+    connection_calls: list[tuple[tuple[str, int], float | None]] = []
 
     def fake_create_connection(
         address: tuple[str, int],
-        timeout: float | object = socket._GLOBAL_DEFAULT_TIMEOUT,
+        timeout: float | None = None,
         *args: object,
         **kwargs: object,
     ) -> socket.socket:
@@ -73,9 +73,9 @@ def test_pinned_https_connects_to_approved_ip_but_uses_origin_hostname_for_sni(
     connection.connect()
 
     assert connection_calls == [(('203.0.113.17', 443), 1.25)]
-    assert context.seen_socket is cast(socket.socket, raw_socket)
+    assert context.seen_socket is raw_socket
     assert context.seen_server_hostname == "research.example.org"
-    assert connection.sock is cast(socket.socket, context.tls_socket)
+    assert connection.sock is context.tls_socket
     assert raw_socket.closed is False
 
 

@@ -458,9 +458,12 @@ def _abandon_finalization(
         final_artifact_sha256=None,
         final_observation_id=None,
     )
+    targets = tuple(
+        failed if item.target_id == target_id else item for item in checkpoint.targets
+    )
     return replace(
         checkpoint,
-        targets=tuple(failed if item.target_id == target_id else item for item in checkpoint.targets),
+        targets=targets,
         budget=replace(checkpoint.budget, elapsed_seconds=elapsed_seconds),
     )
 

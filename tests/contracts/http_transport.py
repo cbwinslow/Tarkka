@@ -9,6 +9,7 @@ from tarkka.ports.http_transport import HostResolver, HttpTransport
 
 
 class _ContractHandler(BaseHTTPRequestHandler):
+    # Synthetic Tarkka test payload; no external source or license applies.
     payload: ClassVar[bytes] = b"abcdefghij"
     seen_paths: ClassVar[list[str]] = []
     seen_hosts: ClassVar[list[str]] = []

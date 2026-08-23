@@ -47,6 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
@@ -56,13 +57,31 @@ jobs:
         run: uv sync --frozen --group dev
       - name: Pytest
         if: matrix.python-version != '3.13'
-        run: uv run --no-sync pytest -m "not external"
+        run: >-
+          uv run --no-sync pytest -m "not external"
+          --junitxml=test-results.xml
       - name: Pytest with branch coverage
         if: matrix.python-version == '3.13'
         run: >-
           uv run --no-sync pytest -m "not external"
+          --junitxml=test-results.xml
           --cov=tarkka --cov-branch
           --cov-report=term-missing --cov-report=xml
+      - name: Enforce changed-line coverage
+        if: matrix.python-version == '3.13' && github.event_name == 'pull_request'
+        run: >-
+          uv run --no-sync python scripts/check_diff_coverage.py
+          --base origin/main
+          --coverage coverage.xml
+          --minimum 80
+      - name: Retain test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: junit-python-${{ matrix.python-version }}
+          path: test-results.xml
+          if-no-files-found: warn
+          retention-days: 14
       - name: Retain coverage report
         if: matrix.python-version == '3.13'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

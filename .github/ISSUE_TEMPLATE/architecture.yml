@@ -1,0 +1,74 @@
+name: Architecture / design proposal
+description: Propose a cross-cutting contract, abstraction, persistence, or system-design change.
+title: "[Design]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and problem
+      description: What architectural pressure, repeated failure mode, or missing abstraction motivates this proposal?
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Invariants that must remain true
+      description: List correctness, provenance, identity, security, determinism, restart, compatibility, and ownership constraints.
+      placeholder: |
+        - Evidence remains traceable to immutable source artifacts.
+        - Core contracts stay provider-independent.
+        - Interrupted work is restart-safe.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed design
+      description: Describe boundaries, ports/contracts, state transitions, and data ownership rather than only concrete classes/files.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and tradeoffs
+      description: What simpler or existing approaches were considered, and why are they insufficient?
+    validations:
+      required: true
+
+  - type: textarea
+    id: migration
+    attributes:
+      label: Migration / compatibility plan
+      description: Explain how existing durable data, APIs, adapters, tests, or users remain compatible or migrate safely. State explicitly when no migration is needed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation strategy
+      description: Specify contract tests, state-machine/property tests, failure injection, security tests, migration tests, or benchmarks needed before adoption.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Failure modes and risks
+      description: Identify silent data loss, partial commits, provenance drift, coupling, resource exhaustion, or operational hazards. State explicitly when none are known.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Design checks
+      options:
+        - label: I checked existing architecture documents and abstractions before proposing a parallel framework.
+          required: true
+        - label: The proposal separates required invariants from implementation preferences.
+          required: true

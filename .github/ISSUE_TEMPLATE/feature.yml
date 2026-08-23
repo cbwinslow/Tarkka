@@ -1,0 +1,69 @@
+name: Feature request
+description: Propose a user-visible capability or incremental product improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user or research workflow problem before proposing implementation details.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should become possible, easier, safer, or more reproducible?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Discovery / connectors
+        - Acquisition / networking
+        - Parsing / extraction
+        - Evidence / provenance
+        - Persistence / database
+        - Agent / model integration
+        - CLI / interfaces
+        - Packaging / dependencies
+        - CI / automation
+        - Documentation
+        - Cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: contracts
+    attributes:
+      label: Required contracts or invariants
+      description: Note provenance, identity, reproducibility, security, compatibility, or failure-mode requirements. State explicitly if no additional invariant is required.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include existing Tarkka abstractions or external tools that may already solve part of the problem.
+
+  - type: textarea
+    id: tests
+    attributes:
+      label: How should we test it?
+      description: Describe unit, contract, integration, property, security, or regression coverage that would prove the feature works.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and pull requests for overlapping work.
+          required: true
+        - label: I described the problem independently of a preferred implementation where possible.
+          required: true

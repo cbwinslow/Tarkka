@@ -21,7 +21,7 @@ def test_durable_uri_normalizes_idna_host_and_drops_default_port_and_userinfo() 
 
 def test_durable_uri_canonicalizes_ipv6_and_drops_default_port() -> None:
     normalized = normalize_durable_http_uri(
-        "https://[2001:0db8:0000:0000:0000:0000:0001]:443/paper"
+        "https://[2001:0db8:0000:0000:0000:0000:0000:0001]:443/paper"
     )
 
     assert normalized == "https://[2001:db8::1]/paper"

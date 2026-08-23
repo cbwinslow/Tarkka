@@ -35,6 +35,16 @@ jobs:
         run: uv run --no-sync mypy
       - name: SQLFluff
         run: uv run --no-sync sqlfluff lint migrations
+      - name: Audit GitHub Actions security
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          inputs: .github/
+          online-audits: false
+          advanced-security: false
+          annotations: true
+          min-severity: medium
+          min-confidence: high
+          version: 1.29.0
 
   tests:
     name: Tests (Python ${{ matrix.python-version }})

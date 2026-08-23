@@ -83,7 +83,10 @@ class RecursiveCrawlPolicyGate:
         target = _queued_target(checkpoint, target_id)
 
         if not policy.allows_uri(target.uri):
-            skipped = checkpoint.skip(target_id, reason="technical acquisition policy denied target")
+            skipped = checkpoint.skip(
+                target_id,
+                reason="technical acquisition policy denied target",
+            )
             self._save(skipped)
             return RecursiveCrawlGateResult(
                 status=RecursiveCrawlGateStatus.SKIPPED,

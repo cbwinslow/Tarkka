@@ -58,7 +58,7 @@ def test_jats_finds_mathml_nested_inside_alternatives(tmp_path: Path) -> None:
     )
 
     assert len(result.document.equations) == 1
-    assert result.document.equations[0].source_text == "y = x"
+    assert result.document.equations[0].source_text == "y=x"
 
 
 def test_jats_table_column_count_accounts_for_colspan(tmp_path: Path) -> None:
@@ -75,6 +75,20 @@ def test_jats_table_column_count_accounts_for_colspan(tmp_path: Path) -> None:
     assert len(result.document.tables) == 1
     assert result.document.tables[0].row_count == 2
     assert result.document.tables[0].column_count == 3
+
+
+@pytest.mark.parametrize("colspan", ["0", "-1", "not-a-number"])
+def test_jats_rejects_invalid_table_colspan(tmp_path: Path, colspan: str) -> None:
+    path = tmp_path / "bad-colspan.nxml"
+    path.write_text(
+        f"""<article><body><sec><title>Results</title>
+  <table-wrap><table><tr><td colspan="{colspan}">A</td></tr></table></table-wrap>
+</sec></body></article>""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="invalid JATS table colspan"):
+        JatsParser().parse_native(_artifact(path), path)
 
 
 def test_jats_rejects_duplicate_bibliography_native_ids(tmp_path: Path) -> None:

@@ -8,7 +8,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+  group: >-
+    pr-agent-${{ github.event_name }}-${{
+      github.event.pull_request.number || github.event.issue.number || github.ref
+    }}
   cancel-in-progress: true
 
 permissions:
@@ -25,7 +28,7 @@ jobs:
     env:
       PR_AGENT_ENABLED: ${{ secrets.OPENROUTER_API_KEY != '' }}
       CONFIG__MODEL: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-      CONFIG__FALLBACK_MODELS: '["openrouter/openrouter/free"]'
+      CONFIG__FALLBACK_MODELS: '[]'
       CONFIG__CUSTOM_MODEL_MAX_TOKENS: "20000"
       CONFIG__LARGE_PATCH_POLICY: clip
       PR_REVIEWER__REQUIRE_TESTS_REVIEW: "true"

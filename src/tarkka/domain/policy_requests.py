@@ -37,39 +37,43 @@ def begin_policy_request(
     )
 
 
-def record_policy_response(
+def record_policy_response_bytes(
     checkpoint: TraversalCheckpoint,
     *,
     bytes_acquired: int,
-    elapsed_seconds: float,
 ) -> TraversalCheckpoint:
-    """Record bytes and elapsed time consumed by one auxiliary policy response."""
-    _require_elapsed(checkpoint, elapsed_seconds)
-    if not isinstance(bytes_acquired, int) or isinstance(bytes_acquired, bool) or bytes_acquired < 0:
+    """Record response bytes consumed by one auxiliary policy request."""
+    if not isinstance(checkpoint, TraversalCheckpoint):
+        raise ValueError("policy request checkpoint must be a TraversalCheckpoint")
+    if (
+        not isinstance(bytes_acquired, int)
+        or isinstance(bytes_acquired, bool)
+        or bytes_acquired < 0
+    ):
         raise ValueError("policy response bytes_acquired must be a non-negative integer")
     return replace(
         checkpoint,
         budget=AcquisitionBudgetState(
             requests_used=checkpoint.budget.requests_used,
             bytes_used=checkpoint.budget.bytes_used + bytes_acquired,
-            elapsed_seconds=elapsed_seconds,
+            elapsed_seconds=checkpoint.budget.elapsed_seconds,
         ),
     )
 
 
-def record_policy_failure(
+def record_policy_elapsed(
     checkpoint: TraversalCheckpoint,
     *,
     elapsed_seconds: float,
 ) -> TraversalCheckpoint:
-    """Record elapsed time for a policy request that produced no response bytes."""
+    """Record final elapsed time for an auxiliary policy request sequence."""
     _require_elapsed(checkpoint, elapsed_seconds)
     return replace(
         checkpoint,
         budget=AcquisitionBudgetState(
             requests_used=checkpoint.budget.requests_used,
             bytes_used=checkpoint.budget.bytes_used,
-            elapsed_seconds=elapsed_seconds,
+            elapsed_seconds=float(elapsed_seconds),
         ),
     )
 
@@ -79,5 +83,8 @@ def _require_elapsed(checkpoint: TraversalCheckpoint, elapsed_seconds: float) ->
         raise ValueError("policy request checkpoint must be a TraversalCheckpoint")
     if not isinstance(elapsed_seconds, (int, float)) or isinstance(elapsed_seconds, bool):
         raise ValueError("policy request elapsed_seconds must be numeric")
-    if not math.isfinite(float(elapsed_seconds)) or elapsed_seconds < checkpoint.budget.elapsed_seconds:
+    if (
+        not math.isfinite(float(elapsed_seconds))
+        or elapsed_seconds < checkpoint.budget.elapsed_seconds
+    ):
         raise ValueError("policy request elapsed_seconds must be finite and monotonic")

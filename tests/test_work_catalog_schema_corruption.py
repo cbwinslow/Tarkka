@@ -74,8 +74,10 @@ def test_work_catalog_does_not_repair_future_schema_in_transaction(tmp_path: Pat
     }
     path.write_text(json.dumps(future_catalog), encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="unsupported Tarkka Work catalog schema version"):
-        with repository.transaction():
-            pytest.fail("transaction body must not run for an unsupported catalog")
+    with (
+        pytest.raises(RuntimeError, match="unsupported Tarkka Work catalog schema version"),
+        repository.transaction(),
+    ):
+        pytest.fail("transaction body must not run for an unsupported catalog")
 
     assert json.loads(path.read_text(encoding="utf-8")) == future_catalog

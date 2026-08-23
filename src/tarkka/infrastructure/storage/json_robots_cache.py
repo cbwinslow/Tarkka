@@ -45,7 +45,9 @@ class JsonRobotsCache:
             if existing_payload is not None:
                 existing = _entry_from_dict(existing_payload)
                 if entry.fetched_at < existing.fetched_at:
-                    raise RobotsCacheConflictError("robots cache cannot roll back to an older fetch")
+                    raise RobotsCacheConflictError(
+                        "robots cache cannot roll back to an older fetch"
+                    )
                 if entry.fetched_at == existing.fetched_at:
                     if payload == existing_payload:
                         return

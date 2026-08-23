@@ -4,6 +4,7 @@ import heapq
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -52,13 +53,16 @@ class JsonCitationRepository:
         payload = _resolution_to_dict(resolution)
         with exclusive_lock(self.path):
             data = self._read()
-            existing = data["resolutions"].get(key)
-            if existing == payload:
+            existing_payload = data["resolutions"].get(key)
+            if existing_payload == payload:
                 return
-            if existing is not None and existing.get("resolution_id") != payload["resolution_id"]:
-                raise CitationConflictError(
-                    f"conflicting resolution identity for reference {resolution.reference_id}"
-                )
+            if existing_payload is not None:
+                existing = _resolution_from_dict(existing_payload)
+                if existing.resolution_id != resolution.resolution_id:
+                    raise CitationConflictError(
+                        f"conflicting resolution identity for reference {resolution.reference_id}"
+                    )
+                _validate_resolution_transition(existing, resolution)
             data["resolutions"][key] = payload
             self._write(data)
 
@@ -181,8 +185,6 @@ class JsonCitationRepository:
         )
         if limit is None:
             return tuple(sorted(candidates, key=_relation_sort_key))
-        # The JSON catalog is not indexed, so deterministic top-N still scans candidate rows.
-        # nsmallest keeps extra memory O(limit); SQL adapters should use ORDER BY ... LIMIT.
         return tuple(heapq.nsmallest(limit, candidates, key=_relation_sort_key))
 
     def _save(self, bucket: str, stable_id: UUID, payload: dict[str, Any]) -> None:
@@ -193,7 +195,8 @@ class JsonCitationRepository:
             if existing is not None:
                 if existing == payload:
                     return
-                raise CitationConflictError(f"conflicting {bucket[:-1]} for stable ID {key}")
+                label = _BUCKET_LABELS[bucket]
+                raise CitationConflictError(f"conflicting {label} for stable ID {key}")
             data[bucket][key] = payload
             self._write(data)
 
@@ -212,24 +215,41 @@ class JsonCitationRepository:
         if data.get("schema_version") != 1:
             raise RuntimeError("invalid or unsupported citation catalog")
         for bucket in _BUCKETS:
-            if bucket not in data or not isinstance(data[bucket], dict):
+            entries = data.get(bucket)
+            if not isinstance(entries, dict):
                 raise RuntimeError(f"invalid citation catalog bucket: {bucket}")
+            _validate_bucket_entries(bucket, cast(dict[str, Any], entries))
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
         fd, temp_name = tempfile.mkstemp(prefix=".tarkka-citations-", dir=self.path.parent)
-        os.close(fd)
         temp_path = Path(temp_name)
         try:
-            temp_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-            with temp_path.open("rb") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, sort_keys=True)
+                handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
+            _fsync_directory(self.path.parent)
         finally:
             temp_path.unlink(missing_ok=True)
 
 
 _BUCKETS = ("references", "mentions", "contexts", "resolutions", "relations")
+_BUCKET_LABELS = {
+    "references": "reference",
+    "mentions": "mention",
+    "contexts": "context",
+    "resolutions": "resolution",
+    "relations": "relation",
+}
+_BUCKET_IDENTITIES = {
+    "references": "reference_id",
+    "mentions": "mention_id",
+    "contexts": "context_id",
+    "resolutions": "reference_id",
+    "relations": "relation_id",
+}
 
 
 def _empty_catalog() -> dict[str, Any]:
@@ -242,6 +262,51 @@ def _uuid(value: UUID | None) -> str | None:
 
 def _optional_uuid(value: Any) -> UUID | None:
     return UUID(value) if value is not None else None
+
+
+def _validate_resolution_transition(
+    existing: CitationResolution,
+    incoming: CitationResolution,
+) -> None:
+    if existing.status is not CitationResolutionStatus.RESOLVED:
+        return
+    if incoming.status is not CitationResolutionStatus.RESOLVED:
+        raise CitationConflictError(
+            f"resolved citation for reference {existing.reference_id} cannot regress to "
+            f"{incoming.status.value}"
+        )
+    if incoming.work_id != existing.work_id:
+        raise CitationConflictError(
+            f"resolved citation for reference {existing.reference_id} cannot change canonical work"
+        )
+
+
+def _validate_bucket_entries(bucket: str, entries: dict[str, Any]) -> None:
+    parser = _BUCKET_PARSERS[bucket]
+    identity_field = _BUCKET_IDENTITIES[bucket]
+    for key, payload in entries.items():
+        if not isinstance(key, str) or not isinstance(payload, dict):
+            raise RuntimeError(f"invalid citation catalog {bucket} entry {key!r}")
+        try:
+            identity = str(UUID(str(payload[identity_field])))
+            if identity != key:
+                raise ValueError(f"{identity_field} does not match catalog key")
+            parser(cast(dict[str, Any], payload))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"invalid citation catalog {bucket} entry {key!r}: {exc}"
+            ) from exc
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _reference_to_dict(value: BibliographicReference) -> dict[str, Any]:
@@ -404,3 +469,12 @@ def _relation_identity(value: WorkRelation) -> tuple[object, ...]:
         value.source_document_id,
         value.source_reference_id,
     )
+
+
+_BUCKET_PARSERS: dict[str, Callable[[dict[str, Any]], object]] = {
+    "references": _reference_from_dict,
+    "mentions": _mention_from_dict,
+    "contexts": _context_from_dict,
+    "resolutions": _resolution_from_dict,
+    "relations": _relation_from_dict,
+}

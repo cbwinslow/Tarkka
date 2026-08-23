@@ -59,8 +59,8 @@ class HostResolver(Protocol):
 
     ``timeout_seconds`` is the remaining acquisition elapsed-time budget when configured.
     Implementations must stop waiting and raise when that deadline is exhausted. Successful
-    resolution must return at least one unique textual IP address; hostnames, blanks, and
-    duplicate addresses are not valid resolver output.
+    resolution must return at least one unique canonical textual IP address; hostnames, blanks,
+    equivalent duplicate spellings, and malformed addresses are not valid resolver output.
     """
 
     def resolve(

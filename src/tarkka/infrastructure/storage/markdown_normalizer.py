@@ -93,9 +93,22 @@ def _heading_spans(text: str) -> list[tuple[int, int, str, int]]:
         offset += len(line)
 
     headings: list[tuple[int, int, str, int]] = []
+    active_fence: tuple[str, int] | None = None
     index = 0
     while index < len(lines):
         line = lines[index]
+        if active_fence is not None:
+            if _closes_fence(line, active_fence):
+                active_fence = None
+            index += 1
+            continue
+
+        opening_fence = _opening_fence(line)
+        if opening_fence is not None:
+            active_fence = opening_fence
+            index += 1
+            continue
+
         atx = _atx_heading(line)
         if atx is not None:
             level, heading_title = atx
@@ -117,6 +130,32 @@ def _heading_spans(text: str) -> list[tuple[int, int, str, int]]:
                 continue
         index += 1
     return headings
+
+
+def _opening_fence(line: str) -> tuple[str, int] | None:
+    content = line.rstrip("\r\n")
+    indent = len(content) - len(content.lstrip(" "))
+    if indent > 3:
+        return None
+    candidate = content[indent:]
+    if not candidate or candidate[0] not in {"`", "~"}:
+        return None
+    marker = candidate[0]
+    length = len(candidate) - len(candidate.lstrip(marker))
+    if length < 3:
+        return None
+    return marker, length
+
+
+def _closes_fence(line: str, fence: tuple[str, int]) -> bool:
+    marker, minimum_length = fence
+    content = line.rstrip("\r\n")
+    indent = len(content) - len(content.lstrip(" "))
+    if indent > 3:
+        return False
+    candidate = content[indent:]
+    length = len(candidate) - len(candidate.lstrip(marker))
+    return length >= minimum_length and not candidate[length:].strip()
 
 
 def _atx_heading(line: str) -> tuple[int, str] | None:

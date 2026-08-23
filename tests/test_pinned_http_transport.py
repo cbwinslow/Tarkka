@@ -104,9 +104,10 @@ def test_pinned_transport_enforces_total_response_deadline_against_slow_drip() -
     server = ThreadingHTTPServer(("127.0.0.1", 0), _SlowDripHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    started_at = time.monotonic()
+    request_elapsed: float | None = None
     try:
         port = server.server_address[1]
+        started_at = time.monotonic()
         with pytest.raises((TimeoutError, socket.timeout)):
             PinnedHttpTransport(timeout_seconds=1.0).request(
                 uri=f"http://example.org:{port}/slow",
@@ -114,12 +115,14 @@ def test_pinned_transport_enforces_total_response_deadline_against_slow_drip() -
                 max_response_bytes=100,
                 timeout_seconds=0.07,
             )
+        request_elapsed = time.monotonic() - started_at
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
 
-    assert time.monotonic() - started_at < 0.5
+    assert request_elapsed is not None
+    assert request_elapsed < 0.5
 
 
 def test_system_resolver_stops_waiting_when_deadline_expires(

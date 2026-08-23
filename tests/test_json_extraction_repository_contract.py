@@ -4,6 +4,8 @@ from dataclasses import replace
 from pathlib import Path
 from uuid import UUID
 
+import pytest
+
 from tarkka.domain.extraction import (
     Claim,
     Evidence,
@@ -13,8 +15,13 @@ from tarkka.domain.extraction import (
     Limitation,
 )
 from tarkka.domain.models import Document, Passage, Section
-from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
+from tarkka.infrastructure.storage.json_extraction_repository import (
+    ExtractionConflictError,
+    JsonExtractionRepository,
+)
 from tests.contracts.extraction_repository import ExtractionRepositoryContract
+
+pytestmark = pytest.mark.contract
 
 _DOCUMENT_ID = UUID("00000000-0000-0000-0000-000000000a01")
 _ARTIFACT_ID = UUID("00000000-0000-0000-0000-000000000a02")
@@ -140,4 +147,5 @@ def test_json_extraction_repository_rejects_conflicting_run_content(tmp_path: Pa
         repository,
         original,
         conflicting,
+        ExtractionConflictError,
     )

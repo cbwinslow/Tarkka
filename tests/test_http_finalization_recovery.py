@@ -151,18 +151,20 @@ def test_recovers_durable_outputs_after_final_checkpoint_write_fails(tmp_path: P
 
     recovery_resolver = _Resolver()
     recovery_transport = _Transport(None)
+    recovery_times = iter((20.0, 23.5))
     recovery = HttpAcquisitionService(
         resolver=recovery_resolver,
         transport=recovery_transport,
         artifact_store=artifacts,
         observation_repository=observations,
         checkpoint_repository=checkpoints,
-        clock=lambda: 10.0,
+        clock=lambda: next(recovery_times),
         sleeper=lambda _: None,
     )
     completed = recovery.recover_finalization(finalizing, target_id)
 
     assert completed.targets[0].status is TraversalStatus.COMPLETED
+    assert completed.budget.elapsed_seconds == finalizing.budget.elapsed_seconds + 3.5
     assert checkpoints.get(_CHECKPOINT_ID) == completed
     assert recovery_resolver.calls == 0
     assert recovery_transport.calls == 0

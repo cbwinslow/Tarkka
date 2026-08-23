@@ -52,12 +52,13 @@ def test_clip_text_bounds_long_values_and_retains_ends() -> None:
     assert "content clipped" in value
 
 
-def test_clip_text_handles_small_remaining_window() -> None:
+def test_clip_text_handles_single_character_remaining_window() -> None:
     source = "abcdefghij" * 20
-    value, clipped = clip_text(source, 50)
+    value, clipped = clip_text(source, 49)
 
     assert clipped is True
-    assert len(value) == 50
+    assert len(value) == 49
+    assert value.startswith("\n\n... [content clipped")
     assert value.endswith("j")
 
 

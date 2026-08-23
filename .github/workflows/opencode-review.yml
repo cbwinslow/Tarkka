@@ -1,0 +1,45 @@
+name: OpenCode Zen Review
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+concurrency:
+  group: opencode-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Independent Zen review
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      OPENCODE_REVIEW_ENABLED: ${{ secrets.OPENCODE_API_KEY != '' && 'true' || 'false' }}
+      # An unset or empty repository variable intentionally falls back to this free model.
+      OPENCODE_REVIEW_MODEL: ${{ vars.OPENCODE_REVIEW_MODEL || 'x-preview-f-free' }}
+    steps:
+      - name: Checkout trusted base revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Report disabled configuration
+        if: env.OPENCODE_REVIEW_ENABLED != 'true'
+        run: echo "OPENCODE_API_KEY is not configured; skipping OpenCode Zen review."
+
+      - name: Run OpenCode Zen reviewer
+        if: env.OPENCODE_REVIEW_ENABLED == 'true'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: python3 scripts/opencode_review.py

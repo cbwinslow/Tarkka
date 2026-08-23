@@ -46,17 +46,35 @@ def changed_python_lines(diff: str) -> dict[str, set[int]]:
     return dict(result)
 
 
+def _collapse_parts(parts: tuple[str, ...]) -> tuple[str, ...] | None:
+    collapsed: list[str] = []
+    for part in parts:
+        if part in ("", ".", "/"):
+            continue
+        if part == "..":
+            if not collapsed:
+                return None
+            collapsed.pop()
+            continue
+        collapsed.append(part)
+    return tuple(collapsed)
+
+
 def _normalize_coverage_path(filename: str) -> str | None:
     """Normalize coverage.py filenames to repository-relative Tarkka source paths."""
     parts = PurePosixPath(filename.replace("\\", "/")).parts
     try:
         src_index = parts.index("src")
+        candidate_parts = parts[src_index:]
     except ValueError:
-        if parts and parts[0] == "tarkka":
-            return str(PurePosixPath("src", *parts))
+        if not parts or parts[0] != "tarkka":
+            return None
+        candidate_parts = ("src", *parts)
+
+    collapsed = _collapse_parts(candidate_parts)
+    if collapsed is None:
         return None
-    normalized = PurePosixPath(*parts[src_index:])
-    value = str(normalized)
+    value = str(PurePosixPath(*collapsed))
     if not value.startswith(_SOURCE_PREFIX) or not value.endswith(".py"):
         return None
     return value
@@ -151,9 +169,13 @@ def main() -> int:
         parser.error("--minimum must be greater than 0 and at most 100")
     try:
         hits = coverage_hits(args.coverage)
+    except ValueError as exc:
+        print(f"Changed-line coverage report error: {exc}")
+        return 2
+    try:
         changed = changed_python_lines(git_diff(args.base))
-    except (ValueError, subprocess.CalledProcessError) as exc:
-        print(f"Changed-line coverage error: {exc}")
+    except subprocess.CalledProcessError as exc:
+        print(f"Changed-line coverage git error: {exc}")
         return 2
 
     covered, total, percent = diff_coverage(changed, hits)

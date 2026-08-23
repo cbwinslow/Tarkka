@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.domain.media_types import normalize_media_type
@@ -36,6 +36,8 @@ _SENSITIVE_QUERY_KEYS = frozenset(
         "api_key",
         "auth",
         "authorization",
+        "client_secret",
+        "code",
         "credential",
         "jwt",
         "key",
@@ -51,6 +53,17 @@ _SENSITIVE_QUERY_KEYS = frozenset(
         "x-amz-security-token",
         "x-amz-signature",
     }
+)
+_SENSITIVE_KEY_FRAGMENTS = (
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "credential",
+    "signature",
+    "authorization",
+    "apikey",
+    "session",
 )
 _REDACTED = "[REDACTED]"
 
@@ -73,8 +86,8 @@ class HttpResponseSnapshot:
     observed_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        requested_uri = normalize_http_uri(self.requested_uri, field_name="requested URI")
-        final_uri = normalize_http_uri(self.final_uri, field_name="final URI")
+        requested_uri = normalize_durable_http_uri(self.requested_uri, field_name="requested URI")
+        final_uri = normalize_durable_http_uri(self.final_uri, field_name="final URI")
         if not isinstance(self.status_code, int) or isinstance(self.status_code, bool):
             raise ValueError("HTTP status code must be an integer")
         if self.status_code < 100 or self.status_code > 599:
@@ -121,7 +134,7 @@ class HttpResponseSnapshot:
                 "HTTP redirect chain must be a sequence of HTTP(S) URIs"
             ) from exc
         redirects = tuple(
-            normalize_http_uri(uri, field_name="redirect URI") for uri in raw_redirects
+            normalize_durable_http_uri(uri, field_name="redirect URI") for uri in raw_redirects
         )
         if redirects and redirects[-1] != final_uri:
             raise ValueError("HTTP redirect chain must end at final URI")
@@ -178,12 +191,7 @@ class HttpResponseSnapshot:
 
 
 def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
-    """Normalize HTTP(S) URI and redact common credentials in query or fragment fields.
-
-    Userinfo is removed, default ports are collapsed, DNS names are IDNA-normalized, and
-    sensitive parameter values are replaced before a URI is eligible for durable provenance.
-    Plain anchor fragments such as ``#results`` are preserved.
-    """
+    """Normalize an HTTP(S) URI while removing credential-bearing parameter values."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-blank absolute HTTP(S) URI")
     candidate = value.strip()
@@ -197,7 +205,6 @@ def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
         raise ValueError(f"{field_name} must be an absolute HTTP(S) URI")
 
     host = _normalize_host(parsed.hostname)
-    # urlsplit returns IPv6 hostnames without brackets; URL netloc syntax requires them.
     if ":" in host:
         host = f"[{host}]"
     default_port = 80 if scheme == "http" else 443
@@ -207,6 +214,25 @@ def normalize_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
     return urlunsplit((scheme, netloc, parsed.path or "/", query, fragment))
 
 
+def normalize_durable_http_uri(value: str, *, field_name: str = "HTTP URI") -> str:
+    """Normalize secret-safe durable HTTP provenance without collapsing resource identity.
+
+    Benign parameter values are retained because they can distinguish resources. Credential-like
+    keys are redacted conservatively, including common key-name variants and secrets nested inside
+    URL-valued parameters such as ``next`` or ``redirect_uri``.
+    """
+    return normalize_http_uri(value, field_name=field_name)
+
+
+def durable_http_uri_requires_transient_request(value: str) -> bool:
+    """Return whether durable normalization removed request information needed for acquisition."""
+    parsed = urlsplit(normalize_durable_http_uri(value))
+    return any(
+        _REDACTED in unquote(item)
+        for _, item in parse_qsl(parsed.query, keep_blank_values=True)
+    )
+
+
 def _sanitize_fragment(fragment: str) -> str:
     if "=" not in fragment:
         return fragment
@@ -214,13 +240,66 @@ def _sanitize_fragment(fragment: str) -> str:
 
 
 def _sanitize_parameter_string(value: str) -> str:
-    # urlencode intentionally provides one deterministic canonical form; spaces normalize to '+'.
     return urlencode(
         [
-            (key, _REDACTED if key.lower() in _SENSITIVE_QUERY_KEYS else item)
+            (key, _sanitize_parameter_value(key, item))
             for key, item in parse_qsl(value, keep_blank_values=True)
         ],
         doseq=True,
+    )
+
+
+def _sanitize_parameter_value(key: str, value: str) -> str:
+    if _is_sensitive_query_key(key):
+        return _REDACTED
+    nested = _sanitize_nested_uri(value)
+    return nested if nested is not None else value
+
+
+def _is_sensitive_query_key(key: str) -> bool:
+    normalized = key.strip().lower()
+    if normalized in _SENSITIVE_QUERY_KEYS:
+        return True
+    compact = "".join(character for character in normalized if character.isalnum())
+    return any(fragment in compact for fragment in _SENSITIVE_KEY_FRAGMENTS)
+
+
+def _sanitize_nested_uri(value: str) -> str | None:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+
+    if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+        return normalize_http_uri(value, field_name="nested HTTP URI")
+
+    is_relative_uri = not parsed.scheme and (
+        bool(parsed.netloc)
+        or parsed.path.startswith(("/", "./", "../"))
+        or bool(parsed.query)
+        or bool(parsed.fragment)
+    )
+    if not is_relative_uri or not (parsed.query or "=" in parsed.fragment):
+        return None
+
+    netloc = ""
+    if parsed.netloc:
+        if parsed.hostname is None or parsed.username is not None or parsed.password is not None:
+            return None
+        host = _normalize_host(parsed.hostname)
+        if ":" in host:
+            host = f"[{host}]"
+        netloc = host if port is None else f"{host}:{port}"
+
+    return urlunsplit(
+        (
+            "",
+            netloc,
+            parsed.path,
+            _sanitize_parameter_string(parsed.query),
+            _sanitize_fragment(parsed.fragment),
+        )
     )
 
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import UUID
 
 from tarkka.domain.models import Artifact, Document, Passage, Section, new_id
+from tarkka.infrastructure.storage.parser_identity import parser_stable_id
 
 
 def document_from_markdown(
@@ -24,13 +25,13 @@ def document_from_markdown(
 
     sections: list[Section] = []
     for ordinal, (section_title, level, start, end) in enumerate(section_specs):
-        section_id = _stable_id(
+        section_id = parser_stable_id(
             resolved_document_id,
             f"section:{ordinal}:{level}:{start}:{end}",
         )
         passages = tuple(
             Passage(
-                passage_id=_stable_id(section_id, f"passage:{passage_ordinal}"),
+                passage_id=parser_stable_id(section_id, f"passage:{passage_ordinal}"),
                 document_id=resolved_document_id,
                 section_id=section_id,
                 ordinal=passage_ordinal,
@@ -204,7 +205,3 @@ def _paragraph_spans(text: str, start: int, end: int) -> tuple[tuple[int, int], 
     if paragraph_start is not None and paragraph_end is not None:
         spans.append((paragraph_start, paragraph_end))
     return tuple(spans)
-
-
-def _stable_id(namespace: UUID, key: str) -> UUID:
-    return uuid5(NAMESPACE_URL, f"tarkka:{namespace}:{key}")

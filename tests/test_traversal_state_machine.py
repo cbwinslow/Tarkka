@@ -16,7 +16,7 @@ from hypothesis.stateful import (
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
 from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
 
-pytestmark = (pytest.mark.unit, pytest.mark.property)
+pytestmark = [pytest.mark.unit, pytest.mark.property]
 
 _CHECKPOINT_ID = UUID("00000000-0000-0000-0000-000000000e01")
 _URI = "https://example.org/resource"

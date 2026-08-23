@@ -4,13 +4,14 @@ import hashlib
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.domain.http_observations import (
     HttpResponseSnapshot,
+    durable_http_uri_requires_transient_request,
     normalize_durable_http_uri,
     normalize_http_uri,
 )
@@ -89,9 +90,9 @@ class HttpAcquisitionService:
     ) -> HttpAcquisitionResult:
         """Acquire one queued target, following only policy-approved redirects."""
         target = _target(checkpoint, target_id)
-        if request_uri is None and urlsplit(target.uri).query:
+        if request_uri is None and durable_http_uri_requires_transient_request(target.uri):
             raise ValueError(
-                "query-bearing traversal targets require the transient original request URI"
+                "redacted traversal targets require the transient original request URI"
             )
         raw_requested_uri = request_uri or target.uri
         if normalize_durable_http_uri(raw_requested_uri) != target.uri:
@@ -127,7 +128,7 @@ class HttpAcquisitionService:
                 self._ensure_elapsed_budget(active, policy, started_at)
 
                 location = _redirect_location(response)
-                if response.status_code not in _REDIRECT_STATUSES or location is None:
+                if response.status_code not in _REDIRECT_STATUSES:
                     return self._finish(
                         active,
                         target,
@@ -137,6 +138,8 @@ class HttpAcquisitionService:
                         response,
                         started_at,
                     )
+                if location is None:
+                    raise ValueError("HTTP redirect response requires a Location header")
 
                 if len(redirect_chain) >= policy.max_redirects:
                     raise ValueError("HTTP redirect limit exceeded")
@@ -172,46 +175,83 @@ class HttpAcquisitionService:
         checkpoint: TraversalCheckpoint,
         target_id: UUID,
     ) -> TraversalCheckpoint:
-        """Complete a FINALIZING target only after verifying both expected outputs are durable."""
-        target = _lookup_target(checkpoint, target_id)
-        if target.status is TraversalStatus.COMPLETED:
-            return checkpoint
-        if target.status is not TraversalStatus.FINALIZING:
+        """Reconcile a FINALIZING target against authoritative durable state without network I/O."""
+        supplied_target = _lookup_target(checkpoint, target_id)
+        if supplied_target.status not in {TraversalStatus.FINALIZING, TraversalStatus.COMPLETED}:
             raise ValueError("HTTP finalization recovery requires a finalizing target")
+
+        durable = self._checkpoint_repository.get(checkpoint.checkpoint_id)
+        if durable is None:
+            raise HttpAcquisitionCommitError(
+                "HTTP finalization checkpoint is not durable",
+                checkpoint=checkpoint,
+            )
+        durable_target = _lookup_target(durable, target_id)
+        supplied_identity = (
+            supplied_target.final_artifact_sha256,
+            supplied_target.final_observation_id,
+        )
+        durable_identity = (
+            durable_target.final_artifact_sha256,
+            durable_target.final_observation_id,
+        )
+        if supplied_identity != durable_identity:
+            raise HttpAcquisitionCommitError(
+                "HTTP finalization durable identity changed during recovery",
+                checkpoint=durable,
+            )
+        if durable_target.status is TraversalStatus.COMPLETED:
+            return durable
+        if durable_target.status is not TraversalStatus.FINALIZING:
+            raise HttpAcquisitionCommitError(
+                "HTTP finalization durable state already changed",
+                checkpoint=durable,
+            )
+
         recovery_started_at = self._read_clock()
-        artifact_sha256 = target.final_artifact_sha256
-        observation_id = target.final_observation_id
+        artifact_sha256 = durable_target.final_artifact_sha256
+        observation_id = durable_target.final_observation_id
         if artifact_sha256 is None or observation_id is None:
             raise ValueError("finalizing target is missing expected output identifiers")
 
-        expected_artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{artifact_sha256}")
-        if not self._artifact_store.exists(artifact_sha256):
-            raise HttpAcquisitionCommitError(
-                "HTTP finalization artifact is not durable",
-                checkpoint=checkpoint,
-            )
+        artifact_exists = self._artifact_store.exists(artifact_sha256)
         observation = self._observation_repository.get_observation(observation_id)
-        if observation is None:
-            raise HttpAcquisitionCommitError(
-                "HTTP finalization observation is not durable",
-                checkpoint=checkpoint,
+        if not artifact_exists or observation is None:
+            failed = _abandon_finalization(
+                durable,
+                target_id,
+                reason="http finalization outputs were not durable",
+                elapsed_seconds=self._elapsed(durable, recovery_started_at),
             )
+            try:
+                self._save_checkpoint(failed)
+            except HttpAcquisitionCheckpointError as exc:
+                raise HttpAcquisitionCommitError(
+                    "HTTP finalization outputs are missing and retry state could not be saved",
+                    checkpoint=durable,
+                ) from exc
+            raise HttpAcquisitionCommitError(
+                "HTTP finalization outputs were missing; target was marked failed for retry",
+                checkpoint=failed,
+            )
+
+        expected_artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{artifact_sha256}")
         if observation.native_artifact_id != expected_artifact_id:
             raise HttpAcquisitionCommitError(
                 "HTTP finalization observation references an unexpected artifact",
-                checkpoint=checkpoint,
+                checkpoint=durable,
             )
 
-        completed = checkpoint.complete_finalization(
+        completed = durable.complete_finalization(
             target_id,
-            elapsed_seconds=self._elapsed(checkpoint, recovery_started_at),
+            elapsed_seconds=self._elapsed(durable, recovery_started_at),
         )
         try:
             self._save_checkpoint(completed)
         except HttpAcquisitionCheckpointError as exc:
             raise HttpAcquisitionCommitError(
                 "HTTP outputs are durable but final checkpoint completion is still interrupted",
-                checkpoint=checkpoint,
+                checkpoint=durable,
             ) from exc
         return completed
 
@@ -398,6 +438,31 @@ def _target(checkpoint: TraversalCheckpoint, target_id: UUID) -> TraversalTarget
     if target.status is not TraversalStatus.QUEUED:
         raise ValueError("HTTP acquisition target must be queued")
     return target
+
+
+def _abandon_finalization(
+    checkpoint: TraversalCheckpoint,
+    target_id: UUID,
+    *,
+    reason: str,
+    elapsed_seconds: float,
+) -> TraversalCheckpoint:
+    """Move an incomplete FINALIZING target to retryable FAILED without changing spent budget."""
+    target = _lookup_target(checkpoint, target_id)
+    if target.status is not TraversalStatus.FINALIZING:
+        raise ValueError("only finalizing traversal targets may be abandoned")
+    failed = replace(
+        target,
+        status=TraversalStatus.FAILED,
+        last_error=reason,
+        final_artifact_sha256=None,
+        final_observation_id=None,
+    )
+    return replace(
+        checkpoint,
+        targets=tuple(failed if item.target_id == target_id else item for item in checkpoint.targets),
+        budget=replace(checkpoint.budget, elapsed_seconds=elapsed_seconds),
+    )
 
 
 def _redirect_location(response: HttpTransportResponse) -> str | None:

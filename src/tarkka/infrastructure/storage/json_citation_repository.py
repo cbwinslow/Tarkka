@@ -231,12 +231,6 @@ class JsonCitationRepository:
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
             _fsync_directory(self.path.parent)
-        except Exception:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            raise
         finally:
             temp_path.unlink(missing_ok=True)
 

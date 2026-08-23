@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
-from urllib.parse import quote, unquote_to_bytes, urlsplit
+from urllib.parse import quote, urlsplit
 
 _MAX_ROBOTS_BYTES = 512 * 1024
 _PRODUCT_TOKEN_RE = re.compile(r"^[A-Za-z_-]+$")
@@ -91,10 +92,7 @@ class RobotsRules:
                 rules_started = True
                 if not value:
                     continue
-                try:
-                    pattern = _canonicalize_rule_pattern(value)
-                except ValueError:
-                    continue
+                pattern = _canonicalize_rule_pattern(value)
                 rules.append(RobotsRule(allow=key == "allow", pattern=pattern))
                 continue
 
@@ -116,10 +114,9 @@ class RobotsRules:
             return True
 
         target = _canonicalize_uri_path_query(parsed.path or "/", parsed.query)
-        groups = self._applicable_groups(token)
         matches = [
             rule
-            for group in groups
+            for group in self._applicable_groups(token)
             for rule in group.rules
             if _pattern_matches(rule.pattern, target)
         ]
@@ -140,9 +137,7 @@ class RobotsRules:
         return max(delays) if delays else None
 
     def _applicable_groups(self, product_token: str) -> tuple[RobotsGroup, ...]:
-        exact = tuple(
-            group for group in self.groups if product_token in group.agents
-        )
+        exact = tuple(group for group in self.groups if product_token in group.agents)
         if exact:
             return exact
         return tuple(group for group in self.groups if "*" in group.agents)
@@ -157,13 +152,13 @@ def _normalize_product_token(value: str) -> str:
 
 
 def _parse_crawl_delay(value: str) -> float | None:
+    if len(value) > 64:
+        return None
     try:
         delay = float(value)
     except ValueError:
         return None
-    if delay < 0 or not delay.is_integer() and len(value) > 64:
-        return None
-    if delay == float("inf") or delay != delay:
+    if not math.isfinite(delay) or delay < 0:
         return None
     return delay
 
@@ -192,8 +187,7 @@ def _canonicalize_component(value: str, *, preserve_wildcard: bool) -> str:
         if character == "%" and index + 2 < len(value):
             pair = value[index + 1 : index + 3]
             if all(item in _HEX for item in pair):
-                byte = int(pair, 16)
-                decoded = chr(byte)
+                decoded = chr(int(pair, 16))
                 if decoded in _UNRESERVED:
                     result.append(decoded)
                 else:

@@ -46,7 +46,11 @@ class RobotsRules:
     def parse(cls, content: str) -> RobotsRules:
         if not isinstance(content, str):
             raise ValueError("robots content must be text")
-        if len(content.encode("utf-8")) > _MAX_ROBOTS_BYTES:
+        try:
+            content_bytes = content.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("robots content must be valid UTF-8 text") from exc
+        if len(content_bytes) > _MAX_ROBOTS_BYTES:
             raise ValueError("robots content exceeds the 512 KiB parsing limit")
 
         groups: list[RobotsGroup] = []
@@ -79,10 +83,12 @@ class RobotsRules:
             value = raw_value.strip()
 
             if key == "user-agent":
+                valid_agent = value == "*" or _PRODUCT_TOKEN_RE.fullmatch(value) is not None
+                if not valid_agent:
+                    continue
                 if rules_started:
                     finish_group()
-                if value == "*" or _PRODUCT_TOKEN_RE.fullmatch(value) is not None:
-                    agents.append(value.lower())
+                agents.append(value.lower())
                 continue
 
             if not agents:
@@ -92,7 +98,10 @@ class RobotsRules:
                 rules_started = True
                 if not value:
                     continue
-                pattern = _canonicalize_rule_pattern(value)
+                try:
+                    pattern = _canonicalize_rule_pattern(value)
+                except ValueError:
+                    continue
                 rules.append(RobotsRule(allow=key == "allow", pattern=pattern))
                 continue
 
@@ -166,6 +175,14 @@ def _parse_crawl_delay(value: str) -> float | None:
 def _canonicalize_rule_pattern(value: str) -> str:
     anchored = value.endswith("$")
     body = value[:-1] if anchored else value
+    if not body:
+        raise ValueError("robots rule pattern must not be empty")
+    if any(ord(character) < 0x21 or character == "#" for character in body):
+        raise ValueError("robots rule pattern contains invalid characters")
+    try:
+        body.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError("robots rule pattern must be valid UTF-8") from exc
     canonical = _canonicalize_component(body, preserve_wildcard=True)
     return canonical + ("$" if anchored else "")
 

@@ -30,7 +30,7 @@ def document_from_markdown(
         )
         passages = tuple(
             Passage(
-                passage_id=_stable_id(section_id, f"passage:{passage_ordinal}:{span_start}:{span_end}"),
+                passage_id=_stable_id(section_id, f"passage:{passage_ordinal}"),
                 document_id=resolved_document_id,
                 section_id=section_id,
                 ordinal=passage_ordinal,

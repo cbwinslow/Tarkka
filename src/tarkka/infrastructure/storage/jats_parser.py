@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 from xml.etree import ElementTree as ET
@@ -20,6 +20,29 @@ from tarkka.domain.source_observations import (
 from tarkka.ports.parsing import NativeDocumentParseResult
 
 _XLINK_HREF = "{http://www.w3.org/1999/xlink}href"
+_PASSAGE_BLOCK_ELEMENTS = frozenset({"p", "disp-quote", "boxed-text", "list", "def-list"})
+# Structural content is represented elsewhere (or intentionally excluded) and must not be
+# duplicated into parent passage text, including when nested inside paragraphs/list items.
+_PASSAGE_STRUCTURAL_ELEMENTS = frozenset(
+    {
+        "title",
+        "label",
+        "sec-meta",
+        "sec",
+        "fig",
+        "fig-group",
+        "table-wrap",
+        "table-wrap-group",
+        "disp-formula",
+        "disp-formula-group",
+        "supplementary-material",
+        "ref-list",
+        "fn-group",
+        "glossary",
+        "media",
+        "graphic",
+    }
+)
 
 
 class JatsParser:
@@ -204,20 +227,68 @@ def _sections(root: ET.Element, document_id: UUID, fallback_title: str) -> tuple
 
 
 def _direct_content_texts(container: ET.Element) -> Iterable[str]:
+    mixed_parts: list[str] = []
+    _append_mixed_text(mixed_parts, container.text)
+
     for child in container:
         name = _local_name(child.tag)
-        if name == "sec":
-            continue
-        if name in {"p", "disp-quote", "boxed-text", "list"}:
+        if name in _PASSAGE_BLOCK_ELEMENTS:
+            yield from _flush_mixed_parts(mixed_parts)
             if name == "list":
-                for item in child.findall("./list-item"):
-                    text = _text(item)
+                items = child.findall("./list-item")
+            elif name == "def-list":
+                items = child.findall("./def-item")
+            else:
+                items = []
+
+            if items:
+                for item in items:
+                    text = _passage_text(item)
                     if text:
                         yield text
-            else:
-                text = _text(child)
+            elif name not in {"list", "def-list"}:
+                text = _passage_text(child)
                 if text:
                     yield text
+        elif name in _PASSAGE_STRUCTURAL_ELEMENTS:
+            yield from _flush_mixed_parts(mixed_parts)
+        else:
+            _append_mixed_text(mixed_parts, _passage_text(child))
+
+        # XML tail text is content in the parent immediately after this child.
+        _append_mixed_text(mixed_parts, child.tail)
+
+    yield from _flush_mixed_parts(mixed_parts)
+
+
+def _passage_text(element: ET.Element) -> str:
+    """Extract passage text while excluding nested structural artifact content."""
+    parts: list[str] = []
+    _append_mixed_text(parts, element.text)
+    for child in element:
+        if _local_name(child.tag) not in _PASSAGE_STRUCTURAL_ELEMENTS:
+            _append_mixed_text(parts, _passage_text(child))
+        _append_mixed_text(parts, child.tail)
+    return _normalize_mixed_text(parts)
+
+
+def _append_mixed_text(parts: list[str], value: str | None) -> None:
+    if value is not None:
+        parts.append(value)
+
+
+def _normalize_mixed_text(parts: Iterable[str]) -> str:
+    """Collapse source whitespace without inventing separators between adjacent inline nodes."""
+    return " ".join("".join(parts).split())
+
+
+def _flush_mixed_parts(parts: list[str]) -> Iterator[str]:
+    if not parts:
+        return
+    text = _normalize_mixed_text(parts)
+    parts.clear()
+    if text:
+        yield text
 
 
 def _figures(root: ET.Element, document_id: UUID) -> tuple[Figure, ...]:

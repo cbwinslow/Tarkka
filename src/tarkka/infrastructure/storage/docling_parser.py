@@ -5,7 +5,7 @@ from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import UUID
 
 from tarkka.domain.models import Artifact, Document
 from tarkka.domain.source_artifacts import Equation, Figure, Table
@@ -17,6 +17,7 @@ from tarkka.domain.source_observations import (
     SourceObservation,
 )
 from tarkka.infrastructure.storage.markdown_normalizer import document_from_markdown
+from tarkka.infrastructure.storage.parser_identity import parser_stable_id
 from tarkka.ports.parsing import NativeDocumentParseResult
 
 
@@ -120,7 +121,7 @@ class DoclingParser:
             parser_name=self.name,
             parser_version=self.version,
             title=str(title),
-            document_id=_stable_id(artifact.artifact_id, "docling-document"),
+            document_id=parser_stable_id(artifact.artifact_id, "docling-document"),
         )
         figures = _docling_figures(
             docling_document,
@@ -139,7 +140,7 @@ class DoclingParser:
         )
         document = replace(document, figures=figures, tables=tables, equations=equations)
         observation = SourceObservation(
-            observation_id=_stable_id(artifact.artifact_id, "docling-observation"),
+            observation_id=parser_stable_id(artifact.artifact_id, "docling-observation"),
             source_name=self.name,
             source_version=self.version,
             basis=ObservationBasis.RECONSTRUCTED,
@@ -168,7 +169,7 @@ def _docling_figures(
     for ordinal, item in enumerate(getattr(document, "pictures", ()) or ()):
         values.append(
             Figure(
-                figure_id=_stable_id(artifact_id, f"docling-figure:{ordinal}"),
+                figure_id=parser_stable_id(artifact_id, f"docling-figure:{ordinal}"),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),
@@ -191,7 +192,7 @@ def _docling_tables(
         data = getattr(item, "data", None)
         values.append(
             Table(
-                table_id=_stable_id(artifact_id, f"docling-table:{ordinal}"),
+                table_id=parser_stable_id(artifact_id, f"docling-table:{ordinal}"),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),
@@ -220,7 +221,7 @@ def _docling_equations(
             continue
         values.append(
             Equation(
-                equation_id=_stable_id(artifact_id, f"docling-equation:{ordinal}"),
+                equation_id=parser_stable_id(artifact_id, f"docling-equation:{ordinal}"),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),
@@ -260,7 +261,3 @@ def _optional_text(value: Any) -> str | None:
 
 def _non_negative_int(value: Any) -> int | None:
     return value if isinstance(value, int) and value >= 0 else None
-
-
-def _stable_id(namespace: UUID, key: str) -> UUID:
-    return uuid5(NAMESPACE_URL, f"tarkka:{namespace}:{key}")

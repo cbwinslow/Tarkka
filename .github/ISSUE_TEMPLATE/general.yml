@@ -1,0 +1,54 @@
+name: General question / other issue
+description: Ask a project question or report something that does not fit the other structured forms.
+title: "[General]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when Bug, Feature, Design, or Research source does not fit.
+        Do not include credentials, signed URLs, private documents, or other secrets.
+
+  - type: textarea
+    id: topic
+    attributes:
+      label: Question or topic
+      description: Describe what you need help with, what is unclear, or why the other forms do not fit.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant context
+      description: Include sanitized commands, links, design context, or prior work that would help answer the question.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Domain / contracts
+        - Discovery / connectors
+        - Acquisition / networking
+        - Parsing / extraction
+        - Evidence / provenance
+        - Persistence / database
+        - Agent / model integration
+        - CLI / interfaces
+        - Packaging / dependencies
+        - CI / automation
+        - Documentation
+        - Project / roadmap
+        - Unknown
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same question or topic.
+          required: true
+        - label: I removed secrets, credentials, signed URLs, and private source material.
+          required: true

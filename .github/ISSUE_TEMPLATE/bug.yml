@@ -1,0 +1,99 @@
+name: Bug report
+description: Report a reproducible defect or regression in Tarkka.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please provide the smallest reproducible case you can.
+        Do not include credentials, signed URLs, private documents, or other secrets.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and why it is incorrect.
+      placeholder: A concise description of the defect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: State the invariant or externally visible behavior you expected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest deterministic steps, inputs, command, or test that reproduces the issue.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevant output
+      description: Paste sanitized traceback, logs, failing assertion, or other evidence. Remove secrets first.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Tarkka version or commit
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Domain / contracts
+        - Discovery / connectors
+        - Acquisition / networking
+        - Parsing / extraction
+        - Evidence / provenance
+        - Persistence / database
+        - Agent / model integration
+        - CLI / interfaces
+        - Packaging / dependencies
+        - CI / automation
+        - Documentation
+        - Unknown
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.13.7"
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system / environment
+      placeholder: Ubuntu 24.04, macOS, Windows, container, etc.
+
+  - type: textarea
+    id: regression
+    attributes:
+      label: Regression-test idea
+      description: If known, describe the smallest test that should permanently prevent this bug from returning.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed secrets, credentials, signed URLs, and private source material.
+          required: true
+        - label: I searched existing open and closed issues for the same defect.
+          required: true

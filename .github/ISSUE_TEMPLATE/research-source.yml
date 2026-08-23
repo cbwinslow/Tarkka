@@ -1,0 +1,70 @@
+name: Research source / connector
+description: Propose integrating a scholarly source, dataset, repository, or discovery provider.
+title: "[Source]: "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: source
+    attributes:
+      label: Source / provider
+      placeholder: Crossref, PubMed, institutional repository, dataset registry, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: value
+    attributes:
+      label: Research value
+      description: What unique documents, metadata, identifiers, evidence, or coverage does this source add?
+    validations:
+      required: true
+
+  - type: textarea
+    id: access
+    attributes:
+      label: Access method and constraints
+      description: Document APIs, dumps, feeds, licenses, authentication, quotas, robots/rate limits, or terms that affect acquisition.
+    validations:
+      required: true
+
+  - type: textarea
+    id: identity
+    attributes:
+      label: Native identity and provenance
+      description: Which native IDs, versions, timestamps, URLs, checksums, citations, or source-native relationships must Tarkka retain?
+    validations:
+      required: true
+
+  - type: textarea
+    id: structure
+    attributes:
+      label: Native structure to preserve
+      description: Describe source-specific fields or relationships that should remain lossless rather than flattened into generic text. State explicitly if the source has no meaningful native structure beyond records.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acquisition
+    attributes:
+      label: Acquisition and refresh strategy
+      description: How should discovery, pagination, incremental refresh, retries, deletion/tombstone handling, and checkpoints work?
+
+  - type: textarea
+    id: tests
+    attributes:
+      label: Contract and fixture plan
+      description: Identify deterministic fixtures and tests for pagination, malformed responses, rate limits, identity, deduplication, provenance, and serialization.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Source checks
+      options:
+        - label: I identified the provider's official documentation or authoritative data description.
+          required: true
+        - label: I considered whether an existing Tarkka connector or generic acquisition layer can be extended instead of duplicated.
+          required: true
+        - label: I did not include API keys, signed URLs, private data, or other credentials.
+          required: true

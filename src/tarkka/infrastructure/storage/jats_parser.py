@@ -138,7 +138,8 @@ def _sections(root: ET.Element, document_id: UUID, fallback_title: str) -> tuple
     if abstract is not None:
         abstract_paragraphs = tuple(_direct_content_texts(abstract))
         if abstract_paragraphs:
-            specs.append((abstract, "Abstract", 1, None, abstract_paragraphs))
+            abstract_title = _text(abstract.find("./title")) or "Abstract"
+            specs.append((abstract, abstract_title, 1, None, abstract_paragraphs))
 
     def walk(element: ET.Element, level: int, parent_id: UUID | None) -> None:
         native_id = element.attrib.get("id")
@@ -244,10 +245,7 @@ def _tables(root: ET.Element, document_id: UUID) -> tuple[Table, ...]:
     for ordinal, element in enumerate(root.findall(".//table-wrap")):
         native_id = element.attrib.get("id")
         rows = element.findall(".//tr")
-        column_count = max(
-            (len(row.findall("./th")) + len(row.findall("./td")) for row in rows),
-            default=0,
-        )
+        column_count = max((_row_column_count(row) for row in rows), default=0)
         values.append(
             Table(
                 table_id=_stable_id(
@@ -265,16 +263,27 @@ def _tables(root: ET.Element, document_id: UUID) -> tuple[Table, ...]:
     return tuple(values)
 
 
+def _row_column_count(row: ET.Element) -> int:
+    count = 0
+    for cell in (*row.findall("./th"), *row.findall("./td")):
+        raw_colspan = cell.attrib.get("colspan", "1")
+        try:
+            colspan = int(raw_colspan)
+        except ValueError as exc:
+            raise ValueError(f"invalid JATS table colspan: {raw_colspan!r}") from exc
+        if colspan < 1:
+            raise ValueError(f"invalid JATS table colspan: {raw_colspan!r}")
+        count += colspan
+    return count
+
+
 def _equations(root: ET.Element, document_id: UUID) -> tuple[Equation, ...]:
     values: list[Equation] = []
     for ordinal, element in enumerate(root.findall(".//disp-formula")):
         native_id = element.attrib.get("id")
-        source = _text(element.find("./tex-math"))
+        source = _text(element.find(".//tex-math"))
         if not source:
-            math = next(
-                (child for child in element if _local_name(child.tag) == "math"),
-                None,
-            )
+            math = element.find(".//math")
             source = _text(math)
         if not source:
             source = _text(element)
@@ -306,7 +315,9 @@ def _references(
             document_id,
             f"reference:{ordinal}:{native_id or 'unanchored'}",
         )
-        if native_id and native_id not in targets:
+        if native_id:
+            if native_id in targets:
+                raise ValueError(f"duplicate JATS bibliography native ID: {native_id}")
             targets[native_id] = reference_id
         identifiers: dict[str, str] = {}
         for pub_id in element.findall(".//pub-id"):

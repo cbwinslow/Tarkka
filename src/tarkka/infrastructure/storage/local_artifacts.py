@@ -49,6 +49,7 @@ class LocalArtifactStore:
                 if self._digest_file(temp_path)[0] != sha256:
                     raise OSError("artifact checksum changed while copying")
                 os.replace(temp_path, destination)
+                _fsync_directory(destination.parent)
             finally:
                 temp_path.unlink(missing_ok=True)
 
@@ -96,6 +97,7 @@ class LocalArtifactStore:
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.replace(temp_path, destination)
+                _fsync_directory(destination.parent)
             finally:
                 temp_path.unlink(missing_ok=True)
 
@@ -145,3 +147,15 @@ class LocalArtifactStore:
     def exists(self, sha256: str) -> bool:
         key = self.storage_key_for_digest(sha256)
         return self.root.joinpath(*key.parts).is_file()
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush a renamed directory entry where the platform exposes POSIX directory fsync."""
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)

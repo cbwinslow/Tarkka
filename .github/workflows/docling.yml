@@ -9,6 +9,7 @@ on:
       - "src/tarkka/infrastructure/storage/docling_parser.py"
       - "src/tarkka/infrastructure/storage/markdown_normalizer.py"
       - "tests/test_docling_adapter.py"
+      - "tests/test_docling_model_contract.py"
       - ".github/workflows/docling.yml"
   pull_request:
     paths:
@@ -17,6 +18,7 @@ on:
       - "src/tarkka/infrastructure/storage/docling_parser.py"
       - "src/tarkka/infrastructure/storage/markdown_normalizer.py"
       - "tests/test_docling_adapter.py"
+      - "tests/test_docling_model_contract.py"
       - ".github/workflows/docling.yml"
 
 concurrency:
@@ -53,5 +55,12 @@ jobs:
         run: >-
           uv run --no-sync python -c "from tarkka.infrastructure.storage.docling_parser import DoclingParser;
           assert DoclingParser.is_available()"
-      - name: Run adapter tests
-        run: uv run --no-sync pytest tests/test_docling_adapter.py
+      - name: Verify Docling model contract
+        run: >-
+          uv run --no-sync python -c "from docling_core.types.doc import DocItemLabel;
+          assert DocItemLabel.FORMULA.value == 'formula'"
+      - name: Run adapter contract tests
+        run: >-
+          uv run --no-sync pytest
+          tests/test_docling_adapter.py
+          tests/test_docling_model_contract.py

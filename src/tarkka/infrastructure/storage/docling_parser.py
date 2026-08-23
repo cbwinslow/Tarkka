@@ -212,8 +212,7 @@ def _docling_equations(
 ) -> tuple[Equation, ...]:
     values: list[Equation] = []
     for item in getattr(document, "texts", ()) or ():
-        label = str(getattr(item, "label", "")).lower()
-        if "formula" not in label and "equation" not in label:
+        if _docling_label_value(getattr(item, "label", None)) != "formula":
             continue
         ordinal = len(values)
         source = _optional_text(getattr(item, "text", None))
@@ -229,6 +228,16 @@ def _docling_equations(
             )
         )
     return tuple(values)
+
+
+def _docling_label_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    raw_value = getattr(value, "value", value)
+    if not isinstance(raw_value, str):
+        return None
+    normalized = raw_value.strip().lower()
+    return normalized or None
 
 
 def _page_number(item: Any) -> int | None:

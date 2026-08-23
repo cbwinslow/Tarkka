@@ -28,7 +28,9 @@ jobs:
   dependency-review:
     name: Review dependency changes
     needs: dependency-submission
-    if: ${{ always() && (needs.dependency-submission.result == 'success' || needs.dependency-submission.result == 'skipped') }}
+    # Keep review coverage even if dependency submission fails transiently. The
+    # submission failure still fails the workflow, but must not suppress review.
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

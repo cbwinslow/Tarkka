@@ -261,6 +261,29 @@ def test_redirect_location_rejects_control_characters(tmp_path: Path) -> None:
     assert len(transport.calls) == 1
 
 
+def test_redirect_location_rejects_invalid_uri_reference_before_followup(tmp_path: Path) -> None:
+    checkpoint, target_id = _checkpoint("https://example.org/start")
+    resolver = _Resolver({"example.org": (_PUBLIC_ADDRESS,)})
+    transport = _Transport(
+        [
+            HttpTransportResponse(
+                status_code=302,
+                headers={"Location": ("javascript:alert(1)",)},
+                body=b"go",
+            )
+        ]
+    )
+    service, _, _, _ = _service(tmp_path, resolver=resolver, transport=transport)
+
+    with pytest.raises(HttpAcquisitionError) as caught:
+        service.acquire(checkpoint, target_id, _policy())
+
+    assert len(transport.calls) == 1
+    assert resolver.calls == ["example.org"]
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert "Location must use HTTP(S)" in str(caught.value.__cause__)
+
+
 def test_disallowed_dns_addresses_fail_before_transport_connection(tmp_path: Path) -> None:
     checkpoint, target_id = _checkpoint("https://example.org/private")
     resolver = _Resolver({"example.org": ("127.0.0.1", "169.254.1.2")})

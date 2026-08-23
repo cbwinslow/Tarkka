@@ -239,7 +239,7 @@ def _direct_content_texts(container: ET.Element) -> Iterable[str]:
             elif name == "def-list":
                 items = child.findall("./def-item")
             else:
-                items = ()
+                items = []
 
             if items:
                 for item in items:

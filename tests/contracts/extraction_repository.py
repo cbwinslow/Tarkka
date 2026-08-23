@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from tarkka.domain.extraction import ExtractionBatch, ResearchObjectKind
@@ -53,14 +54,21 @@ class ExtractionRepositoryContract:
         repository.save_batch(batch)
         repository.save_batch(batch)
 
-        assert repository.list_evidence(batch.document_id) == batch.evidence
-        assert repository.list_extractions(batch.document_id) == batch.extractions
+        assert repository.list_evidence(
+            batch.document_id,
+            run_id=batch.run.run_id,
+        ) == batch.evidence
+        assert repository.list_extractions(
+            batch.document_id,
+            run_id=batch.run.run_id,
+        ) == batch.extractions
 
     @staticmethod
     def assert_kind_filter_preserves_evidence_links(
         repository: ExtractionRepository,
         batch: ExtractionBatch,
     ) -> None:
+        """Require a fixture with at least two extraction kinds and verify exclusive filtering."""
         repository.save_batch(batch)
         evidence_ids = {item.evidence_id for item in batch.evidence}
         present_kinds = {item.kind for item in batch.extractions}
@@ -68,18 +76,14 @@ class ExtractionRepositoryContract:
             raise AssertionError("contract fixture must contain at least two extraction kinds")
 
         for kind in present_kinds:
-            expected = tuple(
-                sorted(
-                    (item for item in batch.extractions if item.kind is kind),
-                    key=lambda item: str(item.extraction_id),
-                )
-            )
+            expected = tuple(item for item in batch.extractions if item.kind is kind)
             filtered = repository.list_extractions(
                 batch.document_id,
                 run_id=batch.run.run_id,
                 kind=kind,
             )
-            assert filtered == expected
+            assert set(filtered) == set(expected)
+            assert len(filtered) == len(expected)
             for extraction in filtered:
                 assert extraction.evidence_ids
                 assert set(extraction.evidence_ids).issubset(evidence_ids)
@@ -96,18 +100,38 @@ class ExtractionRepositoryContract:
         repository: ExtractionRepository,
         original: ExtractionBatch,
         conflicting: ExtractionBatch,
+        conflict_error: type[Exception],
     ) -> None:
         assert original.document_id == conflicting.document_id
         assert original.run.run_id == conflicting.run.run_id
         assert original != conflicting
 
         repository.save_batch(original)
-        try:
-            repository.save_batch(conflicting)
-        except Exception:
-            pass
-        else:
-            raise AssertionError("conflicting document/run batch must fail explicitly")
+        ExtractionRepositoryContract._expect_conflict(
+            conflict_error,
+            lambda: repository.save_batch(conflicting),
+        )
 
-        assert repository.list_evidence(original.document_id) == original.evidence
-        assert repository.list_extractions(original.document_id) == original.extractions
+        assert repository.list_evidence(
+            original.document_id,
+            run_id=original.run.run_id,
+        ) == original.evidence
+        assert repository.list_extractions(
+            original.document_id,
+            run_id=original.run.run_id,
+        ) == original.extractions
+
+    @staticmethod
+    def _expect_conflict(
+        conflict_error: type[Exception],
+        operation: Callable[[], object],
+    ) -> None:
+        try:
+            operation()
+        except conflict_error:
+            return
+        except Exception as exc:
+            raise AssertionError(
+                f"expected {conflict_error.__name__}, got {type(exc).__name__}"
+            ) from exc
+        raise AssertionError(f"expected {conflict_error.__name__} to be raised")

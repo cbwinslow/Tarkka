@@ -76,6 +76,24 @@ def test_markdown_recognizes_setext_headings() -> None:
     assert all("====" not in value and "----" not in value for value in passage_texts)
 
 
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_markdown_does_not_treat_fenced_code_as_headings(fence: str) -> None:
+    text = (
+        f"# Real section\nBefore.\n\n{fence}markdown\n"
+        f"# Example heading\nFake setext\n----\n{fence}\n\nAfter.\n"
+    )
+
+    document = _normalize(text)
+
+    assert [section.title for section in document.sections] == ["Real section"]
+    passage_texts = [passage.text for passage in document.sections[0].passages]
+    assert passage_texts == [
+        "Before.",
+        f"{fence}markdown\n# Example heading\nFake setext\n----\n{fence}",
+        "After.",
+    ]
+
+
 def test_markdown_leading_and_repeated_blank_lines_do_not_create_empty_passages() -> None:
     text = "\n\n# Heading\n\n\nBody.\n\n\n"
 

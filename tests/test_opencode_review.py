@@ -193,7 +193,7 @@ def test_list_pr_comments_paginates_until_short_page(monkeypatch: pytest.MonkeyP
 
     def fake_request(url: str, **_kwargs: Any) -> bytes:
         calls.append(url)
-        if "page=1" in url:
+        if url.endswith("page=1"):
             return json.dumps([{"id": value} for value in range(100)]).encode()
         return json.dumps([{"id": 100}]).encode()
 
@@ -203,7 +203,8 @@ def test_list_pr_comments_paginates_until_short_page(monkeypatch: pytest.MonkeyP
 
     assert len(comments) == 101
     assert len(calls) == 2
-    assert "page=2" in calls[-1]
+    assert calls[0].endswith("page=1")
+    assert calls[1].endswith("page=2")
 
 
 def test_upsert_review_comment_updates_existing_marker(monkeypatch: pytest.MonkeyPatch) -> None:

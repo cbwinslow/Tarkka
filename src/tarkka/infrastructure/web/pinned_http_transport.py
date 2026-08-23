@@ -250,7 +250,15 @@ def _resolve_host(hostname: str) -> tuple[str, ...]:
         )
     except socket.gaierror as exc:
         raise OSError("unable to resolve HTTP hostname") from exc
-    return tuple(dict.fromkeys(str(record[4][0]) for record in records))
+    addresses = tuple(dict.fromkeys(str(record[4][0]) for record in records))
+    if not addresses:
+        raise OSError("HTTP hostname resolver returned no addresses")
+    for address in addresses:
+        try:
+            ipaddress.ip_address(address)
+        except ValueError as exc:
+            raise OSError("HTTP hostname resolver returned an invalid IP address") from exc
+    return addresses
 
 
 def _request_target(path: str, query: str) -> str:

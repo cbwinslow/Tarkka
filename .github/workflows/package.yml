@@ -23,6 +23,7 @@ jobs:
   build-and-install:
     name: Build and install package
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,13 +53,23 @@ jobs:
 
       - name: Install wheel into clean environment
         run: |
-          uv venv --python 3.13 .package-venv
-          uv pip install --python .package-venv/bin/python dist/*.whl
+          uv venv --python 3.13 .package-wheel-venv
+          uv pip install --python .package-wheel-venv/bin/python dist/*.whl
 
-      - name: Smoke-test installed package and CLI
+      - name: Smoke-test installed wheel and CLI
         run: |
-          .package-venv/bin/python -c "import tarkka"
-          .package-venv/bin/tarkka --help
+          .package-wheel-venv/bin/python -c "import tarkka"
+          .package-wheel-venv/bin/tarkka --help
+
+      - name: Install source distribution into clean environment
+        run: |
+          uv venv --python 3.13 .package-sdist-venv
+          uv pip install --python .package-sdist-venv/bin/python dist/*.tar.gz
+
+      - name: Smoke-test installed source distribution and CLI
+        run: |
+          .package-sdist-venv/bin/python -c "import tarkka"
+          .package-sdist-venv/bin/tarkka --help
 
       - name: Retain distributions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

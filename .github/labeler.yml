@@ -1,0 +1,59 @@
+max-files-changed: 500
+changed-files-labels-limit: 12
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - "docs/**"
+          - ".github/**/*.md"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+
+ci/automation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+
+packaging/dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "pyproject.toml"
+          - "uv.lock"
+          - "**/Dockerfile"
+          - "docker-compose*.yml"
+          - "docker-compose*.yaml"
+
+database/migrations:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "migrations/**"
+          - "**/*.sql"
+          - "src/tarkka/infrastructure/storage/**"
+
+discovery/connectors:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/tarkka/infrastructure/discovery/**"
+          - "src/tarkka/infrastructure/providers/**"
+          - "src/tarkka/infrastructure/web/**"
+          - "src/tarkka/ports/**"
+
+extraction/research:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/tarkka/application/extraction.py"
+          - "src/tarkka/domain/extraction.py"
+          - "src/tarkka/ports/extraction.py"
+          - "src/tarkka/ports/model_claims.py"
+          - "src/tarkka/ports/model_research.py"
+          - "src/tarkka/infrastructure/extraction/**"
+
+agent/interfaces:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/tarkka/interfaces/**"
+          - "src/tarkka/agents/**"

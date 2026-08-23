@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
 from tarkka.domain.http_observations import normalize_http_uri
+
+_PRODUCT_TOKEN_RE = re.compile(r"^[A-Za-z_-]+$")
 
 
 class RobotsFetchOutcome(StrEnum):
@@ -48,19 +51,41 @@ class RobotsFetchResult:
         )
         if not isinstance(self.outcome, RobotsFetchOutcome):
             raise ValueError("robots outcome must be a RobotsFetchOutcome")
-        if self.status_code is not None and (
-            not isinstance(self.status_code, int)
-            or isinstance(self.status_code, bool)
-            or not 100 <= self.status_code <= 599
+        status_code = self.status_code
+        if status_code is not None and (
+            not isinstance(status_code, int)
+            or isinstance(status_code, bool)
+            or not 100 <= status_code <= 599
         ):
             raise ValueError("robots status_code must be an HTTP status code")
+
         if self.outcome is RobotsFetchOutcome.SUCCESS:
             if self.content is None:
                 raise ValueError("successful robots result must include content")
-            if self.status_code is not None and not 200 <= self.status_code <= 299:
+            if status_code is not None and not 200 <= status_code <= 299:
                 raise ValueError("successful robots result must use a 2xx status code")
-        elif self.content is not None:
+            return
+
+        if self.content is not None:
             raise ValueError("non-successful robots result must not include content")
+        if (
+            self.outcome is RobotsFetchOutcome.UNAVAILABLE
+            and status_code is not None
+            and not 400 <= status_code <= 499
+        ):
+            raise ValueError("unavailable robots result must use a 4xx status code")
+        if (
+            self.outcome is RobotsFetchOutcome.UNREACHABLE
+            and status_code is not None
+            and not 500 <= status_code <= 599
+        ):
+            raise ValueError("unreachable robots result must use a 5xx status code")
+        if (
+            self.outcome is RobotsFetchOutcome.REDIRECT_LIMIT_EXCEEDED
+            and status_code is not None
+            and not 300 <= status_code <= 399
+        ):
+            raise ValueError("redirect-limit robots result must use a 3xx status code")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +94,7 @@ class CrawlAccessDecision:
 
     target_uri: str
     robots_uri: str
-    user_agent: str
+    product_token: str
     allowed: bool
     reason: CrawlAccessReason
     robots_outcome: RobotsFetchOutcome
@@ -86,9 +111,14 @@ class CrawlAccessDecision:
             "robots_uri",
             normalize_http_uri(self.robots_uri, field_name="robots URI"),
         )
-        if not isinstance(self.user_agent, str) or not self.user_agent.strip():
-            raise ValueError("crawl user_agent must be non-blank")
-        object.__setattr__(self, "user_agent", self.user_agent.strip())
+        if (
+            not isinstance(self.product_token, str)
+            or _PRODUCT_TOKEN_RE.fullmatch(self.product_token.strip()) is None
+        ):
+            raise ValueError(
+                "crawl product_token must contain only ASCII letters, underscores, and hyphens"
+            )
+        object.__setattr__(self, "product_token", self.product_token.strip())
         if not isinstance(self.allowed, bool):
             raise ValueError("crawl allowed must be boolean")
         if not isinstance(self.reason, CrawlAccessReason):

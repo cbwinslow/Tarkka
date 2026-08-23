@@ -68,11 +68,24 @@ def test_docling_repeated_parse_preserves_document_observation_and_passage_ids(
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"fixture")
 
+    provenance = (SimpleNamespace(page_no=1),)
+
     class _Document:
         name = "Repeatability Fixture"
-        pictures: tuple[object, ...] = ()
-        tables: tuple[object, ...] = ()
-        texts: tuple[object, ...] = ()
+        pictures = (
+            SimpleNamespace(label="picture", caption="Stable figure", prov=provenance),
+        )
+        tables = (
+            SimpleNamespace(
+                label="table",
+                caption="Stable table",
+                data=SimpleNamespace(num_rows=2, num_cols=3),
+                prov=provenance,
+            ),
+        )
+        texts = (
+            SimpleNamespace(label="formula", text="x = y", prov=provenance),
+        )
 
         def export_to_markdown(self) -> str:
             return "# Results\n\nStable body.\n"
@@ -89,12 +102,15 @@ def test_docling_repeated_parse_preserves_document_observation_and_passage_ids(
 
     assert _document_identity(first.document) == _document_identity(second.document)
     assert first.observation.observation_id == second.observation.observation_id
+    assert len(first.document.figures) == len(second.document.figures) == 1
     assert tuple(item.figure_id for item in first.document.figures) == tuple(
         item.figure_id for item in second.document.figures
     )
+    assert len(first.document.tables) == len(second.document.tables) == 1
     assert tuple(item.table_id for item in first.document.tables) == tuple(
         item.table_id for item in second.document.tables
     )
+    assert len(first.document.equations) == len(second.document.equations) == 1
     assert tuple(item.equation_id for item in first.document.equations) == tuple(
         item.equation_id for item in second.document.equations
     )

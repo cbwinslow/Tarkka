@@ -102,6 +102,34 @@ def test_system_resolver_stops_waiting_when_deadline_expires(
         release.set()
 
 
+def test_system_resolver_bounds_outstanding_workers_after_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = threading.Event()
+    call_lock = threading.Lock()
+    calls = 0
+
+    def blocked_getaddrinfo(*args: object, **kwargs: object) -> list[object]:
+        nonlocal calls
+        del args, kwargs
+        with call_lock:
+            calls += 1
+        release.wait(timeout=1.0)
+        return []
+
+    monkeypatch.setattr(socket, "getaddrinfo", blocked_getaddrinfo)
+    resolver = SystemHostResolver(max_concurrent_resolutions=2)
+    try:
+        for _ in range(3):
+            with pytest.raises(TimeoutError, match="deadline"):
+                resolver.resolve("example.org", timeout_seconds=0.01)
+
+        with call_lock:
+            assert calls == 2
+    finally:
+        release.set()
+
+
 def test_system_resolver_rejects_invalid_limits_and_timeouts() -> None:
     with pytest.raises(ValueError, match="max_concurrent_resolutions"):
         SystemHostResolver(max_concurrent_resolutions=0)

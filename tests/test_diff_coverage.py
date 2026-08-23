@@ -108,6 +108,24 @@ def test_coverage_hits_normalizes_coverage_py_source_paths(tmp_path: Path) -> No
     }
 
 
+def test_coverage_hits_collapses_parent_segments_in_source_paths(tmp_path: Path) -> None:
+    coverage = tmp_path / "coverage.xml"
+    coverage.write_text(
+        """<?xml version="1.0" ?>
+<coverage>
+  <packages><package><classes>
+    <class filename="src/tarkka/../tarkka/module.py"><lines>
+      <line number="7" hits="1"/>
+    </lines></class>
+  </classes></package></packages>
+</coverage>
+""",
+        encoding="utf-8",
+    )
+
+    assert coverage_hits(coverage) == {"src/tarkka/module.py": {7: 1}}
+
+
 def test_coverage_hits_rejects_missing_report(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="does not exist"):
         coverage_hits(tmp_path / "missing.xml")

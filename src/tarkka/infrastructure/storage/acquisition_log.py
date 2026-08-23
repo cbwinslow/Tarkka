@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from tarkka.domain.models import Acquisition
+from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
 class JsonlAcquisitionLog:
@@ -22,6 +24,8 @@ class JsonlAcquisitionLog:
             "original_name": acquisition.original_name,
             "metadata": dict(acquisition.metadata),
         }
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True))
-            handle.write("\n")
+        line = json.dumps(payload, sort_keys=True) + "\n"
+        with exclusive_lock(self.path), self.path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())

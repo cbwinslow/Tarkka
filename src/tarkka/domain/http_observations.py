@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.domain.media_types import normalize_media_type
@@ -227,7 +227,10 @@ def normalize_durable_http_uri(value: str, *, field_name: str = "HTTP URI") -> s
 def durable_http_uri_requires_transient_request(value: str) -> bool:
     """Return whether durable normalization removed request information needed for acquisition."""
     parsed = urlsplit(normalize_durable_http_uri(value))
-    return any(_REDACTED in item for _, item in parse_qsl(parsed.query, keep_blank_values=True))
+    return any(
+        _REDACTED in unquote(item)
+        for _, item in parse_qsl(parsed.query, keep_blank_values=True)
+    )
 
 
 def _sanitize_fragment(fragment: str) -> str:

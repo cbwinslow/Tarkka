@@ -24,6 +24,8 @@ Docling and package validation are intentionally not required statuses because t
 
 Updating this JSON file does not mutate an already-created GitHub ruleset automatically. After changing required checks here, update the live repository ruleset in **Settings -> Rules -> Rulesets** or re-import the reference configuration.
 
-## pre-commit.ci
+## pre-commit
 
-Tarkka does not currently use a `.pre-commit-config.yaml`. Local development tooling is managed through `uv`, and authoritative validation is performed by GitHub Actions. If the `pre-commit.ci` GitHub app remains installed for this repository it may emit an error status without providing useful validation; disable repository access for that app unless pre-commit is deliberately adopted later.
+Tarkka includes `.pre-commit-config.yaml` for fast local hygiene checks, including standard file-format checks, Ruff, and SQLFluff. The canonical development environment and tool versions remain declared through `uv`/`pyproject.toml`, and GitHub Actions remain the authoritative merge gates.
+
+If the `pre-commit.ci` GitHub app is enabled for this repository, treat it as supplementary automation rather than a required merge check unless the repository ruleset is deliberately changed to require it.

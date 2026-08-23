@@ -124,7 +124,7 @@ class HttpAcquisitionService:
                 self._save_checkpoint(active)
                 if response.limit_exceeded or active.budget.bytes_used > policy.max_bytes:
                     raise ValueError("HTTP response exceeded the acquisition byte budget")
-                self._remaining_elapsed(active, policy, started_at)
+                self._ensure_elapsed_budget(active, policy, started_at)
 
                 location = _redirect_location(response)
                 if response.status_code not in _REDIRECT_STATUSES or location is None:
@@ -178,6 +178,7 @@ class HttpAcquisitionService:
             return checkpoint
         if target.status is not TraversalStatus.FINALIZING:
             raise ValueError("HTTP finalization recovery requires a finalizing target")
+        recovery_started_at = self._read_clock()
         artifact_sha256 = target.final_artifact_sha256
         observation_id = target.final_observation_id
         if artifact_sha256 is None or observation_id is None:
@@ -203,7 +204,7 @@ class HttpAcquisitionService:
 
         completed = checkpoint.complete_finalization(
             target_id,
-            elapsed_seconds=checkpoint.budget.elapsed_seconds,
+            elapsed_seconds=self._elapsed(checkpoint, recovery_started_at),
         )
         try:
             self._save_checkpoint(completed)
@@ -224,12 +225,12 @@ class HttpAcquisitionService:
     ) -> HttpTransportResponse:
         if not policy.allows_uri(uri):
             raise ValueError("HTTP request URI is not allowed by acquisition policy")
-        timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
+        dns_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
         hostname = urlsplit(normalize_http_uri(uri)).hostname
         if hostname is None:
             raise ValueError("HTTP request URI has no hostname")
-        addresses = self._resolver.resolve(hostname, timeout_seconds=timeout_seconds)
-        timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
+        addresses = self._resolver.resolve(hostname, timeout_seconds=dns_timeout_seconds)
+        transport_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
         if not addresses:
             raise ValueError("HTTP hostname resolution returned no addresses")
         resolved_address = next(
@@ -246,7 +247,7 @@ class HttpAcquisitionService:
             uri=uri,
             resolved_address=resolved_address,
             max_response_bytes=remaining_bytes,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=transport_timeout_seconds,
         )
         if len(response.body) > remaining_bytes:
             raise ValueError("HTTP transport returned a body larger than its requested cap")
@@ -334,6 +335,14 @@ class HttpAcquisitionService:
             raise ValueError("HTTP redirect request exceeds the acquisition budget")
         if interval > 0:
             self._sleeper(interval)
+        self._ensure_elapsed_budget(checkpoint, policy, started_at)
+
+    def _ensure_elapsed_budget(
+        self,
+        checkpoint: TraversalCheckpoint,
+        policy: ResourceAcquisitionPolicy,
+        started_at: float,
+    ) -> None:
         self._remaining_elapsed(checkpoint, policy, started_at)
 
     def _remaining_elapsed(
@@ -398,9 +407,21 @@ def _redirect_location(response: HttpTransportResponse) -> str | None:
     if len(values) != 1:
         raise ValueError("HTTP redirect response must contain exactly one Location header")
     value = values[0].strip()
+    if not value:
+        return None
+    if any(character.isspace() for character in value):
+        raise ValueError("HTTP redirect Location must not contain whitespace")
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
         raise ValueError("HTTP redirect Location must not contain control characters")
-    return value or None
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise ValueError("HTTP redirect Location must be a valid URI reference") from exc
+    if parsed.scheme and parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("HTTP redirect Location must use HTTP(S) when absolute")
+    if parsed.netloc and parsed.hostname is None:
+        raise ValueError("HTTP redirect Location contains an invalid authority")
+    return value
 
 
 def _artifact_name(uri: str) -> str | None:

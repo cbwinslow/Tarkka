@@ -81,15 +81,39 @@ def test_jats_excludes_grouped_and_nested_structural_artifacts_from_passages(
     path.write_text(
         """<article><body><sec><title>Results</title>
 Before.
-<fig-group><fig><caption><p>Figure caption leak.</p></caption></fig></fig-group>
+<fig-group>
+  <fig><caption><p>Figure caption leak.</p></caption></fig>
+</fig-group>
 After figure.
-<table-wrap-group><table-wrap><caption><p>Table caption leak.</p></caption><table><tr><td>Cell leak.</td></tr></table></table-wrap></table-wrap-group>
+<table-wrap-group>
+  <table-wrap>
+    <caption><p>Table caption leak.</p></caption>
+    <table><tr><td>Cell leak.</td></tr></table>
+  </table-wrap>
+</table-wrap-group>
 After table.
-<disp-formula-group><disp-formula><tex-math>x + y</tex-math></disp-formula></disp-formula-group>
+<disp-formula-group>
+  <disp-formula><tex-math>x + y</tex-math></disp-formula>
+</disp-formula-group>
 After formula.
-<p>Paragraph before <fig><caption><p>Nested figure leak.</p></caption></fig> after <table-wrap><table><tr><td>Nested cell leak.</td></tr></table></table-wrap> end.</p>
-<list><list-item><p>List item.</p><fig><caption><p>List caption leak.</p></caption></fig></list-item></list>
-<def-list><def-item><term>Term</term> <def><p>Definition.</p></def></def-item></def-list>
+<p>
+  Paragraph before
+  <fig><caption><p>Nested figure leak.</p></caption></fig>
+  after
+  <table-wrap>
+    <table><tr><td>Nested cell leak.</td></tr></table>
+  </table-wrap>
+  end.
+</p>
+<list>
+  <list-item>
+    <p>List item.</p>
+    <fig><caption><p>List caption leak.</p></caption></fig>
+  </list-item>
+</list>
+<def-list>
+  <def-item><term>Term</term> <def><p>Definition.</p></def></def-item>
+</def-list>
 </sec></body></article>""",
         encoding="utf-8",
     )

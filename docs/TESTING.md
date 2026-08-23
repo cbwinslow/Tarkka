@@ -199,6 +199,8 @@ Every durable record should have serialization round-trip coverage. Persistence 
 - compatibility when durable schemas evolve;
 - deterministic identity after reload.
 
+The authoritative inventory of Tarkka's current persistence surfaces and their executable coverage is maintained in [`DURABLE_STATE_TEST_MATRIX.md`](DURABLE_STATE_TEST_MATRIX.md). Update that matrix whenever a new durable repository, log, or schema-versioned format is introduced.
+
 When migrations or durable formats are introduced, compatibility tests should protect upgrades rather than relying on manual inspection.
 
 ## Bug workflow
@@ -241,4 +243,4 @@ Before merging behavior changes, verify the relevant items below:
 - replaceable adapter behavior covered by a reusable contract where appropriate;
 - regression test added for every bug fixed.
 
-See issue #60 for the incremental testing-framework roadmap.
+See issue #60 for the completed testing-framework foundation and focused follow-up issues for remaining improvements.

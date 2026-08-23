@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from tarkka.domain.policy_requests import (
     begin_policy_request,
-    record_policy_failure,
-    record_policy_response,
+    record_policy_elapsed,
+    record_policy_response_bytes,
 )
 from tarkka.domain.resource_acquisition import AcquisitionBudgetState, ResourceAcquisitionPolicy
 from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
@@ -28,7 +28,7 @@ def _policy(**overrides: object) -> ResourceAcquisitionPolicy:
     return ResourceAcquisitionPolicy(**values)  # type: ignore[arg-type]
 
 
-def _checkpoint() -> tuple[TraversalCheckpoint, object]:
+def _checkpoint() -> tuple[TraversalCheckpoint, UUID]:
     checkpoint = TraversalCheckpoint(uuid4()).enqueue(
         "https://example.org/article",
         depth=1,
@@ -81,7 +81,7 @@ def test_policy_request_respects_shared_pacing() -> None:
         )
 
 
-def test_policy_response_charges_bytes_and_monotonic_elapsed_time() -> None:
+def test_policy_response_bytes_do_not_advance_elapsed_time_mid_sequence() -> None:
     checkpoint, _ = _checkpoint()
     charged = begin_policy_request(
         checkpoint,
@@ -89,18 +89,30 @@ def test_policy_response_charges_bytes_and_monotonic_elapsed_time() -> None:
         depth=1,
     )
 
-    updated = record_policy_response(
-        charged,
-        bytes_acquired=23,
-        elapsed_seconds=4.5,
-    )
+    updated = record_policy_response_bytes(charged, bytes_acquired=23)
 
     assert updated.budget.requests_used == 1
     assert updated.budget.bytes_used == 23
-    assert updated.budget.elapsed_seconds == 4.5
+    assert updated.budget.elapsed_seconds == 0.0
 
 
-def test_policy_failure_preserves_spent_request_and_updates_elapsed_time() -> None:
+def test_policy_elapsed_is_recorded_once_at_sequence_boundary() -> None:
+    checkpoint, _ = _checkpoint()
+    charged = begin_policy_request(
+        checkpoint,
+        _policy(min_request_interval_seconds=0.0),
+        depth=1,
+    )
+    charged = record_policy_response_bytes(charged, bytes_acquired=23)
+
+    completed = record_policy_elapsed(charged, elapsed_seconds=4.5)
+
+    assert completed.budget.requests_used == 1
+    assert completed.budget.bytes_used == 23
+    assert completed.budget.elapsed_seconds == 4.5
+
+
+def test_policy_elapsed_preserves_spent_request_on_failure() -> None:
     checkpoint, _ = _checkpoint()
     charged = begin_policy_request(
         checkpoint,
@@ -108,14 +120,14 @@ def test_policy_failure_preserves_spent_request_and_updates_elapsed_time() -> No
         depth=1,
     )
 
-    failed = record_policy_failure(charged, elapsed_seconds=3.0)
+    failed = record_policy_elapsed(charged, elapsed_seconds=3.0)
 
     assert failed.budget.requests_used == 1
     assert failed.budget.bytes_used == 0
     assert failed.budget.elapsed_seconds == 3.0
 
 
-def test_policy_response_rejects_elapsed_time_rollback() -> None:
+def test_policy_elapsed_rejects_time_rollback() -> None:
     checkpoint, _ = _checkpoint()
     checkpoint = TraversalCheckpoint(
         checkpoint_id=checkpoint.checkpoint_id,
@@ -124,4 +136,4 @@ def test_policy_response_rejects_elapsed_time_rollback() -> None:
     )
 
     with pytest.raises(ValueError, match="finite and monotonic"):
-        record_policy_response(checkpoint, bytes_acquired=1, elapsed_seconds=4.9)
+        record_policy_elapsed(checkpoint, elapsed_seconds=4.9)

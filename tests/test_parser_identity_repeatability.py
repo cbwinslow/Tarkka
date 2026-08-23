@@ -28,9 +28,9 @@ def _artifact() -> Artifact:
 
 
 def _document_identity(document: object) -> tuple[object, ...]:
-    sections = getattr(document, "sections")
+    sections = document.sections
     return (
-        getattr(document, "document_id"),
+        document.document_id,
         tuple(
             (
                 section.section_id,

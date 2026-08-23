@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
 from hypothesis import settings
 from hypothesis import strategies as st
 from hypothesis.stateful import (
@@ -14,6 +15,8 @@ from hypothesis.stateful import (
 
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
 from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
+
+pytestmark = (pytest.mark.unit, pytest.mark.property)
 
 _CHECKPOINT_ID = UUID("00000000-0000-0000-0000-000000000e01")
 _URI = "https://example.org/resource"
@@ -46,11 +49,13 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
         self._set_checkpoint(self.checkpoint.enqueue(_URI, depth=depth))
         assert len(self.checkpoint.targets) == 1
         assert self.checkpoint.targets[0].target_id == self._required_target_id()
-        if previous.targets[0].status is not TraversalStatus.QUEUED:
+        if previous.targets[0].status != TraversalStatus.QUEUED:
             assert self.checkpoint.targets[0].depth == previous.targets[0].depth
+        else:
+            assert self.checkpoint.targets[0].depth == min(previous.targets[0].depth, depth)
 
     @precondition(
-        lambda self: self._status() is TraversalStatus.QUEUED
+        lambda self: self._status() == TraversalStatus.QUEUED
         and self.checkpoint.next_eligible(self.policy) is not None
     )
     @rule()
@@ -59,7 +64,7 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
             self.checkpoint.start(self._required_target_id(), self.policy)
         )
 
-    @precondition(lambda self: self._status() is TraversalStatus.IN_PROGRESS)
+    @precondition(lambda self: self._status() == TraversalStatus.IN_PROGRESS)
     @rule(bytes_acquired=st.integers(min_value=0, max_value=1_000))
     def complete(self, bytes_acquired: int) -> None:
         self._set_checkpoint(
@@ -70,7 +75,7 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
             )
         )
 
-    @precondition(lambda self: self._status() is TraversalStatus.IN_PROGRESS)
+    @precondition(lambda self: self._status() == TraversalStatus.IN_PROGRESS)
     @rule()
     def fail(self) -> None:
         self._set_checkpoint(
@@ -81,7 +86,7 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
             )
         )
 
-    @precondition(lambda self: self._status() is TraversalStatus.IN_PROGRESS)
+    @precondition(lambda self: self._status() == TraversalStatus.IN_PROGRESS)
     @rule()
     def recover_interrupted(self) -> None:
         self._set_checkpoint(self.checkpoint.recover_interrupted())
@@ -93,7 +98,7 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
             self.checkpoint.requeue_failed(self._required_target_id(), self.policy)
         )
 
-    @precondition(lambda self: self._status() is TraversalStatus.QUEUED)
+    @precondition(lambda self: self._status() == TraversalStatus.QUEUED)
     @rule()
     def skip(self) -> None:
         self._set_checkpoint(
@@ -105,10 +110,12 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
         target = self.checkpoint.targets[0]
         assert self.checkpoint.budget.requests_used == target.attempts
         expected_bytes = (
-            target.bytes_acquired if target.status is TraversalStatus.COMPLETED else 0
+            target.bytes_acquired if target.status == TraversalStatus.COMPLETED else 0
         )
         assert self.checkpoint.budget.bytes_used == expected_bytes
         assert self.checkpoint.budget.requests_used <= self.policy.max_requests
+        assert self.checkpoint.budget.bytes_used <= self.policy.max_bytes
+        assert self.checkpoint.budget.elapsed_seconds <= self.policy.max_elapsed_seconds
         assert self.checkpoint.budget.elapsed_seconds >= 0
 
     @invariant()
@@ -127,7 +134,7 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
         return self.checkpoint.targets[0].status
 
     def _can_requeue(self) -> bool:
-        if self._status() is not TraversalStatus.FAILED:
+        if self._status() != TraversalStatus.FAILED:
             return False
         attempts = self.checkpoint.targets[0].attempts
         retries_used = max(attempts - 1, 0)
@@ -135,6 +142,8 @@ class TraversalLifecycleMachine(RuleBasedStateMachine):
 
     def _set_checkpoint(self, updated: TraversalCheckpoint) -> None:
         assert updated.budget.elapsed_seconds >= self.checkpoint.budget.elapsed_seconds
+        assert updated.budget.requests_used >= self.checkpoint.budget.requests_used
+        assert updated.budget.bytes_used >= self.checkpoint.budget.bytes_used
         self.checkpoint = updated
 
 

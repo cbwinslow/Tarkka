@@ -41,7 +41,7 @@ def evaluate_robots_access(
         raise ValueError("robots result does not belong to the crawl target authority")
 
     base_interval = policy.min_request_interval_seconds
-    if not policy.allows_uri(normalized_target):
+    if not policy.allows_uri(target_uri):
         return _decision(
             target_uri=normalized_target,
             robots=robots,

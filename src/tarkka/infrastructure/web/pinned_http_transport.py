@@ -164,6 +164,7 @@ class PinnedHttpTransport:
                 timeout=effective_timeout,
             )
 
+        deadline = time.monotonic() + effective_timeout
         try:
             connection.request(
                 "GET",
@@ -176,7 +177,12 @@ class PinnedHttpTransport:
             )
             response = connection.getresponse()
             headers = _group_headers(response.getheaders())
-            body, limit_exceeded = _read_limited(response, max_response_bytes)
+            body, limit_exceeded = _read_limited(
+                response,
+                max_response_bytes,
+                deadline=deadline,
+                sock=connection.sock,
+            )
             return HttpTransportResponse(
                 status_code=response.status,
                 headers=headers,
@@ -259,10 +265,21 @@ def _group_headers(values: list[tuple[str, str]]) -> Mapping[str, tuple[str, ...
     return {name: tuple(items) for name, items in grouped.items()}
 
 
-def _read_limited(response: http.client.HTTPResponse, limit: int) -> tuple[bytes, bool]:
-    """Return at most ``limit`` bytes while reading one sentinel byte to detect overflow."""
+def _read_limited(
+    response: http.client.HTTPResponse,
+    limit: int,
+    *,
+    deadline: float,
+    sock: socket.socket | None,
+) -> tuple[bytes, bool]:
+    """Return at most ``limit`` bytes while enforcing byte and wall-clock bounds."""
     body = bytearray()
     while len(body) <= limit:
+        remaining_time = deadline - time.monotonic()
+        if remaining_time <= 0:
+            raise TimeoutError("HTTP response body read exceeded its deadline")
+        if sock is not None:
+            sock.settimeout(remaining_time)
         remaining_with_sentinel = limit + 1 - len(body)
         if remaining_with_sentinel <= 0:
             break

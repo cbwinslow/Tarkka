@@ -43,6 +43,9 @@ class CrawlEligibilityDecision:
         if self.crawl.target_uri != self.target_uri or self.rights.target_uri != self.target_uri:
             raise ValueError("crawl and rights decisions must refer to the same target URI")
 
+        expected = _expected_eligibility(self.crawl, self.rights)
+        if (self.allowed, self.reason) != expected:
+            raise ValueError("crawl eligibility result is inconsistent with its policy decisions")
 
 
 def combine_crawl_eligibility(
@@ -62,16 +65,7 @@ def combine_crawl_eligibility(
     if crawl.target_uri != rights.target_uri:
         raise ValueError("crawl and rights decisions must refer to the same target URI")
 
-    if not crawl.allowed:
-        reason = CrawlEligibilityReason.ROBOTS_OR_TECHNICAL_DENY
-        allowed = False
-    elif not rights.retrieval_allowed:
-        reason = CrawlEligibilityReason.RIGHTS_RETRIEVAL_DENY
-        allowed = False
-    else:
-        reason = CrawlEligibilityReason.ALLOWED
-        allowed = True
-
+    allowed, reason = _expected_eligibility(crawl, rights)
     return CrawlEligibilityDecision(
         target_uri=crawl.target_uri,
         allowed=allowed,
@@ -79,3 +73,14 @@ def combine_crawl_eligibility(
         crawl=crawl,
         rights=rights,
     )
+
+
+def _expected_eligibility(
+    crawl: CrawlAccessDecision,
+    rights: RightsAccessDecision,
+) -> tuple[bool, CrawlEligibilityReason]:
+    if not crawl.allowed:
+        return False, CrawlEligibilityReason.ROBOTS_OR_TECHNICAL_DENY
+    if not rights.retrieval_allowed:
+        return False, CrawlEligibilityReason.RIGHTS_RETRIEVAL_DENY
+    return True, CrawlEligibilityReason.ALLOWED

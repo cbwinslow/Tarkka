@@ -204,11 +204,13 @@ def _sections(root: ET.Element, document_id: UUID, fallback_title: str) -> tuple
 
 
 def _direct_content_texts(container: ET.Element) -> Iterable[str]:
+    mixed_parts: list[str] = []
+    _append_mixed_text(mixed_parts, container.text)
+
     for child in container:
         name = _local_name(child.tag)
-        if name == "sec":
-            continue
         if name in {"p", "disp-quote", "boxed-text", "list"}:
+            yield from _flush_mixed_parts(mixed_parts)
             if name == "list":
                 for item in child.findall("./list-item"):
                     text = _text(item)
@@ -218,6 +220,35 @@ def _direct_content_texts(container: ET.Element) -> Iterable[str]:
                 text = _text(child)
                 if text:
                     yield text
+        elif name not in {
+            "title",
+            "label",
+            "sec",
+            "fig",
+            "table-wrap",
+            "disp-formula",
+            "supplementary-material",
+        }:
+            _append_mixed_text(mixed_parts, _text(child))
+        else:
+            yield from _flush_mixed_parts(mixed_parts)
+        _append_mixed_text(mixed_parts, child.tail)
+
+    yield from _flush_mixed_parts(mixed_parts)
+
+
+def _append_mixed_text(parts: list[str], value: str | None) -> None:
+    if value is not None and value.strip():
+        parts.append(value)
+
+
+def _flush_mixed_parts(parts: list[str]) -> Iterable[str]:
+    if not parts:
+        return
+    text = " ".join(" ".join(parts).split())
+    parts.clear()
+    if text:
+        yield text
 
 
 def _figures(root: ET.Element, document_id: UUID) -> tuple[Figure, ...]:

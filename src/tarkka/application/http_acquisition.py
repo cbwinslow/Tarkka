@@ -408,7 +408,7 @@ def _redirect_location(response: HttpTransportResponse) -> str | None:
         raise ValueError("HTTP redirect response must contain exactly one Location header")
     value = values[0].strip()
     if not value:
-        return None
+        raise ValueError("HTTP redirect Location must not be blank")
     if any(character.isspace() for character in value):
         raise ValueError("HTTP redirect Location must not contain whitespace")
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):

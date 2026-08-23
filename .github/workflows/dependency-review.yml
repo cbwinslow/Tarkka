@@ -4,28 +4,36 @@ on:
   pull_request:
     branches: [main]
 
-# Dependency submission requires contents: write for same-repository PRs. GitHub
-# downgrades fork pull-request tokens to read-only; the write-only submission step
-# is therefore skipped for forks while the read-only dependency review still runs.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  dependency-review:
-    name: Review dependency changes
+  dependency-submission:
+    name: Submit uv.lock dependencies
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Submit uv.lock dependencies
-        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         uses: advanced-security/component-detection-dependency-submission-action@31f25a8de68ae5ce2ca274bc28546a78683c15ce # v0.1.4
         with:
           detectorArgs: "UvLock=EnableIfDefaultOff"
 
+  dependency-review:
+    name: Review dependency changes
+    needs: dependency-submission
+    if: ${{ always() && (needs.dependency-submission.result == 'success' || needs.dependency-submission.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
       - name: Review dependency changes
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:

@@ -29,6 +29,8 @@ Examples:
 - parser postconditions
 - fail-closed validation
 
+Every replaceable port should grow a reusable contract suite so each implementation proves the same externally visible behavior.
+
 ### Integration
 
 Tests that compose multiple Tarkka components while remaining reproducible and usually offline.
@@ -55,6 +57,38 @@ High-value candidates include:
 - identifier normalization is idempotent
 - serializers round-trip valid domain objects
 - pagination preserves ordering and bounds
+- traversal state transitions preserve invariants
+- evidence offsets are ordered and in bounds
+- URI normalization is stable across equivalent spellings
+
+### Security
+
+Security tests exercise adversarial inputs and fail-closed boundaries. These should remain deterministic and run without outside services unless explicitly marked `external`.
+
+High-value areas include:
+
+- SSRF and DNS-rebinding boundaries
+- redirect validation and ambiguous headers
+- query-string and credential redaction
+- path traversal
+- malformed URLs and Unicode/IDNA edge cases
+- IPv4/IPv6 classification
+- untrusted parser/model output
+- resource exhaustion and acquisition budgets
+
+### Failure injection
+
+I/O and persistence code must be tested under partial failure, not only happy-path success.
+
+Examples:
+
+- artifact write succeeds but observation write fails
+- observation write succeeds but checkpoint completion fails
+- retry resumes from a durable intermediate state
+- model/provider response is malformed after partial work
+- timeout occurs between two otherwise valid operations
+
+Shared deterministic fault primitives belong in `tests/support/` so these scenarios are easy to reproduce consistently.
 
 ### External
 
@@ -70,10 +104,12 @@ contract
 integration
 regression
 property
+security
+slow
 external
 ```
 
-Markers are descriptive rather than mutually exclusive. For example, a test may be both `regression` and `contract`.
+Markers are descriptive rather than mutually exclusive. For example, an SSRF regression may be both `security` and `regression`.
 
 `--strict-markers` is enabled so misspelled or undocumented markers fail immediately.
 
@@ -115,6 +151,8 @@ Coverage is a diagnostic, not a substitute for meaningful assertions.
 
 CI records branch coverage, reports missing lines, and retains `coverage.xml` as a workflow artifact for later inspection. Tarkka initially measures coverage without enforcing an arbitrary repository-wide percentage. Once a stable baseline is known, thresholds can be introduced per critical subsystem rather than rewarding low-value tests merely to increase a global number.
 
+Changed code should move toward a diff-coverage gate so new behavior is held to a stronger standard without encouraging low-value repository-wide coverage padding.
+
 High-risk contracts should aim for behavior coverage even when total repository coverage is lower.
 
 ## Failure localization
@@ -130,17 +168,38 @@ tests/
     integration/
     regression/
     properties/
+    security/
     external/
     support/
 ```
 
 Existing tests do not need to be moved all at once. Migrate them when the relevant subsystem is changed so reorganizing tests does not become a large unrelated refactor.
 
-## Fixtures and factories
+## Shared test support
 
-Shared object construction should move toward small typed factories in `tests/support/` rather than copy/pasted setup. Factories should expose only the fields a test needs to vary and produce valid domain objects by default.
+Shared object construction should move toward small typed factories in `tests/support/` rather than copy/pasted setup. Test support is maintained code and must be typed, deterministic, documented, and independently tested.
 
-Invalid-object tests should mutate one invariant at a time so the resulting failure identifies the broken contract.
+Current primitives include:
+
+- `ManualClock` for deterministic elapsed-time and timeout tests;
+- `RecordingSleeper` for wait behavior without real sleeps;
+- `FaultPlan` for deterministic failure injection on selected calls.
+
+Do not create a one-off clock, sleeper, or generic failure counter when an existing shared helper covers the behavior.
+
+Factories should expose only the fields a test needs to vary and produce valid domain objects by default. Invalid-object tests should mutate one invariant at a time so the resulting failure identifies the broken contract.
+
+## Durable-state testing
+
+Every durable record should have serialization round-trip coverage. Persistence adapters should additionally test:
+
+- idempotent writes where the contract requires them;
+- corrupted or malformed stored data;
+- interrupted writes and restart recovery;
+- compatibility when durable schemas evolve;
+- deterministic identity after reload.
+
+When migrations or durable formats are introduced, compatibility tests should protect upgrades rather than relying on manual inspection.
 
 ## Bug workflow
 
@@ -152,6 +211,12 @@ For a meaningful bug:
 4. keep the test permanently as a regression guard;
 5. add a broader property or contract test when the bug reveals a class of failures rather than one isolated case.
 
+## Mutation testing
+
+Targeted mutation testing is valuable for high-risk pure domain modules after their unit/property suites stabilize. It should initially run on a schedule or manually rather than slowing every pull request.
+
+Good mutation-testing targets include identifier normalization, evidence bounds, traversal state transitions, batching arithmetic, and acquisition-budget logic.
+
 ## Multimodal research artifacts
 
 Figures, tables, equations, and images will use the same testing discipline when introduced:
@@ -161,3 +226,19 @@ Figures, tables, equations, and images will use the same testing discipline when
 - interpreted values or conclusions remain separate from immutable source artifacts;
 - native structured extraction and OCR/vision fallbacks require fixture-based comparison tests;
 - external vision/model calls remain optional and are replaced by deterministic fixtures in normal CI.
+
+## Review checklist
+
+Before merging behavior changes, verify the relevant items below:
+
+- happy path covered;
+- invalid input covered;
+- important boundary values covered;
+- persistence round trip covered when durable state changes;
+- failure, retry, and interruption covered when I/O is involved;
+- security and provenance impact considered;
+- deterministic IDs or ordering tested when required;
+- replaceable adapter behavior covered by a reusable contract where appropriate;
+- regression test added for every bug fixed.
+
+See issue #60 for the incremental testing-framework roadmap.

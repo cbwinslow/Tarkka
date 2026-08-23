@@ -224,6 +224,12 @@ def normalize_durable_http_uri(value: str, *, field_name: str = "HTTP URI") -> s
     return normalize_http_uri(value, field_name=field_name)
 
 
+def durable_http_uri_requires_transient_request(value: str) -> bool:
+    """Return whether durable normalization removed request information needed for acquisition."""
+    parsed = urlsplit(normalize_durable_http_uri(value))
+    return any(item == _REDACTED for _, item in parse_qsl(parsed.query, keep_blank_values=True))
+
+
 def _sanitize_fragment(fragment: str) -> str:
     if "=" not in fragment:
         return fragment
@@ -258,6 +264,7 @@ def _is_sensitive_query_key(key: str) -> bool:
 def _sanitize_nested_uri(value: str) -> str | None:
     try:
         parsed = urlsplit(value)
+        port = parsed.port
     except ValueError:
         return None
 
@@ -265,14 +272,27 @@ def _sanitize_nested_uri(value: str) -> str | None:
         return normalize_http_uri(value, field_name="nested HTTP URI")
 
     is_relative_uri = not parsed.scheme and (
-        parsed.path.startswith(("/", "./", "../")) or bool(parsed.query) or bool(parsed.fragment)
+        bool(parsed.netloc)
+        or parsed.path.startswith(("/", "./", "../"))
+        or bool(parsed.query)
+        or bool(parsed.fragment)
     )
     if not is_relative_uri or not (parsed.query or "=" in parsed.fragment):
         return None
+
+    netloc = ""
+    if parsed.netloc:
+        if parsed.hostname is None or parsed.username is not None or parsed.password is not None:
+            return None
+        host = _normalize_host(parsed.hostname)
+        if ":" in host:
+            host = f"[{host}]"
+        netloc = host if port is None else f"{host}:{port}"
+
     return urlunsplit(
         (
             "",
-            "",
+            netloc,
             parsed.path,
             _sanitize_parameter_string(parsed.query),
             _sanitize_fragment(parsed.fragment),

@@ -28,8 +28,9 @@ jobs:
   dependency-review:
     name: Review dependency changes
     needs: dependency-submission
-    # Keep review coverage even if dependency submission fails transiently. The
-    # submission failure still fails the workflow, but must not suppress review.
+    # Submission and review are independent security signals. Preserve dependency
+    # review after any non-cancelled submission result; a failed submission still
+    # fails its own job and remains visible to maintainers.
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10

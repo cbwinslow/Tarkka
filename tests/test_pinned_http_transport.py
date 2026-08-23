@@ -3,6 +3,7 @@ from __future__ import annotations
 import socket
 import ssl
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
 
@@ -27,6 +28,22 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("X-Test", "two")
         self.end_headers()
         self.wfile.write(b"abcdefghij")
+
+    def log_message(self, format: str, *args: object) -> None:
+        del format, args
+
+
+class _SlowDripHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(200)
+        self.end_headers()
+        for byte in b"abcde":
+            try:
+                self.wfile.write(bytes((byte,)))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                break
+            time.sleep(0.03)
 
     def log_message(self, format: str, *args: object) -> None:
         del format, args
@@ -83,6 +100,28 @@ def test_pinned_transport_does_not_report_overflow_at_exact_limit() -> None:
     assert response.limit_exceeded is False
 
 
+def test_pinned_transport_enforces_total_response_deadline_against_slow_drip() -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _SlowDripHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    started_at = time.monotonic()
+    try:
+        port = server.server_address[1]
+        with pytest.raises((TimeoutError, socket.timeout)):
+            PinnedHttpTransport(timeout_seconds=1.0).request(
+                uri=f"http://example.org:{port}/slow",
+                resolved_address="127.0.0.1",
+                max_response_bytes=100,
+                timeout_seconds=0.07,
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert time.monotonic() - started_at < 0.5
+
+
 def test_system_resolver_stops_waiting_when_deadline_expires(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -124,6 +163,12 @@ def test_system_resolver_bounds_outstanding_workers_after_timeouts(
             with pytest.raises(TimeoutError, match="deadline"):
                 resolver.resolve("example.org", timeout_seconds=0.01)
 
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            with call_lock:
+                if calls == 2:
+                    break
+            time.sleep(0.01)
         with call_lock:
             assert calls == 2
     finally:

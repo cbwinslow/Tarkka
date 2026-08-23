@@ -16,10 +16,10 @@ Tarkka uses multiple independent review signals. Automated reviewers provide evi
 Repository-managed AI review automation must use explicitly free model identifiers. Do not configure a paid or ambiguous model ID and assume provider routing will keep usage free.
 
 - OpenRouter primary: `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`
-- OpenRouter fallback: `openrouter/openrouter/free`
+- OpenRouter fallback: disabled; PR-Agent fails closed rather than silently changing reviewer models.
 - OpenCode Zen integrations, when enabled, must use model IDs ending in `-free`, such as `deepseek-v4-flash-free` or `nemotron-3-ultra-free`.
 
-When a provider removes or renames a free model, fail closed or fall back to another explicitly free model. Do not silently cross over to paid inference.
+When a provider removes, renames, or temporarily disables the configured free model, fail closed. Do not silently cross over to another model or paid inference without an explicit reviewed configuration change.
 
 ## PR-Agent
 
@@ -31,13 +31,13 @@ The primary model is configured in `.pr_agent.toml` as:
 openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
 ```
 
-The fallback is:
+Fallback models are intentionally disabled:
 
 ```text
-openrouter/openrouter/free
+[]
 ```
 
-This keeps Nemotron Ultra deterministic as the preferred reviewer while retaining a free-only fallback when the primary endpoint is unavailable.
+This keeps Nemotron Ultra authoritative for repository-managed PR-Agent reviews. If that endpoint is unavailable, the review should fail visibly instead of silently downgrading to a different model.
 
 ### Required secret
 

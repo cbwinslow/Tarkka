@@ -62,21 +62,19 @@ class _Transport:
         return response
 
 
-class _FailOnSaveNumberRepository:
+class _FailOnStatusRepository:
     def __init__(
         self,
         inner: JsonTraversalCheckpointRepository,
         *,
-        fail_on: int,
+        fail_on_status: TraversalStatus,
     ) -> None:
         self.inner = inner
-        self.fail_on = fail_on
-        self.calls = 0
+        self.fail_on_status = fail_on_status
 
     def save(self, checkpoint: TraversalCheckpoint) -> None:
-        self.calls += 1
-        if self.calls == self.fail_on:
-            raise OSError("injected final checkpoint failure")
+        if any(target.status is self.fail_on_status for target in checkpoint.targets):
+            raise OSError("injected checkpoint failure")
         self.inner.save(checkpoint)
 
     def get(self, checkpoint_id: UUID) -> TraversalCheckpoint | None:
@@ -93,6 +91,19 @@ class _FailingObservationRepository:
 
     def get_observation(self, observation_id: UUID) -> SourceObservation | None:
         return self.inner.get_observation(observation_id)
+
+
+class _SaturatingClock:
+    def __init__(self, *values: float) -> None:
+        self.values = values
+        self.index = 0
+
+    def __call__(self) -> float:
+        if not self.values:
+            raise AssertionError("clock requires at least one value")
+        index = min(self.index, len(self.values) - 1)
+        self.index += 1
+        return self.values[index]
 
 
 def _policy() -> ResourceAcquisitionPolicy:
@@ -115,33 +126,41 @@ def _checkpoint() -> tuple[TraversalCheckpoint, UUID]:
     return checkpoint, checkpoint.targets[0].target_id
 
 
-def test_recovers_durable_outputs_after_final_checkpoint_write_fails(tmp_path: Path) -> None:
+def _interrupted_finalization(
+    tmp_path: Path,
+) -> tuple[
+    TraversalCheckpoint,
+    UUID,
+    JsonTraversalCheckpointRepository,
+    JsonSourceObservationRepository,
+    LocalArtifactStore,
+]:
     checkpoint, target_id = _checkpoint()
     checkpoints = JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json")
     observations = JsonSourceObservationRepository(tmp_path / "observations.json")
     artifacts = LocalArtifactStore(tmp_path / "artifacts")
-    resolver = _Resolver()
-    transport = _Transport(
-        HttpTransportResponse(
-            status_code=200,
-            headers={"Content-Type": ("text/plain",)},
-            body=b"research",
-        )
-    )
     service = HttpAcquisitionService(
-        resolver=resolver,
-        transport=transport,
+        resolver=_Resolver(),
+        transport=_Transport(HttpTransportResponse(status_code=200, body=b"research")),
         artifact_store=artifacts,
         observation_repository=observations,
-        checkpoint_repository=_FailOnSaveNumberRepository(checkpoints, fail_on=4),
+        checkpoint_repository=_FailOnStatusRepository(
+            checkpoints,
+            fail_on_status=TraversalStatus.COMPLETED,
+        ),
         clock=lambda: 10.0,
         sleeper=lambda _: None,
     )
 
     with pytest.raises(HttpAcquisitionCommitError) as caught:
         service.acquire(checkpoint, target_id, _policy())
+    return caught.value.checkpoint, target_id, checkpoints, observations, artifacts
 
-    finalizing = caught.value.checkpoint
+
+def test_recovers_durable_outputs_after_final_checkpoint_write_fails(tmp_path: Path) -> None:
+    finalizing, target_id, checkpoints, observations, artifacts = _interrupted_finalization(
+        tmp_path
+    )
     target = finalizing.targets[0]
     assert target.status is TraversalStatus.FINALIZING
     assert target.final_artifact_sha256 is not None
@@ -151,14 +170,13 @@ def test_recovers_durable_outputs_after_final_checkpoint_write_fails(tmp_path: P
 
     recovery_resolver = _Resolver()
     recovery_transport = _Transport(None)
-    recovery_times = iter((20.0, 23.5))
     recovery = HttpAcquisitionService(
         resolver=recovery_resolver,
         transport=recovery_transport,
         artifact_store=artifacts,
         observation_repository=observations,
         checkpoint_repository=checkpoints,
-        clock=lambda: next(recovery_times),
+        clock=_SaturatingClock(20.0, 23.5),
         sleeper=lambda _: None,
     )
     completed = recovery.recover_finalization(finalizing, target_id)
@@ -170,7 +188,32 @@ def test_recovers_durable_outputs_after_final_checkpoint_write_fails(tmp_path: P
     assert recovery_transport.calls == 0
 
 
-def test_recovery_fails_closed_when_expected_observation_is_missing(tmp_path: Path) -> None:
+def test_recovery_uses_newer_durable_completed_checkpoint(tmp_path: Path) -> None:
+    finalizing, target_id, checkpoints, observations, artifacts = _interrupted_finalization(
+        tmp_path
+    )
+    completed_elsewhere = finalizing.complete_finalization(
+        target_id,
+        elapsed_seconds=finalizing.budget.elapsed_seconds + 1.0,
+    )
+    checkpoints.save(completed_elsewhere)
+    recovery = HttpAcquisitionService(
+        resolver=_Resolver(),
+        transport=_Transport(None),
+        artifact_store=artifacts,
+        observation_repository=observations,
+        checkpoint_repository=checkpoints,
+        clock=lambda: 50.0,
+        sleeper=lambda _: None,
+    )
+
+    recovered = recovery.recover_finalization(finalizing, target_id)
+
+    assert recovered == completed_elsewhere
+    assert checkpoints.get(_CHECKPOINT_ID) == completed_elsewhere
+
+
+def test_recovery_marks_missing_outputs_failed_so_target_can_retry(tmp_path: Path) -> None:
     checkpoint, target_id = _checkpoint()
     checkpoints = JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json")
     observations = JsonSourceObservationRepository(tmp_path / "observations.json")
@@ -203,7 +246,14 @@ def test_recovery_fails_closed_when_expected_observation_is_missing(tmp_path: Pa
         clock=lambda: 10.0,
         sleeper=lambda _: None,
     )
-    with pytest.raises(HttpAcquisitionCommitError, match="observation is not durable") as retry:
+    with pytest.raises(HttpAcquisitionCommitError, match="marked failed for retry") as retry:
         recovery.recover_finalization(finalizing, target_id)
 
-    assert retry.value.checkpoint.targets[0].status is TraversalStatus.FINALIZING
+    failed = retry.value.checkpoint
+    assert failed.targets[0].status is TraversalStatus.FAILED
+    assert failed.targets[0].final_artifact_sha256 is None
+    assert failed.targets[0].final_observation_id is None
+    assert checkpoints.get(_CHECKPOINT_ID) == failed
+
+    requeued = failed.requeue_failed(target_id, _policy())
+    assert requeued.targets[0].status is TraversalStatus.QUEUED

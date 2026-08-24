@@ -1,0 +1,75 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/mutation-testing.yml"
+      - "pyproject.toml"
+      - "docs/TESTING.md"
+      - ".gitignore"
+
+concurrency:
+  group: mutation-testing-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: ${{ github.event_name == 'pull_request' }}
+    name: Validate mutation tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Verify lockfile
+        run: uv lock --check
+      - name: Sync development environment
+        run: uv sync --frozen --group dev
+      - name: Verify pinned mutmut CLI
+        run: uv run --with mutmut==3.7.0 mutmut --version
+
+  mutation:
+    if: ${{ github.event_name != 'pull_request' }}
+    name: Targeted mutation baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Verify lockfile
+        run: uv lock --check
+      - name: Sync development environment
+        run: uv sync --frozen --group dev
+      - name: Run targeted mutation baseline
+        run: |
+          rm -rf mutants mutation-results.txt
+          uv run --with mutmut==3.7.0 mutmut run
+          uv run --with mutmut==3.7.0 mutmut results | tee mutation-results.txt
+      - name: Retain mutation results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: targeted-mutation-baseline
+          path: |
+            mutation-results.txt
+            mutants/
+          if-no-files-found: warn
+          retention-days: 14

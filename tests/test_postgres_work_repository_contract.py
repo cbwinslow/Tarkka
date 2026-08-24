@@ -11,6 +11,7 @@ from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
+from tarkka.infrastructure.postgres.migrations import discover_migrations, upgrade
 from tarkka.infrastructure.postgres.work_repository import PostgresWorkRepository
 from tarkka.interfaces.cli import _work_repository
 from tests.contracts.work_repository import WorkRepositoryContract
@@ -115,6 +116,22 @@ def _apply_work_migrations() -> None:
             connection.execute(sql, prepare=False)
     finally:
         connection.close()
+
+
+def test_explicit_migration_upgrade_records_and_reuses_the_packaged_history() -> None:
+    expected = discover_migrations(_ROOT / "migrations")
+
+    result = upgrade(_settings())
+
+    assert result.applied == ()
+    assert [(item.version, item.name, item.checksum) for item in result.skipped] == [
+        (item.version, item.name, item.checksum) for item in expected
+    ]
+    with connect(_settings()) as connection:
+        rows = connection.execute(
+            "SELECT version, name, checksum FROM tarkka.schema_migration ORDER BY version"
+        ).fetchall()
+    assert rows == [(item.version, item.name, item.checksum) for item in expected]
 
 
 @pytest.fixture(autouse=True)

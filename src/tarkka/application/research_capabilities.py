@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tarkka.application.discover import DiscoveryService
+from tarkka.application.verification import EvidenceVerificationService
+
+# Envelope metadata (version, representation, and routing hints) is included
+# alongside every capability response. Keeping it separate from per-operation
+# estimates makes the deliberately approximate number auditable.
+_CAPABILITY_ENVELOPE_TOKEN_OVERHEAD = 80
+
 
 @dataclass(frozen=True, slots=True)
 class ResearchOperation:
@@ -24,17 +32,45 @@ class ResearchCapabilities:
 
     @property
     def estimated_tokens(self) -> int:
-        return 80 + sum(item.estimated_tokens for item in self.operations)
+        return _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
+            item.estimated_tokens for item in self.operations
+        )
 
 
-_OPERATIONS = (
-    ResearchOperation("research.discover", "discover", "Find provider-backed candidates.", 24),
-    ResearchOperation("research.get", "get", "Resolve one stable research handle.", 24),
-    ResearchOperation("research.expand", "expand", "Request a named deeper representation.", 24),
-    ResearchOperation("research.verify", "verify", "Record or inspect evidence assessments.", 24),
+@dataclass(frozen=True, slots=True)
+class _OperationRegistration:
+    """Private metadata binding an advertised handle to an implemented service method."""
+
+    operation: ResearchOperation
+    service_type: type[DiscoveryService] | type[EvidenceVerificationService]
+    method_name: str
+
+    def __post_init__(self) -> None:
+        if not callable(getattr(self.service_type, self.method_name, None)):
+            raise ValueError(
+                f"capability {self.operation.operation_id} has no callable service method"
+            )
+
+
+_OPERATION_REGISTRATIONS = (
+    # Each advertised operation maps to a public application-service method.
+    # Deeper handle resolution and representation expansion remain intentionally
+    # absent until their application services are implemented.
+    _OperationRegistration(
+        ResearchOperation("research.discover", "discover", "Find provider-backed candidates.", 24),
+        DiscoveryService,
+        "discover",
+    ),
+    _OperationRegistration(
+        ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),
+        EvidenceVerificationService,
+        "record",
+    ),
 )
 
 
 def research_capabilities() -> ResearchCapabilities:
     """Return the intentionally compact first step of progressive tool discovery."""
-    return ResearchCapabilities(version="1", operations=_OPERATIONS)
+    return ResearchCapabilities(
+        version="1", operations=tuple(item.operation for item in _OPERATION_REGISTRATIONS)
+    )

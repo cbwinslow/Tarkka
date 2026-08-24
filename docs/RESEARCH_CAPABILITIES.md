@@ -7,3 +7,10 @@ and an estimated token cost before a client requests detailed schemas or data.
 The index intentionally exposes only the currently implemented/usable families.
 It is shared application behavior for future MCP, CLI, API, and SDK interfaces;
 it neither selects a provider nor reads documents.
+
+`research.discover` maps to `DiscoveryService.discover`; `research.verify` maps
+to `EvidenceVerificationService.record`. Handle resolution and named deeper
+representations are deliberately not advertised until their application
+services exist. The token estimate includes a documented fixed envelope
+overhead plus each returned operation's estimate; it is a routing estimate, not
+metered usage.

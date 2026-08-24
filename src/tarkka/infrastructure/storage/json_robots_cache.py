@@ -6,6 +6,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
+from uuid import UUID
 
 from tarkka.domain.crawl_access import RobotsFetchOutcome, RobotsFetchResult
 from tarkka.domain.http_observations import normalize_http_uri
@@ -69,8 +70,9 @@ class JsonRobotsCache:
         if not isinstance(decoded, dict):
             raise RuntimeError("invalid robots cache: root must be an object")
         data = cast(dict[str, Any], decoded)
-        if data.get("schema_version") != 1:
-            raise RuntimeError("invalid or unsupported robots cache schema")
+        schema_version = data.get("schema_version")
+        if schema_version != 1:
+            raise RuntimeError(f"unsupported robots cache schema_version: {schema_version!r}")
         if not isinstance(data.get("entries"), dict):
             raise RuntimeError("invalid robots cache: entries must be an object")
         return data
@@ -84,6 +86,7 @@ class JsonRobotsCache:
             with temp_path.open("rb") as handle:
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
+            _fsync_directory(self.path.parent)
         finally:
             temp_path.unlink(missing_ok=True)
 
@@ -100,6 +103,10 @@ def _entry_to_dict(entry: RobotsCacheEntry) -> dict[str, Any]:
         "status_code": entry.result.status_code,
         "fetched_at": entry.fetched_at.isoformat(),
         "expires_at": entry.expires_at.isoformat(),
+        "source_observation_id": (
+            str(entry.source_observation_id) if entry.source_observation_id is not None else None
+        ),
+        "artifact_sha256": entry.artifact_sha256,
     }
 
 
@@ -115,10 +122,26 @@ def _entry_from_dict(raw: dict[str, Any]) -> RobotsCacheEntry:
         )
         fetched_at = datetime.fromisoformat(raw["fetched_at"])
         expires_at = datetime.fromisoformat(raw["expires_at"])
+        observation_raw = raw.get("source_observation_id")
+        observation_id = UUID(observation_raw) if observation_raw is not None else None
+        artifact_sha256 = raw.get("artifact_sha256")
         return RobotsCacheEntry(
             result=result,
             fetched_at=fetched_at,
             expires_at=expires_at,
+            source_observation_id=observation_id,
+            artifact_sha256=artifact_sha256,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError(f"invalid robots cache entry: {exc}") from exc
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)

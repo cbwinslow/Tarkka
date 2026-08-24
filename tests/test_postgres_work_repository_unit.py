@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextvars import Context
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -230,6 +231,36 @@ def test_transaction_reuses_connection_and_rejects_nesting() -> None:
 
     assert connection.closed
     assert connection.entered == 0
+
+
+def test_transaction_connection_is_context_local() -> None:
+    transaction_connection = _Connection([_Cursor()])
+    independent_connection = _Connection([_Cursor()])
+    connections = iter((transaction_connection, independent_connection))
+    repository = PostgresWorkRepository(
+        _SETTINGS,
+        connection_factory=lambda _: next(connections),
+    )
+
+    with repository.transaction():
+        repository.save_work(_work())
+        Context().run(repository.save_work, _work())
+        assert not transaction_connection.closed
+        assert independent_connection.closed
+
+    assert transaction_connection.closed
+    assert len(transaction_connection.calls) == 1
+    assert len(independent_connection.calls) == 1
+
+
+def test_save_work_upsert_does_not_replace_created_at() -> None:
+    connection = _Connection([_Cursor()])
+
+    _repository(connection).save_work(_work())
+
+    sql = connection.calls[0][0]
+    assert "created_at = EXCLUDED.created_at" not in sql
+    assert "updated_at = now()" in sql
 
 
 def test_json_helpers_fail_closed_and_round_trip_discovery_records() -> None:

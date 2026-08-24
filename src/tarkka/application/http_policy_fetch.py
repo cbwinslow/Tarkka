@@ -168,9 +168,6 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                     raise ValueError("HTTP redirect target is not allowed by acquisition policy")
 
                 self._wait_for_policy_followup(active, policy, depth, started_at)
-                # _wait_for_policy_followup sleeps for at least the configured minimum interval.
-                # Passing that lower bound here is intentional: budget state tracks whether the
-                # policy requirement is satisfied, not wall-clock scheduler jitter.
                 active = begin_policy_request(
                     active,
                     policy,

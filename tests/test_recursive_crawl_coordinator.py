@@ -177,7 +177,11 @@ def _robots(
     )
 
 
-def _coordinator(cache: _Cache, refresher: _Refresher, acquirer: _Acquirer) -> RecursiveCrawlCoordinator:
+def _coordinator(
+    cache: _Cache,
+    refresher: _Refresher,
+    acquirer: _Acquirer,
+) -> RecursiveCrawlCoordinator:
     return RecursiveCrawlCoordinator(
         policy_gate=RecursiveCrawlPolicyGate(
             robots_cache=cache,

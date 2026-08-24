@@ -46,7 +46,11 @@ class ResearchQuery:
             raise ValueError("query limit must be between 1 and 1000")
         if self.mode is ProviderMode.ONLY and not self.providers:
             raise ValueError("mode=only requires at least one provider")
-        if self.year_from and self.year_to and self.year_from > self.year_to:
+        if (
+            self.year_from is not None
+            and self.year_to is not None
+            and self.year_from > self.year_to
+        ):
             raise ValueError("year_from must be <= year_to")
         if self.cursor and self.cursors:
             raise ValueError("use either cursor or provider-keyed cursors, not both")

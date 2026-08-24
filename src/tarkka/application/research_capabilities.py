@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from tarkka.application.discover import DiscoveryService
@@ -21,6 +22,76 @@ class ResearchOperation:
     family: str
     summary: str
     estimated_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchField:
+    """Compact input descriptor for staged agent discovery.
+
+    ``required_when`` is a concise condition hint for clients; the application
+    service remains authoritative for request validation.
+    """
+
+    name: str
+    value_type: str
+    required: bool
+    summary: str
+    allowed_values: tuple[str, ...] = ()
+    item_value_type: str | None = None
+    property_value_type: str | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+    required_when: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name.strip() or not self.value_type.strip() or not self.summary.strip():
+            raise ValueError("research field name, value type, and summary must be non-blank")
+        if any(not value.strip() for value in self.allowed_values):
+            raise ValueError("research field allowed values must be non-blank")
+        if self.item_value_type is not None and (
+            self.value_type != "array" or not self.item_value_type.strip()
+        ):
+            raise ValueError("item value type is only valid for non-empty array fields")
+        if self.property_value_type is not None and (
+            self.value_type != "object" or not self.property_value_type.strip()
+        ):
+            raise ValueError("property value type is only valid for non-empty object fields")
+        if self.minimum is not None or self.maximum is not None:
+            if self.value_type not in {"integer", "number"}:
+                raise ValueError("numeric bounds require an integer or number field")
+            for value in (self.minimum, self.maximum):
+                if value is not None and (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(float(value))
+                ):
+                    raise ValueError("research field bounds must be finite numbers")
+            if (
+                self.minimum is not None
+                and self.maximum is not None
+                and self.minimum > self.maximum
+            ):
+                raise ValueError("research field minimum must not exceed maximum")
+        if self.required_when is not None and (
+            self.required or not self.required_when.strip()
+        ):
+            raise ValueError("required_when is only valid for optional fields")
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchOperationSchema:
+    """Transport-neutral descriptor loaded after selecting an operation."""
+
+    operation: ResearchOperation
+    inputs: tuple[ResearchField, ...]
+    result_summary: str
+    estimated_tokens: int
+
+
+class UnknownResearchOperationError(LookupError):
+    def __init__(self, operation_id: str) -> None:
+        super().__init__(f"unknown research operation: {operation_id}")
+        self.operation_id = operation_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +115,8 @@ class _OperationRegistration:
     operation: ResearchOperation
     service_type: type[DiscoveryService] | type[EvidenceVerificationService]
     method_name: str
+    inputs: tuple[ResearchField, ...]
+    result_summary: str
 
     def __post_init__(self) -> None:
         if not callable(getattr(self.service_type, self.method_name, None)):
@@ -60,11 +133,89 @@ _OPERATION_REGISTRATIONS = (
         ResearchOperation("research.discover", "discover", "Find provider-backed candidates.", 24),
         DiscoveryService,
         "discover",
+        (
+            ResearchField("text", "string", True, "Research question or search text."),
+            ResearchField("limit", "integer", False, "Result limit.", minimum=1, maximum=1000),
+            ResearchField(
+                "mode", "enum", False, "Provider selection mode.", ("auto", "only", "all")
+            ),
+            ResearchField(
+                "providers",
+                "array",
+                False,
+                "Providers required by mode=only.",
+                item_value_type="string",
+                required_when="mode == only",
+            ),
+            ResearchField(
+                "intent",
+                "enum",
+                False,
+                "Provider-neutral research intent.",
+                ("broad", "preprint", "citations", "bibliographic"),
+            ),
+            ResearchField(
+                "cursor", "string", False, "Continuation cursor for one selected provider."
+            ),
+            ResearchField(
+                "cursors",
+                "object",
+                False,
+                "Provider-keyed cursors for multi-provider pagination.",
+                property_value_type="string",
+            ),
+            ResearchField(
+                "require_open_access", "boolean", False, "Require open-access candidates."
+            ),
+            ResearchField("year_from", "integer", False, "Inclusive publication year lower bound."),
+            ResearchField("year_to", "integer", False, "Inclusive publication year upper bound."),
+        ),
+        "Candidate manifests and provider cursors.",
     ),
     _OperationRegistration(
         ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),
         EvidenceVerificationService,
         "record",
+        (
+            ResearchField("claim_id", "uuid", True, "Stable Claim extraction identifier."),
+            ResearchField(
+                "kind",
+                "enum",
+                True,
+                "How exact evidence bears on the claim.",
+                (
+                    "supports",
+                    "contradicts",
+                    "partially_supports",
+                    "qualifies",
+                    "mentions",
+                    "no_evidence",
+                    "uncertain",
+                ),
+            ),
+            ResearchField("verifier_name", "string", True, "Verifier identity."),
+            ResearchField("verifier_version", "string", True, "Verifier version."),
+            ResearchField("confidence", "number", True, "Confidence.", minimum=0, maximum=1),
+            ResearchField(
+                "evidence_id",
+                "uuid",
+                False,
+                "Exact evidence identifier.",
+                required_when="kind != no_evidence",
+            ),
+            ResearchField(
+                "citation_context_id", "uuid", False, "Optional citing-document context."
+            ),
+            ResearchField(
+                "human_review_state",
+                "enum",
+                False,
+                "Human review state.",
+                ("unreviewed", "verified", "corrected", "rejected"),
+            ),
+            ResearchField("reasoning_summary", "string", False, "Concise audit rationale."),
+        ),
+        "One immutable, verifier-versioned evidence-relation handle.",
     ),
 )
 
@@ -74,3 +225,17 @@ def research_capabilities() -> ResearchCapabilities:
     return ResearchCapabilities(
         version="1", operations=tuple(item.operation for item in _OPERATION_REGISTRATIONS)
     )
+
+
+def research_operation_schema(operation_id: str) -> ResearchOperationSchema:
+    """Load one compact descriptor after the caller selects an advertised operation."""
+    for registration in _OPERATION_REGISTRATIONS:
+        if registration.operation.operation_id == operation_id:
+            return ResearchOperationSchema(
+                operation=registration.operation,
+                inputs=registration.inputs,
+                result_summary=registration.result_summary,
+                estimated_tokens=registration.operation.estimated_tokens
+                + sum(8 + len(field.allowed_values) * 2 for field in registration.inputs),
+            )
+    raise UnknownResearchOperationError(operation_id)

@@ -14,3 +14,10 @@ representations are deliberately not advertised until their application
 services exist. The token estimate includes a documented fixed envelope
 overhead plus each returned operation's estimate; it is a routing estimate, not
 metered usage.
+
+After selecting a handle, callers use `research_operation_schema(operation_id)`
+to load only that operation's compact input descriptor, allowed enum values,
+result summary, and estimate. It raises a typed unknown-operation error rather
+than silently advertising a future operation. This is the second staged
+discovery step, still shared application behavior for future MCP, CLI, API, and
+SDK layers.

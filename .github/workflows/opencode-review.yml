@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 10
     env:
       OPENCODE_REVIEW_ENABLED: ${{ secrets.OPENCODE_API_KEY != '' && 'true' || 'false' }}
-      # An unset or empty repository variable intentionally falls back to this free model.
-      OPENCODE_REVIEW_MODEL: ${{ vars.OPENCODE_REVIEW_MODEL || 'x-preview-f-free' }}
+      # Keep delegated review work on the project's selected Gemini 3.7 model.
+      OPENCODE_REVIEW_MODEL: gemini-3.7-flash
     steps:
       - name: Checkout trusted base revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

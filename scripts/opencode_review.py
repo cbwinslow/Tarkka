@@ -11,9 +11,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-_ZEN_ENDPOINT = "https://opencode.ai/zen/v1/chat/completions"
+_ZEN_ENDPOINT = "https://opencode.ai/zen/v1/models/gemini-3.7-flash:generateContent"
 _GITHUB_API = "https://api.github.com"
-_DEFAULT_MODEL = "x-preview-f-free"
+_DEFAULT_MODEL = "gemini-3.7-flash"
 _MAX_TITLE_CHARS = 1_000
 _MAX_BODY_CHARS = 10_000
 _MAX_DIFF_CHARS = 120_000
@@ -82,22 +82,25 @@ def build_prompt(title: str, body: str, diff: str) -> PromptBundle:
 
 
 def extract_review(payload: Any) -> str:
-    """Validate and extract text from an OpenAI-compatible chat completion response."""
+    """Validate and extract text from a Gemini generateContent response."""
     if not isinstance(payload, dict):
         raise ValueError("Zen response must be a JSON object")
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise ValueError("Zen response is missing choices")
-    first = choices[0]
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError("Zen response is missing candidates")
+    first = candidates[0]
     if not isinstance(first, dict):
-        raise ValueError("Zen response choice must be an object")
-    message = first.get("message")
-    if not isinstance(message, dict):
-        raise ValueError("Zen response choice is missing message")
-    content = message.get("content")
-    if not isinstance(content, str) or not content.strip():
+        raise ValueError("Zen response candidate must be an object")
+    content = first.get("content")
+    if not isinstance(content, dict):
+        raise ValueError("Zen response candidate is missing content")
+    parts = content.get("parts")
+    if not isinstance(parts, list):
+        raise ValueError("Zen response content is missing parts")
+    text = "".join(item.get("text", "") for item in parts if isinstance(item, dict))
+    if not text.strip():
         raise ValueError("Zen response message content is empty")
-    return content.strip()[:_MAX_REVIEW_CHARS]
+    return text.strip()[:_MAX_REVIEW_CHARS]
 
 
 def render_comment(review: str, model: str, prompt: PromptBundle) -> str:
@@ -185,12 +188,24 @@ def request_review(api_key: str, model: str, messages: list[dict[str, str]]) -> 
     raw = _request(
         _ZEN_ENDPOINT,
         method="POST",
-        headers={"Authorization": f"Bearer {api_key}"},
+        headers={"x-goog-api-key": api_key},
         payload={
-            "model": model,
-            "messages": messages,
-            "temperature": 0.1,
-            "max_tokens": 5_000,
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": item["content"]}],
+                }
+                for item in messages
+                if item["role"] != "system"
+            ],
+            "systemInstruction": {
+                "parts": [
+                    {"text": item["content"]}
+                    for item in messages
+                    if item["role"] == "system"
+                ]
+            },
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 5_000},
         },
         timeout=120.0,
     )

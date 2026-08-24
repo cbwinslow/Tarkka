@@ -60,6 +60,8 @@ Explicit `--provider` selection remains authoritative and does not depend on int
 - explicit snapshot-result selection into a Work
 - idempotent persistence and fail-closed strong-identity conflicts
 - local JSON and PostgreSQL `WorkRepository` implementations validated against one shared contract
+- explicit `TARKKA_WORK_BACKEND=postgres` selection for Work CLI persistence, while local JSON
+  remains the default
 - immutable Work creation timestamps across metadata evolution
 - Crossref single-DOI enrichment
 - explainable fuzzy identity candidates for records without sufficient strong identifiers
@@ -121,9 +123,8 @@ These are useful future extensions but are **not blockers** for structured resea
 
 1. automatic-vs-explicit enrichment policy based on measured metadata gain, latency, and failures
 2. additional full-text resolvers when real workflows justify them
-3. production-profile wiring/configuration that selects PostgreSQL persistence where required
-4. richer provider health/cost/credential-aware routing behind the existing `ProviderSelector`
-5. reconciliation that consumes accepted fuzzy-identity decisions and explicitly merges canonical
+3. richer provider health/cost/credential-aware routing behind the existing `ProviderSelector`
+4. reconciliation that consumes accepted fuzzy-identity decisions and explicitly merges canonical
    Works with full provenance and conflict checks
 
 ## Exit criteria

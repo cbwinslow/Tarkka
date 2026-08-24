@@ -12,6 +12,7 @@ from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
 from tarkka.infrastructure.postgres.work_repository import PostgresWorkRepository
+from tarkka.interfaces.cli import _work_repository
 from tests.contracts.work_repository import WorkRepositoryContract
 
 pytestmark = [pytest.mark.integration, pytest.mark.external]
@@ -251,3 +252,15 @@ def test_postgres_work_repository_standalone_write_commits() -> None:
     reader = PostgresWorkRepository(_settings())
     writer.save_work(_work())
     assert reader.get_work(_WORK_ID) == _work()
+
+
+def test_configured_work_cli_repository_persists_and_reads_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TARKKA_WORK_BACKEND", "postgres")
+    monkeypatch.setenv("TARKKA_DATABASE_URL", "postgresql://tarkka@localhost:5432/tarkka_test")
+    repository = _work_repository()
+
+    assert isinstance(repository, PostgresWorkRepository)
+    repository.save_work(_work())
+    assert repository.get_work(_WORK_ID) == _work()

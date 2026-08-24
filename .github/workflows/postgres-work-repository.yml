@@ -11,11 +11,13 @@ on:
       - "src/tarkka/domain/discovery.py"
       - "src/tarkka/domain/models.py"
       - "src/tarkka/domain/work_identity.py"
+      - "src/tarkka/interfaces/cli.py"
       - "src/tarkka/ports/works.py"
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
       - "tests/test_postgres_work_repository_contract.py"
       - "tests/test_postgres_work_repository_unit.py"
+      - "tests/test_work_cli_backend.py"
   push:
     branches: [main]
     paths:
@@ -26,11 +28,13 @@ on:
       - "src/tarkka/domain/discovery.py"
       - "src/tarkka/domain/models.py"
       - "src/tarkka/domain/work_identity.py"
+      - "src/tarkka/interfaces/cli.py"
       - "src/tarkka/ports/works.py"
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
       - "tests/test_postgres_work_repository_contract.py"
       - "tests/test_postgres_work_repository_unit.py"
+      - "tests/test_work_cli_backend.py"
 
 concurrency:
   group: postgres-work-repository-${{ github.workflow }}-${{ github.ref }}

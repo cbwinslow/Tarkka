@@ -1,9 +1,9 @@
 # Codex Handoff — Tarkka
 
-**Handoff date:** 2026-08-24  
-**Repository:** `cbwinslow/Tarkka`  
-**Default branch:** `main`  
-**Baseline at handoff:** PR #131 merged as `15ea46cbc2b43e41329824f1dd3cebd1b28db215`  
+**Handoff date:** 2026-08-24
+**Repository:** `cbwinslow/Tarkka`
+**Default branch:** `main`
+**Baseline at handoff:** PR #131 merged as `15ea46cbc2b43e41329824f1dd3cebd1b28db215`
 **Primary next engineering issue:** #132 — Wire configurable `WorkRepository` backend into CLI runtime
 
 > This document is a current execution snapshot for Codex. It does **not** replace `AGENTS.md`.

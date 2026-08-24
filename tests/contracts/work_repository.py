@@ -41,6 +41,30 @@ class WorkRepositoryContract:
         assert repository.list_source_records(work.work_id) == (source_record,)
 
     @staticmethod
+    def assert_multi_entry_listing_is_deterministic(
+        repository: WorkRepository,
+        work: Work,
+        identifiers: tuple[WorkIdentifier, ...],
+        source_records: tuple[WorkSourceRecord, ...],
+    ) -> None:
+        assert all(identifier.work_id == work.work_id for identifier in identifiers)
+        assert all(source_record.work_id == work.work_id for source_record in source_records)
+
+        with repository.transaction():
+            repository.save_work(work)
+            for identifier in reversed(identifiers):
+                repository.save_identifier(identifier)
+            for source_record in reversed(source_records):
+                repository.save_source_record(source_record)
+
+        assert repository.list_identifiers(work.work_id) == tuple(
+            sorted(identifiers, key=lambda item: (item.scheme, item.value))
+        )
+        assert repository.list_source_records(work.work_id) == tuple(
+            sorted(source_records, key=lambda item: (item.provider, item.provider_id))
+        )
+
+    @staticmethod
     def assert_work_can_evolve_without_losing_identity(
         repository: WorkRepository,
         original: Work,

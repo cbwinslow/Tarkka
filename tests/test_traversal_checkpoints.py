@@ -7,6 +7,7 @@ import pytest
 
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
 from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
+from tarkka.infrastructure.storage import json_traversal_checkpoint_repository
 from tarkka.infrastructure.storage.json_traversal_checkpoint_repository import (
     JsonTraversalCheckpointRepository,
 )
@@ -192,6 +193,23 @@ def test_json_checkpoint_repository_round_trips_evolving_state(tmp_path: Path) -
     next_target = restored.next_eligible(policy)
     assert next_target is not None
     assert next_target.uri == "https://example.org/child"
+
+
+def test_json_checkpoint_repository_fsyncs_parent_directory_after_atomic_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flushed: list[Path] = []
+    monkeypatch.setattr(
+        json_traversal_checkpoint_repository,
+        "_fsync_directory",
+        flushed.append,
+    )
+
+    repository = JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json")
+    repository.save(TraversalCheckpoint(_CHECKPOINT_ID))
+
+    assert flushed == [repository.path.parent, repository.path.parent]
 
 
 def test_repository_round_trip_recovers_interrupted_state(tmp_path: Path) -> None:

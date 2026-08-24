@@ -127,18 +127,28 @@ class JsonSourceObservationRepository:
             prefix=".tarkka-source-observations-",
             dir=self.path.parent,
         )
-        os.close(fd)
         temp_path = Path(temp_name)
         try:
-            temp_path.write_text(
-                json.dumps(data, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
-            with temp_path.open("rb") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, sort_keys=True)
+                handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
+            _fsync_directory(self.path.parent)
         finally:
             temp_path.unlink(missing_ok=True)
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush an atomic rename where the platform exposes POSIX directory fsync."""
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _empty_catalog() -> dict[str, Any]:

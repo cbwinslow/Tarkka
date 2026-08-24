@@ -23,8 +23,11 @@ class JsonWorkRepository:
         self.path = path.expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._transaction_data: dict[str, Any] | None = None
-        if not self.path.exists():
-            self._write({"schema_version": 1, "works": {}, "identifiers": {}, "source_records": {}})
+        with exclusive_lock(self.path):
+            if not self.path.exists():
+                self._write(
+                    {"schema_version": 1, "works": {}, "identifiers": {}, "source_records": {}}
+                )
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
@@ -161,8 +164,21 @@ class JsonWorkRepository:
             with temp_path.open("rb") as handle:
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
+            _fsync_directory(self.path.parent)
         finally:
             temp_path.unlink(missing_ok=True)
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush an atomic rename where the platform exposes POSIX directory fsync."""
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _identifier_key(scheme: str, value: str) -> str:

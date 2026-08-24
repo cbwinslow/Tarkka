@@ -5,9 +5,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
+import pytest
+
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
+from tarkka.infrastructure.storage import json_work_repository
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
 from tests.contracts.work_repository import WorkRepositoryContract
 
@@ -203,3 +206,16 @@ def test_json_work_repository_transaction_rolls_back_all_identity_state(tmp_path
         _identifier(),
         _source_record(),
     )
+
+
+def test_json_work_repository_fsyncs_parent_directory_after_atomic_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flushed: list[Path] = []
+    monkeypatch.setattr(json_work_repository, "_fsync_directory", flushed.append)
+
+    repository = JsonWorkRepository(tmp_path / "works.json")
+    repository.save_work(_work())
+
+    assert flushed == [repository.path.parent, repository.path.parent]

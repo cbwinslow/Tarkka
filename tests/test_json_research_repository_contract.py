@@ -68,10 +68,10 @@ def test_json_repository_fsyncs_parent_directory_after_atomic_write(
 
     repository = JsonResearchRepository(path)
     result = _ingest_sample(tmp_path)
+    flushed.clear()
     repository.save_artifact(result.artifact)
 
-    assert flushed
-    assert flushed[-1] == path.parent
+    assert flushed == [path.parent]
 
 
 def test_json_repository_adds_links_without_invalidating_existing_catalogs(tmp_path: Path) -> None:

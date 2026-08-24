@@ -21,6 +21,13 @@ from tarkka.application.research_packages import (
     ResearchPackageNotFoundError,
     ResearchPackageService,
 )
+from tarkka.application.verification import (
+    CitationContextNotFoundError,
+    ClaimNotFoundError,
+    EvidenceNotFoundError,
+    EvidenceVerificationRequest,
+    EvidenceVerificationService,
+)
 from tarkka.domain.citations import (
     BibliographicReference,
     CitationContext,
@@ -34,11 +41,13 @@ from tarkka.domain.extraction import (
     Evidence,
     EvidenceRecord,
     FigureEvidence,
+    HumanReviewState,
     ResearchObjectKind,
     TableEvidence,
 )
 from tarkka.domain.identity_candidates import IdentityDecision
 from tarkka.domain.source_observations import ResourceLinkObservation, SourceObservation
+from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.infrastructure.extraction.model_claims import (
     ModelClaimExtractor,
     NoModelClaimsFoundError,
@@ -60,6 +69,10 @@ from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
+from tarkka.infrastructure.storage.json_verification_repository import (
+    JsonVerificationRepository,
+    VerificationConflictError,
+)
 from tarkka.infrastructure.storage.search_snapshot_log import (
     JsonlSearchSnapshotLog,
     SnapshotDataError,
@@ -73,6 +86,8 @@ _MAX_CITATION_PAGE_SIZE = 100
 _MAX_CITATION_OFFSET = 10_000
 _MAX_RESOURCE_PAGE_SIZE = 100
 _MAX_RESOURCE_OFFSET = 10_000
+_MAX_VERIFICATION_PAGE_SIZE = 100
+_MAX_VERIFICATION_OFFSET = 10_000
 
 
 def _home() -> Path:
@@ -128,6 +143,27 @@ def _parse_work_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid work id: {raw}") from exc
 
 
+def _parse_evidence_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("evidence:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid evidence id: {raw}") from exc
+
+
+def _parse_context_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("context:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid citation context id: {raw}") from exc
+
+
+def _parse_verification_relation_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("verification:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid verification relation id: {raw}") from exc
+
+
 def _identity_service() -> IdentityReviewService:
     home = _home()
     return IdentityReviewService(
@@ -150,6 +186,14 @@ def _existing_citation_repository() -> JsonCitationRepository | None:
 
 def _existing_source_observation_repository() -> JsonSourceObservationRepository | None:
     return JsonSourceObservationRepository.open_existing(_home() / "source_observations.json")
+
+
+def _verification_repository() -> JsonVerificationRepository:
+    return JsonVerificationRepository(_home() / "verifications.json")
+
+
+def _existing_verification_repository() -> JsonVerificationRepository | None:
+    return JsonVerificationRepository.open_existing(_home() / "verifications.json")
 
 
 def _document_exists_for_inspection(document_id: UUID) -> bool:
@@ -763,6 +807,150 @@ def _cmd_resources_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _verification_payload(relation: EvidenceRelation) -> dict[str, object]:
+    return {
+        "relation_id": str(relation.relation_id),
+        "claim_id": str(relation.claim_id),
+        "evidence_id": str(relation.evidence_id) if relation.evidence_id is not None else None,
+        "citation_context_id": (
+            str(relation.citation_context_id) if relation.citation_context_id is not None else None
+        ),
+        "kind": relation.kind.value,
+        "verifier_name": relation.verifier_name,
+        "verifier_version": relation.verifier_version,
+        "confidence": relation.confidence,
+        "human_review_state": relation.human_review_state.value,
+        "reasoning_summary": relation.reasoning_summary,
+        "created_at": relation.created_at.isoformat(),
+    }
+
+
+def _verification_service() -> EvidenceVerificationService:
+    return EvidenceVerificationService(
+        source=_extraction_repository(),
+        relations=_verification_repository(),
+        citations=_existing_citation_repository(),
+    )
+
+
+def _cmd_verify_record(args: argparse.Namespace) -> int:
+    try:
+        relation = _verification_service().record(
+            EvidenceVerificationRequest(
+                claim_id=args.claim_id,
+                evidence_id=args.evidence_id,
+                citation_context_id=args.citation_context_id,
+                kind=EvidenceRelationKind(args.kind),
+                verifier_name=args.verifier,
+                verifier_version=args.verifier_version,
+                confidence=args.confidence,
+                human_review_state=HumanReviewState(args.review_state),
+                reasoning_summary=args.reasoning_summary,
+            )
+        )
+    except (
+        CitationContextNotFoundError,
+        ClaimNotFoundError,
+        EvidenceNotFoundError,
+        VerificationConflictError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(_verification_payload(relation), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_verify_list(args: argparse.Namespace) -> int:
+    if args.offset < 0 or args.limit < 0:
+        print("error: verification offset and limit must be non-negative", file=sys.stderr)
+        return 2
+    if args.offset > _MAX_VERIFICATION_OFFSET or args.limit > _MAX_VERIFICATION_PAGE_SIZE:
+        print("error: verification pagination exceeds the configured maximum", file=sys.stderr)
+        return 2
+    repository = _existing_verification_repository()
+    if repository is None:
+        print(
+            json.dumps(
+                {
+                    "claim_id": str(args.claim_id),
+                    "offset": args.offset,
+                    "limit": args.limit,
+                    "total": 0,
+                    "relations": [],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    try:
+        relations = repository.list_relations(args.claim_id, offset=args.offset, limit=args.limit)
+        total = repository.count_relations(args.claim_id)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "claim_id": str(args.claim_id),
+                "offset": args.offset,
+                "limit": args.limit,
+                "total": total,
+                "relations": [_verification_payload(item) for item in relations],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_verify_show(args: argparse.Namespace) -> int:
+    repository = _existing_verification_repository()
+    relation = repository.get_relation(args.relation_id) if repository is not None else None
+    if relation is None:
+        print(f"error: verification relation not found: {args.relation_id}", file=sys.stderr)
+        return 2
+    source = _extraction_repository()
+    claim = source.get_extraction(relation.claim_id)
+    if not isinstance(claim, Claim):
+        print(f"error: claim not found: {relation.claim_id}", file=sys.stderr)
+        return 2
+    payload = _verification_payload(relation)
+    if relation.evidence_id is not None:
+        evidence = source.get_evidence(relation.evidence_id)
+        if evidence is None:
+            print(f"error: evidence not found: {relation.evidence_id}", file=sys.stderr)
+            return 2
+        payload["evidence"] = _evidence_payload(evidence)
+    if relation.citation_context_id is not None:
+        citations = _existing_citation_repository()
+        context = (
+            next(
+                (
+                    item
+                    for item in citations.list_contexts(claim.document_id)
+                    if item.context_id == relation.citation_context_id
+                ),
+                None,
+            )
+            if citations is not None
+            else None
+        )
+        if context is None:
+            print(
+                f"error: citation context not found: {relation.citation_context_id}",
+                file=sys.stderr,
+            )
+            return 2
+        payload["citation_context"] = _citation_context_payload(context)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def _identity_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tarkka identity", description="review fuzzy identities")
     sub = parser.add_subparsers(dest="identity_command", required=True)
@@ -865,6 +1053,37 @@ def _resources_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _verify_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tarkka verify",
+        description="record and inspect provenance-backed claim-to-evidence assessments",
+    )
+    sub = parser.add_subparsers(dest="verify_command", required=True)
+
+    record = sub.add_parser("record", help="record one validated evidence assessment")
+    record.add_argument("claim_id", type=_parse_claim_id)
+    record.add_argument("--kind", choices=tuple(EvidenceRelationKind), required=True)
+    record.add_argument("--evidence", dest="evidence_id", type=_parse_evidence_id)
+    record.add_argument("--citation-context", dest="citation_context_id", type=_parse_context_id)
+    record.add_argument("--verifier", required=True)
+    record.add_argument("--verifier-version", required=True)
+    record.add_argument("--confidence", type=float, required=True)
+    record.add_argument("--review-state", choices=tuple(HumanReviewState), default="unreviewed")
+    record.add_argument("--reasoning-summary")
+    record.set_defaults(func=_cmd_verify_record)
+
+    listing = sub.add_parser("list", help="list compact verification assessments for a claim")
+    listing.add_argument("claim_id", type=_parse_claim_id)
+    listing.add_argument("--offset", type=int, default=0)
+    listing.add_argument("--limit", type=int, default=100)
+    listing.set_defaults(func=_cmd_verify_list)
+
+    show = sub.add_parser("show", help="show one assessment with exact evidence/context")
+    show.add_argument("relation_id", type=_parse_verification_relation_id)
+    show.set_defaults(func=_cmd_verify_show)
+    return parser
+
+
 def _db_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tarkka db",
@@ -895,6 +1114,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     if arguments and arguments[0] == "resources":
         args = _resources_parser().parse_args(arguments[1:])
+        return int(args.func(args))
+    if arguments and arguments[0] == "verify":
+        args = _verify_parser().parse_args(arguments[1:])
         return int(args.func(args))
     if arguments and arguments[0] == "db":
         args = _db_parser().parse_args(arguments[1:])

@@ -188,6 +188,14 @@ def test_request_review_builds_gemini_request(monkeypatch: pytest.MonkeyPatch) -
     assert captured["method"] == "POST"
     assert captured["headers"]["x-goog-api-key"] == "secret-key"
     assert captured["payload"]["contents"] == [{"role": "user", "parts": [{"text": "review"}]}]
+    assert "systemInstruction" not in captured["payload"]
+
+
+def test_request_review_rejects_non_gemini_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reviewer, "_request", lambda *_args, **_kwargs: b"{}")
+
+    with pytest.raises(ValueError, match="unsupported"):
+        reviewer.request_review("secret-key", "x-preview-f-free", [])
 
 
 def test_list_pr_comments_paginates_until_short_page(monkeypatch: pytest.MonkeyPatch) -> None:

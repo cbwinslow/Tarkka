@@ -185,28 +185,26 @@ def fetch_pr_diff(repository: str, pr_number: int, github_token: str) -> str:
 
 def request_review(api_key: str, model: str, messages: list[dict[str, str]]) -> str:
     # Chat-completion POSTs are deliberately not retried: a retry can duplicate provider usage.
+    if model != _DEFAULT_MODEL:
+        raise ValueError(f"unsupported OpenCode review model: {model}")
+    system_parts = [
+        {"text": item["content"]} for item in messages if item["role"] == "system"
+    ]
+    payload: dict[str, Any] = {
+        "contents": [
+            {"role": "user", "parts": [{"text": item["content"]}]}
+            for item in messages
+            if item["role"] != "system"
+        ],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 5_000},
+    }
+    if system_parts:
+        payload["systemInstruction"] = {"parts": system_parts}
     raw = _request(
         _ZEN_ENDPOINT,
         method="POST",
         headers={"x-goog-api-key": api_key},
-        payload={
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": item["content"]}],
-                }
-                for item in messages
-                if item["role"] != "system"
-            ],
-            "systemInstruction": {
-                "parts": [
-                    {"text": item["content"]}
-                    for item in messages
-                    if item["role"] == "system"
-                ]
-            },
-            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 5_000},
-        },
+        payload=payload,
         timeout=120.0,
     )
     try:
@@ -300,7 +298,7 @@ def main() -> int:
         github_token = _required_env("GITHUB_TOKEN")
         api_key = _required_env("OPENCODE_API_KEY")
         event_path = Path(_required_env("GITHUB_EVENT_PATH"))
-        model = os.environ.get("OPENCODE_REVIEW_MODEL", _DEFAULT_MODEL).strip() or _DEFAULT_MODEL
+        model = _DEFAULT_MODEL
 
         pr_number, title, body = _load_event(event_path)
         diff = fetch_pr_diff(repository, pr_number, github_token)

@@ -215,9 +215,30 @@ For a meaningful bug:
 
 ## Mutation testing
 
-Targeted mutation testing is valuable for high-risk pure domain modules after their unit/property suites stabilize. It should initially run on a schedule or manually rather than slowing every pull request.
+Tarkka uses targeted mutation testing as a scheduled/manual quality layer for high-risk pure domain logic. It is intentionally separate from ordinary pull-request CI so expensive mutation runs cannot become a routine development bottleneck.
 
-Good mutation-testing targets include identifier normalization, evidence bounds, traversal state transitions, batching arithmetic, and acquisition-budget logic.
+The pinned baseline tool is `mutmut==3.7.0`. It is resolved ephemerally through `uv` rather than installed into the normal development group:
+
+```bash
+rm -rf mutants
+uv run --with mutmut==3.7.0 mutmut run
+uv run --with mutmut==3.7.0 mutmut results
+```
+
+The exact tool pin and command are recorded in `pyproject.toml`, along with mutmut's mutation scope and focused pytest selection. The initial scope is deliberately small:
+
+- `src/tarkka/domain/resource_acquisition.py`
+- `src/tarkka/domain/traversal.py`
+
+These modules are deterministic, security/reliability-sensitive, and already have focused unit/property/state-machine coverage. Adapter-heavy, generated, network-backed, and persistence-heavy modules are excluded until mutation results would provide a useful signal rather than noise.
+
+Mutation testing currently establishes a baseline; it does **not** enforce a mutation-score threshold. Review surviving mutants individually:
+
+1. if a survivor represents meaningful behavior, add or strengthen the smallest focused test that kills it;
+2. if it is equivalent or otherwise non-actionable, document that conclusion in the relevant issue/PR rather than padding the score with artificial assertions;
+3. keep the mutation scope explicit and grow it only when the target module's deterministic tests are mature.
+
+The `Mutation Testing` GitHub Actions workflow runs weekly and can also be dispatched manually. It retains the mutmut results and working state for later inspection. Pull requests that change the mutation configuration validate that the pinned mutmut CLI resolves, but do not run the expensive mutation corpus.
 
 ## Multimodal research artifacts
 

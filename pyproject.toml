@@ -74,3 +74,21 @@ max_line_length = 100
 python_version = "3.11"
 strict = true
 packages = ["tarkka"]
+
+[tool.mutmut]
+source_paths = ["src/tarkka"]
+only_mutate = [
+    "src/tarkka/domain/resource_acquisition.py",
+    "src/tarkka/domain/traversal.py",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/test_resource_acquisition_policy.py",
+    "tests/test_traversal_state_machine.py",
+    "tests/test_traversal_checkpoints.py",
+]
+mutate_only_covered_lines = true
+max_stack_depth = 8
+
+[tool.tarkka.mutation-testing]
+tool = "mutmut==3.7.0"
+command = "uv run --with mutmut==3.7.0 mutmut"

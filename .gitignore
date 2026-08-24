@@ -8,4 +8,5 @@ dist/
 build/
 *.egg-info/
 .tarkka/
+mutants/
 .env

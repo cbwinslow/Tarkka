@@ -42,11 +42,6 @@ def _entry(
     )
 
 
-def test_cache_round_trip_survives_reopen() -> None:
-    # Provenance-free legacy-shaped entries remain supported.
-    pass
-
-
 def test_cache_round_trip_preserves_provenance(tmp_path: Path) -> None:
     path = tmp_path / "robots.json"
     entry = _entry(with_provenance=True)

@@ -58,11 +58,21 @@ class JsonPolicyFetchFinalizationRepository:
         payload = self._read()["finalizations"].get(key)
         return _finalization_from_dict(payload) if payload is not None else None
 
-    def delete(self, checkpoint_id: UUID, requested_uri: str) -> None:
-        key = str(policy_fetch_finalization_id(checkpoint_id, requested_uri))
+    def delete(self, finalization: PolicyFetchFinalization) -> None:
+        if not isinstance(finalization, PolicyFetchFinalization):
+            raise ValueError("finalization must be a PolicyFetchFinalization")
+        key = str(finalization.finalization_id)
+        expected = _finalization_to_dict(finalization)
         with exclusive_lock(self.path):
             data = self._read()
-            data["finalizations"].pop(key, None)
+            current = data["finalizations"].get(key)
+            if current is None:
+                return
+            if current != expected:
+                raise PolicyFetchFinalizationConflictError(
+                    "policy fetch finalization changed before deletion"
+                )
+            del data["finalizations"][key]
             self._write(data)
 
     def _read(self) -> dict[str, Any]:
@@ -102,6 +112,7 @@ class JsonPolicyFetchFinalizationRepository:
             with temp_path.open("rb") as handle:
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
+            _fsync_directory(self.path.parent)
         finally:
             temp_path.unlink(missing_ok=True)
 
@@ -157,3 +168,14 @@ def _finalization_from_dict(raw: dict[str, Any]) -> PolicyFetchFinalization:
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError(f"invalid policy finalization record: {exc}") from exc
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urljoin
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.application.http_acquisition import (
     _REDIRECT_STATUSES,
@@ -14,6 +16,7 @@ from tarkka.application.http_acquisition import (
 )
 from tarkka.domain.http_observations import HttpResponseSnapshot, normalize_http_uri
 from tarkka.domain.models import Artifact
+from tarkka.domain.policy_fetch_finalization import PolicyFetchFinalization
 from tarkka.domain.policy_requests import (
     begin_policy_request,
     record_policy_elapsed,
@@ -22,7 +25,11 @@ from tarkka.domain.policy_requests import (
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
 from tarkka.domain.source_observations import SourceObservation
 from tarkka.domain.traversal import TraversalCheckpoint
-from tarkka.ports.http_transport import HttpTransportResponse
+from tarkka.ports.artifacts import ArtifactStore
+from tarkka.ports.http_transport import HostResolver, HttpTransport, HttpTransportResponse
+from tarkka.ports.policy_fetch_finalization import PolicyFetchFinalizationRepository
+from tarkka.ports.source_observations import SourceObservationRepository
+from tarkka.ports.traversal import TraversalCheckpointRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +61,7 @@ class HttpPolicyRedirectLimitError(HttpPolicyFetchError):
 
 
 class HttpPolicyFetchCommitError(RuntimeError):
-    """Raised when policy bytes were fetched but durable output commit failed."""
+    """Raised when policy bytes were fetched but durable output commit is incomplete."""
 
     def __init__(self, message: str, *, checkpoint: TraversalCheckpoint) -> None:
         super().__init__(message)
@@ -63,6 +70,29 @@ class HttpPolicyFetchCommitError(RuntimeError):
 
 class HttpPolicyFetchService(HttpAcquisitionService):
     """Fetch non-frontier policy resources through Tarkka's existing HTTP security boundary."""
+
+    def __init__(
+        self,
+        *,
+        resolver: HostResolver,
+        transport: HttpTransport,
+        artifact_store: ArtifactStore,
+        observation_repository: SourceObservationRepository,
+        checkpoint_repository: TraversalCheckpointRepository,
+        finalization_repository: PolicyFetchFinalizationRepository,
+        clock: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
+        super().__init__(
+            resolver=resolver,
+            transport=transport,
+            artifact_store=artifact_store,
+            observation_repository=observation_repository,
+            checkpoint_repository=checkpoint_repository,
+            clock=clock,
+            sleeper=sleeper,
+        )
+        self._finalization_repository = finalization_repository
 
     def fetch(
         self,
@@ -167,6 +197,57 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                 checkpoint=failed,
             ) from exc
 
+    def recover_finalization(
+        self,
+        checkpoint: TraversalCheckpoint,
+        *,
+        requested_uri: str,
+    ) -> SourceObservation:
+        """Reconcile a pending policy output commit without performing network I/O."""
+        normalized_uri = normalize_http_uri(
+            requested_uri,
+            field_name="policy finalization requested URI",
+        )
+        finalization = self._finalization_repository.get(
+            checkpoint.checkpoint_id,
+            normalized_uri,
+        )
+        if finalization is None:
+            raise HttpPolicyFetchCommitError(
+                "policy fetch finalization marker does not exist",
+                checkpoint=checkpoint,
+            )
+        if not self._artifact_store.exists(finalization.artifact_sha256):
+            raise HttpPolicyFetchCommitError(
+                "policy fetch finalization artifact is not durable",
+                checkpoint=checkpoint,
+            )
+
+        artifact_id = uuid5(
+            NAMESPACE_URL,
+            f"urn:sha256:{finalization.artifact_sha256}",
+        )
+        observation = finalization.response.to_source_observation(
+            native_artifact_id=artifact_id
+        )
+        if observation.observation_id != finalization.observation_id:
+            raise HttpPolicyFetchCommitError(
+                "policy fetch finalization observation identity changed",
+                checkpoint=checkpoint,
+            )
+        try:
+            self._observation_repository.save_observation(observation)
+            self._finalization_repository.delete(
+                checkpoint.checkpoint_id,
+                normalized_uri,
+            )
+        except Exception as exc:
+            raise HttpPolicyFetchCommitError(
+                f"policy fetch finalization recovery interrupted: {type(exc).__name__}",
+                checkpoint=checkpoint,
+            ) from exc
+        return observation
+
     def _finish_policy(
         self,
         checkpoint: TraversalCheckpoint,
@@ -188,6 +269,21 @@ class HttpPolicyFetchService(HttpAcquisitionService):
         artifact_sha256 = hashlib.sha256(response.body).hexdigest()
         artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{artifact_sha256}")
         observation = snapshot.to_source_observation(native_artifact_id=artifact_id)
+        finalization = PolicyFetchFinalization(
+            checkpoint_id=checkpoint.checkpoint_id,
+            requested_uri=requested_uri,
+            artifact_sha256=artifact_sha256,
+            observation_id=observation.observation_id,
+            response=snapshot,
+        )
+
+        try:
+            self._finalization_repository.save(finalization)
+        except Exception as exc:
+            raise HttpPolicyFetchCommitError(
+                f"unable to persist policy output finalization: {type(exc).__name__}",
+                checkpoint=checkpoint,
+            ) from exc
 
         try:
             artifact = self._artifact_store.put_bytes(
@@ -199,6 +295,10 @@ class HttpPolicyFetchService(HttpAcquisitionService):
             if artifact.sha256 != artifact_sha256 or artifact.artifact_id != artifact_id:
                 raise RuntimeError("artifact store returned unexpected policy fetch identity")
             self._observation_repository.save_observation(observation)
+            self._finalization_repository.delete(
+                checkpoint.checkpoint_id,
+                requested_uri,
+            )
         except Exception as exc:
             raise HttpPolicyFetchCommitError(
                 f"HTTP policy output commit interrupted: {type(exc).__name__}",

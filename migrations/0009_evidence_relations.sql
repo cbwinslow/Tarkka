@@ -4,6 +4,8 @@ BEGIN;
 -- document-local while evidence remains free to come from a separately acquired source.
 CREATE UNIQUE INDEX IF NOT EXISTS citation_context_lineage_idx
 ON tarkka.citation_context (context_id, document_id);
+CREATE UNIQUE INDEX IF NOT EXISTS research_extraction_document_lineage_idx
+ON tarkka.research_extraction (extraction_id, document_id);
 
 CREATE TABLE IF NOT EXISTS tarkka.evidence_relation (
     relation_id uuid PRIMARY KEY,

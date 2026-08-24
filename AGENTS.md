@@ -6,6 +6,18 @@ Tarkka is a domain-agnostic research infrastructure platform with an implemented
 
 This file is the shared repository instruction source for Codex, Claude, and other coding agents. Tool-specific instruction files should extend it only when they have genuinely tool-specific behavior; do not duplicate these rules into parallel files.
 
+## Operational precedence
+
+Platform and system safety requirements always apply. Within those bounds, an
+explicit active user request takes precedence over a repository default such as
+delegation or reviewer selection. Do not silently substitute a different model,
+provider, paid tier, or external service when a requested option is unavailable.
+
+Delegation is opt-in for the active task. Before enabling a delegated coding
+agent or changing an automated reviewer, verify the configured model, cost
+policy, and permission boundary. Treat external review services as advisory
+unless a repository ruleset explicitly makes a deterministic check required.
+
 ## Read progressively
 
 Do **not** load every document immediately.

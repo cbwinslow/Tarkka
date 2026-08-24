@@ -8,8 +8,11 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
-from tarkka.domain.http_observations import HttpResponseSnapshot, normalize_http_uri
-from tarkka.domain.policy_fetch_finalization import PolicyFetchFinalization
+from tarkka.domain.http_observations import HttpResponseSnapshot
+from tarkka.domain.policy_fetch_finalization import (
+    PolicyFetchFinalization,
+    policy_fetch_finalization_id,
+)
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
@@ -51,12 +54,12 @@ class JsonPolicyFetchFinalizationRepository:
         checkpoint_id: UUID,
         requested_uri: str,
     ) -> PolicyFetchFinalization | None:
-        key = str(_finalization_id(checkpoint_id, requested_uri))
+        key = str(policy_fetch_finalization_id(checkpoint_id, requested_uri))
         payload = self._read()["finalizations"].get(key)
         return _finalization_from_dict(payload) if payload is not None else None
 
     def delete(self, checkpoint_id: UUID, requested_uri: str) -> None:
-        key = str(_finalization_id(checkpoint_id, requested_uri))
+        key = str(policy_fetch_finalization_id(checkpoint_id, requested_uri))
         with exclusive_lock(self.path):
             data = self._read()
             data["finalizations"].pop(key, None)
@@ -103,26 +106,6 @@ class JsonPolicyFetchFinalizationRepository:
 
 def _empty_catalog() -> dict[str, Any]:
     return {"schema_version": 1, "finalizations": {}}
-
-
-def _finalization_id(checkpoint_id: UUID, requested_uri: str) -> UUID:
-    return PolicyFetchFinalization(
-        checkpoint_id=checkpoint_id,
-        requested_uri=requested_uri,
-        artifact_sha256="0" * 64,
-        observation_id=HttpResponseSnapshot(
-            requested_uri=requested_uri,
-            final_uri=requested_uri,
-            status_code=200,
-        ).to_source_observation(
-            native_artifact_id=UUID("00000000-0000-0000-0000-000000000000")
-        ).observation_id,
-        response=HttpResponseSnapshot(
-            requested_uri=requested_uri,
-            final_uri=requested_uri,
-            status_code=200,
-        ),
-    ).finalization_id
 
 
 def _finalization_to_dict(value: PolicyFetchFinalization) -> dict[str, Any]:

@@ -119,7 +119,7 @@ def _stale_success(*, age: timedelta) -> RobotsCacheEntry:
 
 
 def test_successful_refresh_maps_utf8_and_preserves_http_provenance() -> None:
-    body = "User-agent: *\nDisallow: /private\n".encode()
+    body = b"User-agent: *\nDisallow: /private\n"
     fetched = _http_result(200, body=body)
     cache = _Cache()
 

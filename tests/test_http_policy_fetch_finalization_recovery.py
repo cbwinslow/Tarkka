@@ -118,14 +118,15 @@ def _checkpoint() -> tuple[TraversalCheckpoint, UUID]:
     return checkpoint, checkpoint.targets[0].target_id
 
 
-def test_partial_observation_commit_recovers_without_network_refetch(tmp_path: Path) -> None:
+def test_partial_observation_commit_retry_reuses_durable_fetch(tmp_path: Path) -> None:
     checkpoint, target_id = _checkpoint()
     resolver = _Resolver()
+    expected_body = b"User-agent: *\nAllow: /\n"
     transport = _Transport(
         HttpTransportResponse(
             status_code=200,
             headers={"Content-Type": ("text/plain",)},
-            body=b"User-agent: *\nAllow: /\n",
+            body=expected_body,
         )
     )
     artifacts = LocalArtifactStore(tmp_path / "artifacts")
@@ -164,6 +165,7 @@ def test_partial_observation_commit_recovers_without_network_refetch(tmp_path: P
     assert target.status is TraversalStatus.QUEUED
     assert target.attempts == 0
     network_calls = (tuple(resolver.calls), tuple(transport.calls))
+    spent_budget = failed_checkpoint.budget
 
     recovered_service = HttpPolicyFetchService(
         resolver=resolver,
@@ -175,14 +177,19 @@ def test_partial_observation_commit_recovers_without_network_refetch(tmp_path: P
         clock=lambda: next(ticks),
         sleeper=lambda _: None,
     )
-    observation = recovered_service.recover_policy_finalization(
+    result = recovered_service.fetch(
         failed_checkpoint,
-        requested_uri=_ROBOTS_URI,
+        _policy(),
+        uri=_ROBOTS_URI,
+        depth=1,
     )
 
-    assert observation.observation_id == marker.observation_id
-    assert observations.get_observation(marker.observation_id) == observation
+    assert result.body == expected_body
+    assert result.artifact.sha256 == marker.artifact_sha256
+    assert result.observation.observation_id == marker.observation_id
+    assert observations.get_observation(marker.observation_id) == result.observation
     assert finalizations.get(failed_checkpoint.checkpoint_id, _ROBOTS_URI) is None
+    assert result.checkpoint.budget == spent_budget
     assert (tuple(resolver.calls), tuple(transport.calls)) == network_calls
 
 

@@ -24,6 +24,12 @@ tarkka citations resolve <document-id>
 # Inspect preserved supplements, datasets, software, and alternate representations.
 tarkka resources list <document-id> --limit 20
 tarkka resources show <document-id> <resource-link-id>
+
+# Record and inspect reviewable claim-to-evidence assessments.
+tarkka verify record <claim-id> --kind supports --evidence <evidence-id> \
+  --verifier human-review --verifier-version 1 --confidence 0.9
+tarkka verify list <claim-id>
+tarkka verify show <relation-id>
 ```
 
 Tarkka stores immutable source artifacts by SHA-256, records acquisition provenance, normalizes
@@ -34,6 +40,7 @@ the citation CLI lists compact references before expanding a single reference's 
 when the citing Work is explicit or uniquely linked to the Document.
 They also preserve source-observed resource relationships; the resources CLI follows the same
 compact-list then explicit-detail pattern without fetching or identity-resolving a target.
+Verification assessments are separately auditable and expand back to their exact source evidence.
 
 Install the optional Docling integration for richer formats such as PDF, DOCX, PPTX, HTML, and
 images:

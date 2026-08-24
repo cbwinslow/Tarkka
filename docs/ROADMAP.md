@@ -214,6 +214,13 @@ Deliverables:
 - cited-source traversal where bounded and permitted
 - deterministic evaluation fixtures
 
+Delivered foundation:
+
+- immutable, verifier-versioned Claim-to-Evidence relations
+- support/contradiction/qualification and related labels, including explicit no-evidence state
+- confidence, human-review state, concise reasoning summary, and optional citation-context anchor
+- bounded local CLI recording and progressive evidence/context expansion
+
 ## Phase 5 — Agent-first serving
 
 Goal: make Claude, Codex, and custom agents efficient research consumers.

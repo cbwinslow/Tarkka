@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, cast
@@ -12,19 +12,27 @@ from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
 
+ConnectionFactory = Callable[[PostgresSettings], Any]
+
 
 class PostgresWorkRepository:
     """PostgreSQL implementation of the canonical Work persistence boundary."""
 
-    def __init__(self, settings: PostgresSettings) -> None:
+    def __init__(
+        self,
+        settings: PostgresSettings,
+        *,
+        connection_factory: ConnectionFactory = connect,
+    ) -> None:
         self._settings = settings
+        self._connect = connection_factory
         self._transaction_connection: Any | None = None
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
         if self._transaction_connection is not None:
             raise RuntimeError("nested Work repository transactions are not supported")
-        connection = connect(self._settings)
+        connection = self._connect(self._settings)
         self._transaction_connection = connection
         try:
             with connection:
@@ -222,7 +230,7 @@ class PostgresWorkRepository:
         if self._transaction_connection is not None:
             yield self._transaction_connection
             return
-        connection = connect(self._settings)
+        connection = self._connect(self._settings)
         try:
             with connection:
                 yield connection

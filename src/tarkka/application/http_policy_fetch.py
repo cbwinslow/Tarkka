@@ -273,10 +273,7 @@ class HttpPolicyFetchService(HttpAcquisitionService):
             if artifact.sha256 != finalization.artifact_sha256:
                 raise RuntimeError("artifact store returned unexpected recovery identity")
             self._observation_repository.save_observation(observation)
-            self._finalization_repository.delete(
-                checkpoint.checkpoint_id,
-                finalization.requested_uri,
-            )
+            self._finalization_repository.delete(finalization)
         except Exception as exc:
             raise HttpPolicyFetchCommitError(
                 f"policy fetch finalization recovery interrupted: {type(exc).__name__}",
@@ -338,10 +335,7 @@ class HttpPolicyFetchService(HttpAcquisitionService):
             if artifact.sha256 != artifact_sha256 or artifact.artifact_id != artifact_id:
                 raise RuntimeError("artifact store returned unexpected policy fetch identity")
             self._observation_repository.save_observation(observation)
-            self._finalization_repository.delete(
-                checkpoint.checkpoint_id,
-                requested_uri,
-            )
+            self._finalization_repository.delete(finalization)
         except Exception as exc:
             raise HttpPolicyFetchCommitError(
                 f"HTTP policy output commit interrupted: {type(exc).__name__}",

@@ -85,6 +85,8 @@ Delivered:
 - DOI/arXiv normalization and deterministic strong-ID identity
 - persistent canonical Work identity with aliases and provider observations
 - local JSON and PostgreSQL Work repositories validated against the same persistence contract
+- explicit `TARKKA_WORK_BACKEND=postgres` runtime selection for Work CLI persistence; JSON remains
+  the dependency-free default
 - Crossref DOI enrichment
 - generic full-text acquisition with arXiv and typed provider representations
 - explicit fuzzy identity candidates with auditable accept/reject decisions
@@ -94,7 +96,6 @@ Deferred by design until measured workflows justify them:
 
 - automatic enrichment policy
 - additional full-text resolvers
-- production-profile wiring/configuration for PostgreSQL-backed Work persistence
 - provider-health/cost-aware routing
 - accepted-candidate reconciliation/merge workflow
 

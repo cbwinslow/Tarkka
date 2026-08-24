@@ -27,6 +27,8 @@ from tarkka.infrastructure.discovery.semantic_scholar import SemanticScholarProv
 from tarkka.infrastructure.full_text.arxiv import ArxivFullTextResolver
 from tarkka.infrastructure.full_text.http import UrllibBinaryFetcher
 from tarkka.infrastructure.full_text.source_record import SourceRecordFullTextResolver
+from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.work_repository import PostgresWorkRepository
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 from tarkka.infrastructure.storage.epub_parser import EpubParser
@@ -46,6 +48,7 @@ from tarkka.infrastructure.storage.semantic_html_parser import SemanticHtmlParse
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
+from tarkka.ports.works import WorkRepository
 
 _PROVIDER_NAMES = (
     OpenAlexProvider.name,
@@ -68,8 +71,17 @@ def _runtime() -> tuple[LocalArtifactStore, JsonResearchRepository, JsonlAcquisi
     )
 
 
-def _work_repository() -> JsonWorkRepository:
-    return JsonWorkRepository(_home() / "works.json")
+def _work_repository() -> WorkRepository:
+    raw_backend = os.environ.get("TARKKA_WORK_BACKEND", "")
+    backend = raw_backend.strip().lower() or "json"
+    if backend == "json":
+        return JsonWorkRepository(_home() / "works.json")
+    if backend == "postgres":
+        return PostgresWorkRepository(PostgresSettings.from_environment())
+    raise ValueError(
+        "unsupported TARKKA_WORK_BACKEND "
+        f"{raw_backend!r}; supported values are 'json' and 'postgres'"
+    )
 
 
 def _citation_repository() -> JsonCitationRepository:
@@ -174,7 +186,7 @@ def _provider_cursors(raw: list[str] | None) -> dict[str, str]:
     return cursors
 
 
-def _work_payload(work: Work, repository: JsonWorkRepository) -> dict[str, object]:
+def _work_payload(work: Work, repository: WorkRepository) -> dict[str, object]:
     identifiers = repository.list_identifiers(work.work_id)
     identifier_map: dict[str, list[str]] = {}
     for identifier in identifiers:
@@ -275,13 +287,14 @@ def _cmd_discover(args: argparse.Namespace) -> int:
 
 
 def _cmd_work_save(args: argparse.Namespace) -> int:
-    repository = _work_repository()
-    service = WorkSelectionService(
-        snapshots=_snapshot_log(),
-        catalog=WorkCatalogService(repository),
-    )
     try:
+        repository = _work_repository()
+        service = WorkSelectionService(
+            snapshots=_snapshot_log(),
+            catalog=WorkCatalogService(repository),
+        )
         selection = service.save_snapshot_result(args.snapshot_id, args.index)
+        payload = _work_payload(selection.work, repository)
     except SnapshotRecordConflictError as exc:
         print(f"error: identity conflict: {exc}", file=sys.stderr)
         return 3
@@ -291,7 +304,6 @@ def _cmd_work_save(args: argparse.Namespace) -> int:
     except (SnapshotNotFoundError, SnapshotRecordNotFoundError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    payload = _work_payload(selection.work, repository)
     payload["snapshot_id"] = str(selection.snapshot_id)
     payload["result_index"] = selection.result_index
     print(json.dumps(payload, indent=2, sort_keys=True))
@@ -299,38 +311,44 @@ def _cmd_work_save(args: argparse.Namespace) -> int:
 
 
 def _cmd_work_show(args: argparse.Namespace) -> int:
-    repository = _work_repository()
-    work = repository.get_work(args.work_id)
-    if work is None:
-        print(f"error: work not found: {args.work_id}", file=sys.stderr)
+    try:
+        repository = _work_repository()
+        work = repository.get_work(args.work_id)
+        if work is None:
+            print(f"error: work not found: {args.work_id}", file=sys.stderr)
+            return 2
+        payload = _work_payload(work, repository)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(_work_payload(work, repository), indent=2, sort_keys=True))
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
 def _cmd_work_enrich(args: argparse.Namespace) -> int:
-    repository = _work_repository()
-    service = WorkCatalogService(repository)
     try:
+        repository = _work_repository()
+        service = WorkCatalogService(repository)
         work = service.enrich_by_doi(args.work_id, _crossref())
+        payload = _work_payload(work, repository)
     except (WorkNotFoundError, WorkEnrichmentError, OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(_work_payload(work, repository), indent=2, sort_keys=True))
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
 def _cmd_work_acquire(args: argparse.Namespace) -> int:
-    store, document_repository, acquisitions = _runtime()
-    work_repository = _work_repository()
-    ingest = _ingest_service(store, document_repository, acquisitions)
-    service = FullTextAcquisitionService(
-        repository=work_repository,
-        resolvers=(ArxivFullTextResolver(), SourceRecordFullTextResolver()),
-        fetcher=UrllibBinaryFetcher(),
-        ingest=ingest,
-    )
     try:
+        store, document_repository, acquisitions = _runtime()
+        work_repository = _work_repository()
+        ingest = _ingest_service(store, document_repository, acquisitions)
+        service = FullTextAcquisitionService(
+            repository=work_repository,
+            resolvers=(ArxivFullTextResolver(), SourceRecordFullTextResolver()),
+            fetcher=UrllibBinaryFetcher(),
+            ingest=ingest,
+        )
         result = service.acquire(args.work_id)
     except (
         FullTextNotFoundError,

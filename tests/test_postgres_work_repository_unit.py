@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import sys
 from contextvars import Context
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import ModuleType
 from typing import Any
 from uuid import UUID
 
@@ -11,7 +13,12 @@ import pytest
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
-from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.connection import (
+    PostgresOperationError,
+    PostgresSettings,
+    connect,
+    translate_driver_error,
+)
 from tarkka.infrastructure.postgres.work_repository import (
     PostgresWorkRepository,
     _json_mapping,
@@ -141,6 +148,78 @@ def test_get_work_decodes_jsonb_and_missing_rows() -> None:
     assert _repository(missing_connection).get_work(_WORK_ID) is None
     assert found_connection.closed
     assert missing_connection.closed
+
+
+def test_postgres_driver_errors_become_interface_safe_runtime_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DriverError(Exception):
+        pass
+
+    driver = ModuleType("psycopg")
+    driver.Error = DriverError  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "psycopg", driver)
+
+    def _raise_driver_error(_: PostgresSettings) -> Any:
+        raise DriverError("connection refused")
+
+    repository = PostgresWorkRepository(_SETTINGS, connection_factory=_raise_driver_error)
+
+    with pytest.raises(PostgresOperationError, match="PostgreSQL operation failed"):
+        repository.get_work(_WORK_ID)
+
+    with (
+        pytest.raises(PostgresOperationError, match="PostgreSQL operation failed"),
+        repository.transaction(),
+    ):
+        pass
+
+
+def test_postgres_connection_helpers_translate_only_driver_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DriverError(Exception):
+        pass
+
+    driver = ModuleType("psycopg")
+    driver.Error = DriverError  # type: ignore[attr-defined]
+
+    def _raise_driver_error(_: str) -> Any:
+        raise DriverError("connection refused")
+
+    driver.connect = _raise_driver_error  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "psycopg", driver)
+
+    with pytest.raises(PostgresOperationError, match="PostgreSQL connection failed"):
+        connect(_SETTINGS)
+    assert translate_driver_error(DriverError("query failed")) is not None
+    assert translate_driver_error(RuntimeError("unrelated")) is None
+
+
+def test_driver_error_during_query_becomes_interface_safe_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DriverError(Exception):
+        pass
+
+    driver = ModuleType("psycopg")
+    driver.Error = DriverError  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "psycopg", driver)
+
+    class FailingConnection(_Connection):
+        def execute(
+            self,
+            sql: str,
+            params: tuple[Any, ...] | None = None,
+            **kwargs: Any,
+        ) -> _Cursor:
+            del sql, params, kwargs
+            raise DriverError("query failed")
+
+    repository = _repository(FailingConnection([]))
+
+    with pytest.raises(PostgresOperationError, match="PostgreSQL operation failed"):
+        repository.get_work(_WORK_ID)
 
 
 def test_identifier_lookup_normalizes_scheme_and_reuses_connection() -> None:

@@ -59,6 +59,21 @@ provider-specific continuation cursors, DOI-first deduplication, and reproducibl
 Providers remain independent adapters; cross-provider identity and enrichment happen in application
 services rather than providers calling one another.
 
+Work persistence uses local JSON by default (`~/.tarkka/works.json`) and therefore needs no database
+service. To opt into the currently Work-only PostgreSQL backend, install the optional extra and set
+both variables explicitly; a database URL alone never changes the default. On a new database, apply
+the current Work schema migrations in order first:
+
+```bash
+uv sync --extra postgres
+export TARKKA_DATABASE_URL=postgresql://localhost/tarkka
+psql "$TARKKA_DATABASE_URL" -f migrations/0001_core.sql
+psql "$TARKKA_DATABASE_URL" -f migrations/0004_work_identity.sql
+psql "$TARKKA_DATABASE_URL" -f migrations/0008_work_external_ids.sql
+TARKKA_WORK_BACKEND=postgres \
+tarkka work show <work-id>
+```
+
 ## Agent-first design
 
 Tarkka uses progressive disclosure to conserve context:

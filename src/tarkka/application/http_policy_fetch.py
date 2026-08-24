@@ -12,7 +12,7 @@ from tarkka.application.http_acquisition import (
     _artifact_name,
     _redirect_location,
 )
-from tarkka.domain.http_observations import HttpResponseSnapshot
+from tarkka.domain.http_observations import HttpResponseSnapshot, normalize_http_uri
 from tarkka.domain.models import Artifact
 from tarkka.domain.policy_requests import (
     begin_policy_request,
@@ -27,7 +27,12 @@ from tarkka.ports.http_transport import HttpTransportResponse
 
 @dataclass(frozen=True, slots=True)
 class HttpPolicyFetchResult:
-    """Durable outputs from one bounded auxiliary HTTP policy fetch."""
+    """Durable outputs from one bounded auxiliary HTTP policy fetch.
+
+    ``body`` intentionally references the already-fetched bounded response bytes so policy
+    mappers (for example robots.txt classification/parsing) can use the exact response without
+    rereading storage. It does not create a second byte copy.
+    """
 
     checkpoint: TraversalCheckpoint
     artifact: Artifact
@@ -42,6 +47,10 @@ class HttpPolicyFetchError(RuntimeError):
     def __init__(self, message: str, *, checkpoint: TraversalCheckpoint) -> None:
         super().__init__(message)
         self.checkpoint = checkpoint
+
+
+class HttpPolicyRedirectLimitError(HttpPolicyFetchError):
+    """Raised when an auxiliary policy fetch exhausts its redirect budget."""
 
 
 class HttpPolicyFetchCommitError(RuntimeError):
@@ -64,8 +73,9 @@ class HttpPolicyFetchService(HttpAcquisitionService):
         depth: int,
         seconds_since_last_request: float | None = None,
     ) -> HttpPolicyFetchResult:
-        if not policy.allows_uri(uri):
-            raise ValueError("policy resource URI is not allowed by the acquisition policy")
+        normalized_uri = normalize_http_uri(uri, field_name="policy resource URI")
+        if not policy.allows_uri(normalized_uri):
+            raise ValueError("policy resource URI is outside the acquisition policy")
 
         active = begin_policy_request(
             checkpoint,
@@ -75,7 +85,7 @@ class HttpPolicyFetchService(HttpAcquisitionService):
         )
         self._save_checkpoint(active)
         started_at = self._read_clock()
-        current_uri = uri
+        current_uri = normalized_uri
         redirect_chain: list[str] = []
 
         try:
@@ -104,7 +114,7 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                     self._save_checkpoint(completed)
                     return self._finish_policy(
                         completed,
-                        requested_uri=uri,
+                        requested_uri=normalized_uri,
                         final_uri=current_uri,
                         redirect_chain=tuple(redirect_chain),
                         response=response,
@@ -113,13 +123,24 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                 if location is None:
                     raise ValueError("HTTP redirect response requires a Location header")
                 if len(redirect_chain) >= policy.max_redirects:
-                    raise ValueError("HTTP redirect limit exceeded")
+                    failed = record_policy_elapsed(
+                        active,
+                        elapsed_seconds=self._elapsed(active, started_at),
+                    )
+                    self._save_checkpoint(failed)
+                    raise HttpPolicyRedirectLimitError(
+                        "HTTP policy fetch redirect limit exceeded",
+                        checkpoint=failed,
+                    )
 
                 next_uri = urljoin(current_uri, location)
                 if not policy.allows_uri(next_uri):
                     raise ValueError("HTTP redirect target is not allowed by acquisition policy")
 
                 self._wait_for_policy_followup(active, policy, depth, started_at)
+                # _wait_for_policy_followup sleeps for at least the configured minimum interval.
+                # Passing that lower bound here is intentional: budget state tracks whether the
+                # policy requirement is satisfied, not wall-clock scheduler jitter.
                 active = begin_policy_request(
                     active,
                     policy,
@@ -129,7 +150,11 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                 self._save_checkpoint(active)
                 redirect_chain.append(next_uri)
                 current_uri = next_uri
-        except (HttpAcquisitionCheckpointError, HttpPolicyFetchCommitError):
+        except (
+            HttpAcquisitionCheckpointError,
+            HttpPolicyFetchCommitError,
+            HttpPolicyRedirectLimitError,
+        ):
             raise
         except Exception as exc:
             failed = record_policy_elapsed(

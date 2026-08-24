@@ -15,10 +15,16 @@ contracts.
 tarkka ingest ./notes.md
 tarkka inspect <document-id>
 tarkka read <document-id> --section 0
+
+# For JATS, EPUB, and semantic HTML: inspect preserved citations progressively.
+tarkka citations list <document-id> --limit 20
+tarkka citations show <document-id> <reference-id>
 ```
 
 Tarkka stores immutable source artifacts by SHA-256, records acquisition provenance, normalizes
 content into `Document -> Section -> Passage`, and exposes compact manifests before full content.
+Native-structure parsers also preserve bibliography entries, inline citations, and exact contexts;
+the citation CLI lists compact references before expanding a single reference's source text/context.
 
 Install the optional Docling integration for richer formats such as PDF, DOCX, PPTX, HTML, and
 images:

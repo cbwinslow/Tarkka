@@ -39,6 +39,18 @@ class JsonCitationRepository:
             if not self.path.exists():
                 self._write(_empty_catalog())
 
+    @classmethod
+    def open_existing(cls, path: Path) -> JsonCitationRepository | None:
+        """Open a catalog for inspection without creating missing local state."""
+        resolved = path.expanduser().resolve()
+        if not resolved.exists():
+            return None
+        if resolved.is_dir():
+            raise ValueError(f"citation catalog path is a directory: {resolved}")
+        repository = cls.__new__(cls)
+        repository.path = resolved
+        return repository
+
     def save_reference(self, reference: BibliographicReference) -> None:
         self._save("references", reference.reference_id, _reference_to_dict(reference))
 
@@ -87,14 +99,31 @@ class JsonCitationRepository:
             self._write(data)
             return relation
 
-    def list_references(self, document_id: UUID) -> tuple[BibliographicReference, ...]:
-        values = [
+    def count_references(self, document_id: UUID) -> int:
+        return sum(
+            item["document_id"] == str(document_id)
+            for item in self._read()["references"].values()
+        )
+
+    def list_references(
+        self,
+        document_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[BibliographicReference, ...]:
+        _validate_page(offset, limit)
+        if limit == 0:
+            return ()
+        values = (
             _reference_from_dict(item)
             for item in self._read()["references"].values()
             if item["document_id"] == str(document_id)
-        ]
-        values.sort(key=lambda item: (item.ordinal, str(item.reference_id)))
-        return tuple(values)
+        )
+        if limit is None:
+            return tuple(sorted(values, key=_reference_sort_key)[offset:])
+        page = heapq.nsmallest(offset + limit, values, key=_reference_sort_key)
+        return tuple(page[offset:])
 
     def list_mentions(self, document_id: UUID) -> tuple[CitationMention, ...]:
         values = [
@@ -110,11 +139,54 @@ class JsonCitationRepository:
         )
         return tuple(values)
 
+    def count_mentions_for_reference(self, document_id: UUID, reference_id: UUID) -> int:
+        return sum(
+            item["document_id"] == str(document_id)
+            and item["reference_id"] == str(reference_id)
+            for item in self._read()["mentions"].values()
+        )
+
+    def list_mentions_for_reference(
+        self,
+        document_id: UUID,
+        reference_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[CitationMention, ...]:
+        _validate_page(offset, limit)
+        if limit == 0:
+            return ()
+        values = (
+            _mention_from_dict(item)
+            for item in self._read()["mentions"].values()
+            if item["document_id"] == str(document_id)
+            and item["reference_id"] == str(reference_id)
+        )
+        if limit is None:
+            return tuple(sorted(values, key=_mention_sort_key)[offset:])
+        page = heapq.nsmallest(offset + limit, values, key=_mention_sort_key)
+        return tuple(page[offset:])
+
     def list_contexts(self, document_id: UUID) -> tuple[CitationContext, ...]:
         values = [
             _context_from_dict(item)
             for item in self._read()["contexts"].values()
             if item["document_id"] == str(document_id)
+        ]
+        values.sort(key=lambda item: (item.char_start, str(item.context_id)))
+        return tuple(values)
+
+    def list_contexts_for_mentions(
+        self, document_id: UUID, mention_ids: frozenset[UUID]
+    ) -> tuple[CitationContext, ...]:
+        if not mention_ids:
+            return ()
+        keys = {str(item) for item in mention_ids}
+        values = [
+            _context_from_dict(item)
+            for item in self._read()["contexts"].values()
+            if item["document_id"] == str(document_id) and item["mention_id"] in keys
         ]
         values.sort(key=lambda item: (item.char_start, str(item.context_id)))
         return tuple(values)
@@ -254,6 +326,24 @@ _BUCKET_IDENTITIES = {
 
 def _empty_catalog() -> dict[str, Any]:
     return {"schema_version": 1, **{bucket: {} for bucket in _BUCKETS}}
+
+
+def _validate_page(offset: int, limit: int | None) -> None:
+    if offset < 0:
+        raise ValueError("reference query offset must be non-negative")
+    if limit is not None and limit < 0:
+        raise ValueError("reference query limit must be non-negative")
+
+
+def _reference_sort_key(reference: BibliographicReference) -> tuple[int, str]:
+    return (reference.ordinal, str(reference.reference_id))
+
+
+def _mention_sort_key(mention: CitationMention) -> tuple[int, str]:
+    return (
+        mention.char_start if mention.char_start is not None else -1,
+        str(mention.mention_id),
+    )
 
 
 def _uuid(value: UUID | None) -> str | None:

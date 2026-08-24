@@ -37,11 +37,34 @@ class CitationRepository(Protocol):
 
     def get_or_create_relation(self, relation: WorkRelation) -> WorkRelation: ...
 
-    def list_references(self, document_id: UUID) -> tuple[BibliographicReference, ...]: ...
+    def count_references(self, document_id: UUID) -> int: ...
+
+    def list_references(
+        self,
+        document_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[BibliographicReference, ...]: ...
 
     def list_mentions(self, document_id: UUID) -> tuple[CitationMention, ...]: ...
 
+    def count_mentions_for_reference(self, document_id: UUID, reference_id: UUID) -> int: ...
+
+    def list_mentions_for_reference(
+        self,
+        document_id: UUID,
+        reference_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[CitationMention, ...]: ...
+
     def list_contexts(self, document_id: UUID) -> tuple[CitationContext, ...]: ...
+
+    def list_contexts_for_mentions(
+        self, document_id: UUID, mention_ids: frozenset[UUID]
+    ) -> tuple[CitationContext, ...]: ...
 
     def get_resolution(self, reference_id: UUID) -> CitationResolution | None: ...
 

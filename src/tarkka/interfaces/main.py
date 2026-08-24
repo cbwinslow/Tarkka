@@ -13,6 +13,7 @@ from tarkka.application.identity_review import (
     IdentityReviewService,
     IdentitySnapshotNotFoundError,
 )
+from tarkka.domain.citations import BibliographicReference, CitationContext, CitationMention
 from tarkka.domain.extraction import (
     Claim,
     EquationEvidence,
@@ -35,6 +36,7 @@ from tarkka.infrastructure.extraction.rule_claims import (
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.migrations import upgrade
 from tarkka.infrastructure.storage.identity_decision_log import JsonlIdentityDecisionLog
+from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_extraction_repository import (
     ExtractionConflictError,
     JsonExtractionRepository,
@@ -47,6 +49,9 @@ from tarkka.infrastructure.storage.search_snapshot_log import (
 from tarkka.interfaces.bibliography_cli import run as bibliography_main
 from tarkka.interfaces.cli import main as legacy_main
 from tarkka.ports.extraction import StructuredExtractor
+
+_MAX_CITATION_PAGE_SIZE = 100
+_MAX_CITATION_OFFSET = 10_000
 
 
 def _home() -> Path:
@@ -81,6 +86,13 @@ def _parse_run_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid run id: {raw}") from exc
 
 
+def _parse_reference_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("ref:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid bibliographic reference id: {raw}") from exc
+
+
 def _identity_service() -> IdentityReviewService:
     home = _home()
     return IdentityReviewService(
@@ -95,6 +107,15 @@ def _extraction_repository() -> JsonExtractionRepository:
 
 def _document_repository() -> JsonResearchRepository:
     return JsonResearchRepository(_home() / "catalog.json")
+
+
+def _existing_citation_repository() -> JsonCitationRepository | None:
+    return JsonCitationRepository.open_existing(_home() / "citations.json")
+
+
+def _document_exists_for_inspection(document_id: UUID) -> bool:
+    path = _home() / "catalog.json"
+    return path.is_file() and JsonResearchRepository(path).get_document(document_id) is not None
 
 
 def _cmd_db_upgrade(_: argparse.Namespace) -> int:
@@ -324,6 +345,189 @@ def _cmd_claims_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _reference_payload(reference: BibliographicReference) -> dict[str, object]:
+    """Return bounded bibliography metadata without expanding the source entry text."""
+    return {
+        "reference_id": str(reference.reference_id),
+        "ordinal": reference.ordinal,
+        "title": reference.title,
+        "authors": list(reference.authors),
+        "publication_year": reference.publication_year,
+        "identifiers": dict(reference.identifiers),
+        "source_anchor": reference.source_anchor,
+        "source_observation_id": (
+            str(reference.source_observation_id)
+            if reference.source_observation_id is not None
+            else None
+        ),
+    }
+
+
+def _citation_context_payload(context: CitationContext) -> dict[str, object]:
+    return {
+        "context_id": str(context.context_id),
+        "text": context.text,
+        "char_start": context.char_start,
+        "char_end": context.char_end,
+        "section_id": str(context.section_id) if context.section_id is not None else None,
+        "passage_id": str(context.passage_id) if context.passage_id is not None else None,
+    }
+
+
+def _citation_mention_payload(
+    mention: CitationMention,
+    contexts: tuple[CitationContext, ...],
+) -> dict[str, object]:
+    return {
+        "mention_id": str(mention.mention_id),
+        "reference_id": str(mention.reference_id) if mention.reference_id is not None else None,
+        "raw_text": mention.raw_text,
+        "section_id": str(mention.section_id) if mention.section_id is not None else None,
+        "passage_id": str(mention.passage_id) if mention.passage_id is not None else None,
+        "char_start": mention.char_start,
+        "char_end": mention.char_end,
+        "source_anchor": mention.source_anchor,
+        "source_observation_id": (
+            str(mention.source_observation_id)
+            if mention.source_observation_id is not None
+            else None
+        ),
+        "contexts": [_citation_context_payload(context) for context in contexts],
+    }
+
+
+def _cmd_citations_list(args: argparse.Namespace) -> int:
+    if args.offset < 0 or args.limit < 0:
+        print("error: citation offset and limit must be non-negative", file=sys.stderr)
+        return 2
+    if args.offset > _MAX_CITATION_OFFSET:
+        print(
+            f"error: citation offset must not exceed {_MAX_CITATION_OFFSET}",
+            file=sys.stderr,
+        )
+        return 2
+    if args.limit > _MAX_CITATION_PAGE_SIZE:
+        print(
+            f"error: citation limit must not exceed {_MAX_CITATION_PAGE_SIZE}",
+            file=sys.stderr,
+        )
+        return 2
+    if not _document_exists_for_inspection(args.document_id):
+        print(f"error: document not found: {args.document_id}", file=sys.stderr)
+        return 2
+    try:
+        repository = _existing_citation_repository()
+        total = repository.count_references(args.document_id) if repository is not None else 0
+        references = (
+            repository.list_references(
+                args.document_id,
+                offset=args.offset,
+                limit=args.limit,
+            )
+            if repository is not None
+            else ()
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "document_id": str(args.document_id),
+                "offset": args.offset,
+                "limit": args.limit,
+                "total": total,
+                "references": [_reference_payload(reference) for reference in references],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_citations_show(args: argparse.Namespace) -> int:
+    if args.offset < 0 or args.limit < 0:
+        print("error: citation offset and limit must be non-negative", file=sys.stderr)
+        return 2
+    if args.offset > _MAX_CITATION_OFFSET or args.limit > _MAX_CITATION_PAGE_SIZE:
+        print("error: citation pagination exceeds the configured maximum", file=sys.stderr)
+        return 2
+    if not _document_exists_for_inspection(args.document_id):
+        print(f"error: document not found: {args.document_id}", file=sys.stderr)
+        return 2
+    try:
+        repository = _existing_citation_repository()
+        if repository is None:
+            print(f"error: reference not found: {args.reference_id}", file=sys.stderr)
+            return 2
+        reference = next(
+            (
+                item
+                for item in repository.list_references(args.document_id)
+                if item.reference_id == args.reference_id
+            ),
+            None,
+        )
+        if reference is None:
+            print(f"error: reference not found: {args.reference_id}", file=sys.stderr)
+            return 2
+        total_mentions = repository.count_mentions_for_reference(
+            args.document_id,
+            reference.reference_id,
+        )
+        mentions = repository.list_mentions_for_reference(
+            args.document_id,
+            reference.reference_id,
+            offset=args.offset,
+            limit=args.limit,
+        )
+        contexts_by_mention: dict[UUID, list[CitationContext]] = {}
+        for context in repository.list_contexts_for_mentions(
+            args.document_id,
+            frozenset(mention.mention_id for mention in mentions),
+        ):
+            contexts_by_mention.setdefault(context.mention_id, []).append(context)
+        payload = _reference_payload(reference)
+        payload["document_id"] = str(args.document_id)
+        payload["raw_text"] = reference.raw_text
+        resolution = repository.get_resolution(reference.reference_id)
+        payload["resolution"] = (
+            {
+                "status": resolution.status.value,
+                "work_id": str(resolution.work_id) if resolution.work_id is not None else None,
+                "candidate_work_ids": [str(item) for item in resolution.candidate_work_ids],
+                "resolver": resolution.resolver,
+                "resolution_id": str(resolution.resolution_id),
+                "source_observation_id": (
+                    str(resolution.source_observation_id)
+                    if resolution.source_observation_id is not None
+                    else None
+                ),
+                "resolved_at": resolution.resolved_at.isoformat(),
+            }
+            if resolution is not None
+            else None
+        )
+        payload["citation_mentions"] = {
+            "offset": args.offset,
+            "limit": args.limit,
+            "total": total_mentions,
+            "items": [
+                _citation_mention_payload(
+                    mention,
+                    tuple(contexts_by_mention.get(mention.mention_id, ())),
+                )
+                for mention in mentions
+            ],
+        }
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def _identity_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tarkka identity", description="review fuzzy identities")
     sub = parser.add_subparsers(dest="identity_command", required=True)
@@ -374,6 +578,28 @@ def _claims_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _citations_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tarkka citations",
+        description="inspect preserved bibliography references and exact citation contexts",
+    )
+    sub = parser.add_subparsers(dest="citations_command", required=True)
+
+    listing = sub.add_parser("list", help="list compact bibliography references for a document")
+    listing.add_argument("document_id", type=_parse_document_id)
+    listing.add_argument("--offset", type=int, default=0)
+    listing.add_argument("--limit", type=int, default=100)
+    listing.set_defaults(func=_cmd_citations_list)
+
+    show = sub.add_parser("show", help="show one reference and its exact citation contexts")
+    show.add_argument("document_id", type=_parse_document_id)
+    show.add_argument("reference_id", type=_parse_reference_id)
+    show.add_argument("--offset", type=int, default=0)
+    show.add_argument("--limit", type=int, default=100)
+    show.set_defaults(func=_cmd_citations_show)
+    return parser
+
+
 def _db_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tarkka db",
@@ -398,6 +624,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     if arguments and arguments[0] == "claims":
         args = _claims_parser().parse_args(arguments[1:])
+        return int(args.func(args))
+    if arguments and arguments[0] == "citations":
+        args = _citations_parser().parse_args(arguments[1:])
         return int(args.func(args))
     if arguments and arguments[0] == "db":
         args = _db_parser().parse_args(arguments[1:])

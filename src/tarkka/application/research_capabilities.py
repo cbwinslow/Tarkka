@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from tarkka.application.discover import DiscoveryService
@@ -25,7 +26,11 @@ class ResearchOperation:
 
 @dataclass(frozen=True, slots=True)
 class ResearchField:
-    """Compact input descriptor for staged agent discovery."""
+    """Compact input descriptor for staged agent discovery.
+
+    ``required_when`` is a concise condition hint for clients; the application
+    service remains authoritative for request validation.
+    """
 
     name: str
     value_type: str
@@ -33,9 +38,44 @@ class ResearchField:
     summary: str
     allowed_values: tuple[str, ...] = ()
     item_value_type: str | None = None
+    property_value_type: str | None = None
     minimum: float | None = None
     maximum: float | None = None
     required_when: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name.strip() or not self.value_type.strip() or not self.summary.strip():
+            raise ValueError("research field name, value type, and summary must be non-blank")
+        if any(not value.strip() for value in self.allowed_values):
+            raise ValueError("research field allowed values must be non-blank")
+        if self.item_value_type is not None and (
+            self.value_type != "array" or not self.item_value_type.strip()
+        ):
+            raise ValueError("item value type is only valid for non-empty array fields")
+        if self.property_value_type is not None and (
+            self.value_type != "object" or not self.property_value_type.strip()
+        ):
+            raise ValueError("property value type is only valid for non-empty object fields")
+        if self.minimum is not None or self.maximum is not None:
+            if self.value_type not in {"integer", "number"}:
+                raise ValueError("numeric bounds require an integer or number field")
+            for value in (self.minimum, self.maximum):
+                if value is not None and (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(float(value))
+                ):
+                    raise ValueError("research field bounds must be finite numbers")
+            if (
+                self.minimum is not None
+                and self.maximum is not None
+                and self.minimum > self.maximum
+            ):
+                raise ValueError("research field minimum must not exceed maximum")
+        if self.required_when is not None and (
+            self.required or not self.required_when.strip()
+        ):
+            raise ValueError("required_when is only valid for optional fields")
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +145,7 @@ _OPERATION_REGISTRATIONS = (
                 False,
                 "Providers required by mode=only.",
                 item_value_type="string",
+                required_when="mode == only",
             ),
             ResearchField(
                 "intent",
@@ -121,7 +162,7 @@ _OPERATION_REGISTRATIONS = (
                 "object",
                 False,
                 "Provider-keyed cursors for multi-provider pagination.",
-                item_value_type="string",
+                property_value_type="string",
             ),
             ResearchField(
                 "require_open_access", "boolean", False, "Require open-access candidates."

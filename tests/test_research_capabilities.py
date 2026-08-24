@@ -4,6 +4,7 @@ from tarkka.application.discover import DiscoveryService
 from tarkka.application.research_capabilities import (
     _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD,
     _OPERATION_REGISTRATIONS,
+    ResearchField,
     UnknownResearchOperationError,
     research_capabilities,
     research_operation_schema,
@@ -50,6 +51,8 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert discover.inputs[1].maximum == 1000
     assert discover.inputs[3].value_type == "array"
     assert discover.inputs[3].item_value_type == "string"
+    assert discover.inputs[3].required_when == "mode == only"
+    assert discover.inputs[6].property_value_type == "string"
     assert discover.result_summary == "Candidate manifests and provider cursors."
     assert [field.name for field in verify.inputs] == [
         "claim_id",
@@ -71,3 +74,14 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     with pytest.raises(UnknownResearchOperationError, match="research.expand") as error:
         research_operation_schema("research.expand")
     assert error.value.operation_id == "research.expand"
+
+
+def test_research_field_rejects_invalid_schema_metadata() -> None:
+    with pytest.raises(ValueError, match="array"):
+        ResearchField("items", "string", False, "Items.", item_value_type="string")
+    with pytest.raises(ValueError, match="object"):
+        ResearchField("map", "array", False, "Map.", property_value_type="string")
+    with pytest.raises(ValueError, match="minimum"):
+        ResearchField("count", "integer", False, "Count.", minimum=2, maximum=1)
+    with pytest.raises(ValueError, match="optional"):
+        ResearchField("name", "string", True, "Name.", required_when="mode == only")

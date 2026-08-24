@@ -13,6 +13,7 @@ from tarkka.domain.citations import (
 from tarkka.domain.identifiers import try_normalize_arxiv_id, try_normalize_doi
 from tarkka.domain.source_observations import ObservationBasis
 from tarkka.ports.citations import CitationRepository
+from tarkka.ports.work_documents import WorkDocumentRepository
 from tarkka.ports.works import WorkRepository
 
 _RESOLVER_NAME = "canonical-identifiers-v1"
@@ -22,6 +23,12 @@ _RESOLVER_NAME = "canonical-identifiers-v1"
 class CitationResolutionResult:
     resolutions: tuple[CitationResolution, ...]
     relations: tuple[WorkRelation, ...]
+    citing_work_id: UUID | None
+    total_references: int
+
+
+class AmbiguousCitingWorkError(ValueError):
+    """A Document must not silently choose among multiple canonical Work links."""
 
 
 class CitationResolutionService:
@@ -31,9 +38,11 @@ class CitationResolutionService:
         self,
         citations: CitationRepository,
         works: WorkRepository,
+        work_documents: WorkDocumentRepository | None = None,
     ) -> None:
         self._citations = citations
         self._works = works
+        self._work_documents = work_documents
 
     def resolve_reference(self, reference: BibliographicReference) -> CitationResolution:
         matched_work_ids = self._matched_work_ids(reference)
@@ -75,20 +84,66 @@ class CitationResolutionService:
         document_id: UUID,
         *,
         citing_work_id: UUID | None = None,
+        offset: int = 0,
+        limit: int | None = None,
     ) -> CitationResolutionResult:
-        if citing_work_id is not None and self._works.get_work(citing_work_id) is None:
-            raise ValueError(f"citing work not found: {citing_work_id}")
+        if offset < 0 or limit is not None and limit < 0:
+            raise ValueError("citation resolution offset and limit must be non-negative")
+        effective_citing_work_id = self._citing_work_id(document_id, citing_work_id)
 
         resolutions: list[CitationResolution] = []
         relations: list[WorkRelation] = []
-        for reference in self._citations.list_references(document_id):
+        for reference in self._citations.list_references(
+            document_id,
+            offset=offset,
+            limit=limit,
+        ):
             resolution = self.resolve_reference(reference)
             resolutions.append(resolution)
-            if citing_work_id is None or resolution.work_id is None:
+            if effective_citing_work_id is None or resolution.work_id is None:
                 continue
-            relation = self._cites_relation(citing_work_id, reference, resolution.work_id)
+            relation = self._cites_relation(
+                effective_citing_work_id,
+                reference,
+                resolution.work_id,
+            )
             relations.append(relation)
-        return CitationResolutionResult(tuple(resolutions), tuple(relations))
+        return CitationResolutionResult(
+            tuple(resolutions),
+            tuple(relations),
+            effective_citing_work_id,
+            self._citations.count_references(document_id),
+        )
+
+    def _citing_work_id(self, document_id: UUID, explicit: UUID | None) -> UUID | None:
+        if explicit is not None:
+            if self._works.get_work(explicit) is None:
+                raise ValueError(f"citing work not found: {explicit}")
+            if self._work_documents is not None:
+                linked_work_ids = {
+                    link.work_id
+                    for link in self._work_documents.list_document_work_links(document_id)
+                }
+                if linked_work_ids and explicit not in linked_work_ids:
+                    raise ValueError(
+                        "explicit citing work is not linked to the source document"
+                    )
+            return explicit
+        if self._work_documents is None:
+            return None
+        candidate_ids = {
+            link.work_id for link in self._work_documents.list_document_work_links(document_id)
+        }
+        if len(candidate_ids) > 1:
+            raise AmbiguousCitingWorkError(
+                "document has multiple canonical Work links; specify citing_work_id explicitly"
+            )
+        if not candidate_ids:
+            return None
+        inferred = next(iter(candidate_ids))
+        if self._works.get_work(inferred) is None:
+            raise ValueError(f"citing work not found: {inferred}")
+        return inferred
 
     def _matched_work_ids(self, reference: BibliographicReference) -> tuple[UUID, ...]:
         matched: set[UUID] = set()

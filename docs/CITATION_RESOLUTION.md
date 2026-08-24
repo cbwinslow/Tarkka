@@ -37,6 +37,23 @@ When the canonical Work corresponding to the citing document is known, a resolve
 
 Repeated resolution reuses equivalent resolution and relation records rather than creating duplicate graph edges. Relation reuse is keyed directly by deterministic relation ID, avoiding scans over all outgoing citations. Before reuse, all deterministic relation direction, kind, basis, and provenance fields are verified; an incompatible stored record fails loudly instead of masking a collision or caller bug.
 
+## CLI workflow
+
+```bash
+tarkka citations resolve <document-id>
+# Or require a particular known canonical Work:
+tarkka citations resolve <document-id> --citing-work <work-id>
+# Resolve a bounded page of a large bibliography:
+tarkka citations resolve <document-id> --offset 100 --limit 20
+```
+
+The CLI resolves every preserved reference through the exact deterministic path and returns compact
+resolution and relation records. Without `--citing-work`, it uses the persisted Work-document link
+when exactly one canonical Work represents the Document. Zero links still permits reference
+resolution but creates no Work relation; multiple distinct links are an explicit error rather than
+a silent identity choice. When links exist, an explicit Work must be one of those links. Resolution
+returns and processes one bounded page (at most 100 references); callers advance with `--offset`.
+
 ## Persistence and concurrency
 
 Resolution identity is content-based: `resolution_id` and all semantic/provenance fields participate in equivalence, while `resolved_at` records when the first equivalent result was persisted and is intentionally excluded from idempotency comparison. The `CitationRepository` port requires implementations to serialize writes to a reference's resolution key. The local JSON repository uses its exclusive file lock; a PostgreSQL adapter should enforce the same invariant with a unique constraint plus transactional `INSERT ... ON CONFLICT`/locking semantics.

@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from uuid import UUID
 
+from tarkka.application.citation_resolution import (
+    AmbiguousCitingWorkError,
+    CitationResolutionService,
+)
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.identity_review import (
     IdentityCandidateNotFoundError,
@@ -17,7 +21,13 @@ from tarkka.application.research_packages import (
     ResearchPackageNotFoundError,
     ResearchPackageService,
 )
-from tarkka.domain.citations import BibliographicReference, CitationContext, CitationMention
+from tarkka.domain.citations import (
+    BibliographicReference,
+    CitationContext,
+    CitationMention,
+    CitationResolution,
+    WorkRelation,
+)
 from tarkka.domain.extraction import (
     Claim,
     EquationEvidence,
@@ -55,6 +65,7 @@ from tarkka.infrastructure.storage.search_snapshot_log import (
     SnapshotDataError,
 )
 from tarkka.interfaces.bibliography_cli import run as bibliography_main
+from tarkka.interfaces.cli import _work_repository
 from tarkka.interfaces.cli import main as legacy_main
 from tarkka.ports.extraction import StructuredExtractor
 
@@ -108,6 +119,13 @@ def _parse_resource_link_id(raw: str) -> UUID:
         return UUID(raw.removeprefix("resource:"))
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid resource link id: {raw}") from exc
+
+
+def _parse_work_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("work:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid work id: {raw}") from exc
 
 
 def _identity_service() -> IdentityReviewService:
@@ -549,6 +567,101 @@ def _cmd_citations_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolution_payload(resolution: CitationResolution) -> dict[str, object]:
+    return {
+        "resolution_id": str(resolution.resolution_id),
+        "reference_id": str(resolution.reference_id),
+        "status": resolution.status.value,
+        "work_id": str(resolution.work_id) if resolution.work_id is not None else None,
+        "candidate_work_ids": [str(item) for item in resolution.candidate_work_ids],
+        "resolver": resolution.resolver,
+        "source_observation_id": (
+            str(resolution.source_observation_id)
+            if resolution.source_observation_id is not None
+            else None
+        ),
+        "resolved_at": resolution.resolved_at.isoformat(),
+    }
+
+
+def _work_relation_payload(relation: WorkRelation) -> dict[str, object]:
+    return {
+        "relation_id": str(relation.relation_id),
+        "subject_work_id": str(relation.subject_work_id),
+        "object_work_id": str(relation.object_work_id),
+        "kind": relation.kind.value,
+        "basis": relation.basis.value,
+        "source_document_id": (
+            str(relation.source_document_id) if relation.source_document_id is not None else None
+        ),
+        "source_reference_id": (
+            str(relation.source_reference_id) if relation.source_reference_id is not None else None
+        ),
+        "source_observation_id": (
+            str(relation.source_observation_id)
+            if relation.source_observation_id is not None
+            else None
+        ),
+    }
+
+
+def _cmd_citations_resolve(args: argparse.Namespace) -> int:
+    if args.offset < 0 or args.limit < 0:
+        print("error: citation offset and limit must be non-negative", file=sys.stderr)
+        return 2
+    if args.offset > _MAX_CITATION_OFFSET or args.limit > _MAX_CITATION_PAGE_SIZE:
+        print("error: citation pagination exceeds the configured maximum", file=sys.stderr)
+        return 2
+    if not _document_exists_for_inspection(args.document_id):
+        print(f"error: document not found: {args.document_id}", file=sys.stderr)
+        return 2
+    repository = _existing_citation_repository()
+    if repository is None:
+        print(
+            f"error: no preserved citations found for document: {args.document_id}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        documents = _document_repository()
+        result = CitationResolutionService(
+            repository,
+            _work_repository(),
+            work_documents=documents,
+        ).resolve_document(
+            args.document_id,
+            citing_work_id=args.citing_work_id,
+            offset=args.offset,
+            limit=args.limit,
+        )
+    except (
+        AmbiguousCitingWorkError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "document_id": str(args.document_id),
+                "citing_work_id": (
+                    str(result.citing_work_id) if result.citing_work_id is not None else None
+                ),
+                "offset": args.offset,
+                "limit": args.limit,
+                "total": result.total_references,
+                "resolutions": [_resolution_payload(item) for item in result.resolutions],
+                "relations": [_work_relation_payload(item) for item in result.relations],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _resource_link_summary(link: ResourceLinkObservation) -> dict[str, object]:
     return {
         "link_id": str(link.link_id),
@@ -719,6 +832,16 @@ def _citations_parser() -> argparse.ArgumentParser:
     show.add_argument("--offset", type=int, default=0)
     show.add_argument("--limit", type=int, default=100)
     show.set_defaults(func=_cmd_citations_show)
+
+    resolve = sub.add_parser(
+        "resolve",
+        help="resolve preserved references and create native cites relations when unambiguous",
+    )
+    resolve.add_argument("document_id", type=_parse_document_id)
+    resolve.add_argument("--citing-work", dest="citing_work_id", type=_parse_work_id)
+    resolve.add_argument("--offset", type=int, default=0)
+    resolve.add_argument("--limit", type=int, default=100)
+    resolve.set_defaults(func=_cmd_citations_resolve)
     return parser
 
 

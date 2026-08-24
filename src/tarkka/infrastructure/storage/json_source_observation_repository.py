@@ -34,6 +34,14 @@ class JsonSourceObservationRepository:
             if not self.path.exists():
                 self._write(_empty_catalog())
 
+    @classmethod
+    def open_existing(cls, path: Path) -> JsonSourceObservationRepository | None:
+        """Open an existing catalog without creating one for a read-only inspection."""
+        resolved = path.expanduser().resolve()
+        if not resolved.is_file():
+            return None
+        return cls(resolved)
+
     def save_observation(self, observation: SourceObservation) -> None:
         self._save(
             "observations",
@@ -60,6 +68,15 @@ class JsonSourceObservationRepository:
         values.sort(
             key=lambda item: (item.relation.value, item.target_uri, str(item.link_id))
         )
+        return tuple(values)
+
+    def list_observations_for_artifact(self, artifact_id: UUID) -> tuple[SourceObservation, ...]:
+        values = [
+            _observation_from_dict(item)
+            for item in self._read()["observations"].values()
+            if item.get("native_artifact_id") == str(artifact_id)
+        ]
+        values.sort(key=lambda item: (item.source_name, str(item.observation_id)))
         return tuple(values)
 
     def _save(

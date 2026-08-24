@@ -24,6 +24,8 @@ Possible identifiers include:
 
 Store identifiers as typed aliases to a canonical internal UUID.
 
+`Work.external_ids` preserves provider/exchange metadata needed for lossless Work round trips, but it is not the canonical identity index. Normalized lookup, uniqueness, and conflict detection belong to first-class `WorkIdentifier` aliases (`tarkka.work_identifier` in PostgreSQL). Backends must preserve both without treating the metadata mapping as a substitute for the normalized relation.
+
 ## Core entities
 
 ### Workspace

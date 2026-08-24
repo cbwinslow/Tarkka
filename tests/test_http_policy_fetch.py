@@ -13,6 +13,9 @@ from tarkka.application.http_policy_fetch import (
 )
 from tarkka.domain.resource_acquisition import AcquisitionBudgetState, ResourceAcquisitionPolicy
 from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
+from tarkka.infrastructure.storage.json_policy_fetch_finalization_repository import (
+    JsonPolicyFetchFinalizationRepository,
+)
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
@@ -106,6 +109,9 @@ def _service(
     checkpoints = JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json")
     observations = JsonSourceObservationRepository(tmp_path / "observations.json")
     artifacts = LocalArtifactStore(tmp_path / "artifacts")
+    finalizations = JsonPolicyFetchFinalizationRepository(
+        tmp_path / "policy-finalizations.json"
+    )
     ticks = count(100.0, 0.5)
     service = HttpPolicyFetchService(
         resolver=resolver,
@@ -113,6 +119,7 @@ def _service(
         artifact_store=artifacts,
         observation_repository=observations,
         checkpoint_repository=checkpoints,
+        finalization_repository=finalizations,
         clock=lambda: next(ticks),
         sleeper=lambda _: None,
     )

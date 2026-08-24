@@ -144,9 +144,30 @@ class LocalArtifactStore:
     def read_bytes(self, artifact: Artifact) -> bytes:
         return self.path_for(artifact).read_bytes()
 
+    def read_bytes_by_sha256(self, sha256: str) -> bytes:
+        """Read content-addressed bytes and verify the durable object still matches its key."""
+        _require_sha256(sha256)
+        key = self.storage_key_for_digest(sha256)
+        path = self.root.joinpath(*key.parts)
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != sha256:
+            raise OSError("artifact content does not match its SHA-256 storage key")
+        return data
+
     def exists(self, sha256: str) -> bool:
         key = self.storage_key_for_digest(sha256)
         return self.root.joinpath(*key.parts).is_file()
+
+
+def _require_sha256(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError("artifact SHA-256 must be lowercase hexadecimal")
 
 
 def _fsync_directory(path: Path) -> None:

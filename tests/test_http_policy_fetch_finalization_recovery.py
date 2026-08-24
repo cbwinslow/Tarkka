@@ -175,7 +175,7 @@ def test_partial_observation_commit_recovers_without_network_refetch(tmp_path: P
         clock=lambda: next(ticks),
         sleeper=lambda _: None,
     )
-    observation = recovered_service.recover_finalization(
+    observation = recovered_service.recover_policy_finalization(
         failed_checkpoint,
         requested_uri=_ROBOTS_URI,
     )
@@ -234,7 +234,7 @@ def test_recovery_fails_closed_when_expected_artifact_is_missing(tmp_path: Path)
     network_calls = (tuple(resolver.calls), tuple(transport.calls))
 
     with pytest.raises(HttpPolicyFetchCommitError, match="artifact is not durable"):
-        service.recover_finalization(checkpoint, requested_uri=_ROBOTS_URI)
+        service.recover_policy_finalization(checkpoint, requested_uri=_ROBOTS_URI)
 
     assert finalizations.get(checkpoint.checkpoint_id, _ROBOTS_URI) == marker
     assert (tuple(resolver.calls), tuple(transport.calls)) == network_calls

@@ -148,9 +148,13 @@ def _policy(*, min_interval: float = 0.0, max_requests: int = 10) -> ResourceAcq
     )
 
 
-def _rights(*, retrieval: bool = True) -> RightsAccessDecision:
+def _rights(
+    *,
+    retrieval: bool = True,
+    target_uri: str = _TARGET,
+) -> RightsAccessDecision:
     return RightsAccessDecision(
-        target_uri=_TARGET,
+        target_uri=target_uri,
         retrieval_allowed=retrieval,
         storage_allowed=True,
         analysis_allowed=True,
@@ -216,6 +220,25 @@ def test_missing_cache_refreshes_then_hands_updated_budget_to_target_acquirer() 
     acquired_checkpoint, _, interval = acquirer.calls[0]
     assert acquired_checkpoint.budget.requests_used == 1
     assert interval == 0.0
+
+
+def test_mismatched_rights_fail_before_robots_refresh() -> None:
+    checkpoint, target_id = _checkpoint()
+    refresher = _Refresher(_robots())
+    acquirer = _Acquirer()
+
+    with pytest.raises(ValueError, match="does not belong"):
+        _coordinator(_Cache(), refresher, acquirer).acquire(
+            checkpoint,
+            target_id,
+            _policy(),
+            product_token="TarkkaBot",
+            rights=_rights(target_uri="https://example.org/other"),
+            now=_NOW,
+        )
+
+    assert refresher.calls == 0
+    assert acquirer.calls == []
 
 
 def test_refresh_request_does_not_satisfy_robots_crawl_delay() -> None:

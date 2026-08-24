@@ -43,11 +43,11 @@ class JsonWorkRepository:
 
     def save_work(self, work: Work) -> None:
         if self._transaction_data is not None:
-            self._transaction_data["works"][str(work.work_id)] = _work_to_dict(work)
+            self._save_work_into(self._transaction_data, work)
             return
         with exclusive_lock(self.path):
             data = self._read()
-            data["works"][str(work.work_id)] = _work_to_dict(work)
+            self._save_work_into(data, work)
             self._write(data)
 
     def get_work(self, work_id: UUID) -> Work | None:
@@ -101,6 +101,15 @@ class JsonWorkRepository:
 
     def _data(self) -> dict[str, Any]:
         return self._transaction_data if self._transaction_data is not None else self._read()
+
+    @staticmethod
+    def _save_work_into(data: dict[str, Any], work: Work) -> None:
+        key = str(work.work_id)
+        payload = _work_to_dict(work)
+        existing = data["works"].get(key)
+        if isinstance(existing, dict) and isinstance(existing.get("created_at"), str):
+            payload["created_at"] = existing["created_at"]
+        data["works"][key] = payload
 
     @staticmethod
     def _save_identifier_into(

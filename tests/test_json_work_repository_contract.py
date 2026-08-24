@@ -19,8 +19,10 @@ _SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-000000000c05")
 _CONFLICTING_SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-000000000c06")
 _SECOND_IDENTIFIER_ID = UUID("00000000-0000-0000-0000-000000000c07")
 _SECOND_SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-000000000c08")
+_RESAVED_IDENTIFIER_ID = UUID("00000000-0000-0000-0000-000000000c09")
 _MISSING_WORK_ID = UUID("00000000-0000-0000-0000-000000000cff")
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+_UPDATED_CREATED_AT = datetime(2027, 1, 1, tzinfo=UTC)
 
 
 def _work() -> Work:
@@ -53,13 +55,14 @@ def _identifier(
     identifier_id: UUID = _IDENTIFIER_ID,
     scheme: str = "doi",
     value: str = "10.1000/example",
+    created_at: datetime = _CREATED_AT,
 ) -> WorkIdentifier:
     return WorkIdentifier(
         identifier_id=identifier_id,
         work_id=work_id,
         scheme=scheme,
         value=value,
-        created_at=_CREATED_AT,
+        created_at=created_at,
     )
 
 
@@ -92,13 +95,11 @@ def _source_record(
 
 def test_json_work_repository_satisfies_missing_read_contract(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
-
     WorkRepositoryContract.assert_missing_reads_are_empty(repository, _MISSING_WORK_ID)
 
 
 def test_json_work_repository_satisfies_graph_round_trip_contract(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
-
     WorkRepositoryContract.assert_graph_round_trip(
         repository,
         _work(),
@@ -125,7 +126,6 @@ def test_json_work_repository_lists_identity_state_deterministically(tmp_path: P
             provider_id="10.1000/example",
         ),
     )
-
     WorkRepositoryContract.assert_multi_entry_listing_is_deterministic(
         repository,
         _work(),
@@ -137,8 +137,12 @@ def test_json_work_repository_lists_identity_state_deterministically(tmp_path: P
 def test_json_work_repository_allows_work_metadata_evolution(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
     original = _work()
-    evolved = replace(original, abstract="Updated abstract", venue="Updated venue")
-
+    evolved = replace(
+        original,
+        abstract="Updated abstract",
+        venue="Updated venue",
+        created_at=_UPDATED_CREATED_AT,
+    )
     WorkRepositoryContract.assert_work_can_evolve_without_losing_identity(
         repository,
         original,
@@ -148,9 +152,21 @@ def test_json_work_repository_allows_work_metadata_evolution(tmp_path: Path) -> 
     )
 
 
+def test_json_work_repository_preserves_identifier_creation_metadata(tmp_path: Path) -> None:
+    repository = JsonWorkRepository(tmp_path / "works.json")
+    WorkRepositoryContract.assert_identifier_resave_preserves_creation_metadata(
+        repository,
+        _work(),
+        _identifier(),
+        _identifier(
+            identifier_id=_RESAVED_IDENTIFIER_ID,
+            created_at=_UPDATED_CREATED_AT,
+        ),
+    )
+
+
 def test_json_work_repository_rejects_identifier_alias_conflict(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
-
     WorkRepositoryContract.assert_identifier_conflict_rolls_back_transaction(
         repository,
         _work(),
@@ -166,7 +182,6 @@ def test_json_work_repository_rejects_identifier_alias_conflict(tmp_path: Path) 
 
 def test_json_work_repository_rejects_source_record_conflict(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
-
     WorkRepositoryContract.assert_source_record_conflict_rolls_back_transaction(
         repository,
         _work(),
@@ -182,7 +197,6 @@ def test_json_work_repository_rejects_source_record_conflict(tmp_path: Path) -> 
 
 def test_json_work_repository_transaction_rolls_back_all_identity_state(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
-
     WorkRepositoryContract.assert_transaction_rolls_back(
         repository,
         _work(),

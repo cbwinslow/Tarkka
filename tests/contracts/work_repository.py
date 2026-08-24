@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from uuid import UUID
 
 from tarkka.domain.models import Work
@@ -76,6 +77,7 @@ class WorkRepositoryContract:
         assert original != evolved
         assert identifier.work_id == original.work_id
         assert source_record.work_id == original.work_id
+        expected = replace(evolved, created_at=original.created_at)
 
         with repository.transaction():
             repository.save_work(original)
@@ -85,10 +87,33 @@ class WorkRepositoryContract:
         with repository.transaction():
             repository.save_work(evolved)
 
-        assert repository.get_work(original.work_id) == evolved
-        assert repository.find_work_by_identifier(identifier.scheme, identifier.value) == evolved
+        assert repository.get_work(original.work_id) == expected
+        assert repository.find_work_by_identifier(identifier.scheme, identifier.value) == expected
         assert repository.list_identifiers(original.work_id) == (identifier,)
         assert repository.list_source_records(original.work_id) == (source_record,)
+
+    @staticmethod
+    def assert_identifier_resave_preserves_creation_metadata(
+        repository: WorkRepository,
+        work: Work,
+        original: WorkIdentifier,
+        resaved: WorkIdentifier,
+    ) -> None:
+        assert original.work_id == work.work_id
+        assert resaved.work_id == work.work_id
+        assert original.scheme == resaved.scheme
+        assert original.value == resaved.value
+        assert original != resaved
+
+        with repository.transaction():
+            repository.save_work(work)
+            repository.save_identifier(original)
+
+        with repository.transaction():
+            repository.save_identifier(resaved)
+
+        assert repository.list_identifiers(work.work_id) == (original,)
+        assert repository.find_work_by_identifier(original.scheme, original.value) == work
 
     @staticmethod
     def assert_identifier_conflict_rolls_back_transaction(

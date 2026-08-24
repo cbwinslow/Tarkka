@@ -11,6 +11,7 @@ from uuid import UUID
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
 from tarkka.domain.work_documents import WorkDocumentLink
+from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
 class JsonResearchRepository:
@@ -23,15 +24,16 @@ class JsonResearchRepository:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self._write(
-                {
-                    "schema_version": 1,
-                    "artifacts": {},
-                    "documents": {},
-                    "work_document_links": {},
-                }
-            )
+        with exclusive_lock(self.path):
+            if not self.path.exists():
+                self._write(
+                    {
+                        "schema_version": 1,
+                        "artifacts": {},
+                        "documents": {},
+                        "work_document_links": {},
+                    }
+                )
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -56,26 +58,31 @@ class JsonResearchRepository:
 
     def _write(self, data: dict[str, Any]) -> None:
         fd, temp_name = tempfile.mkstemp(prefix=".tarkka-catalog-", dir=self.path.parent)
-        os.close(fd)
         temp_path = Path(temp_name)
         try:
-            temp_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
+            _fsync_directory(self.path.parent)
         finally:
             temp_path.unlink(missing_ok=True)
 
     def save_artifact(self, artifact: Artifact) -> None:
-        data = self._read()
-        data["artifacts"][str(artifact.artifact_id)] = _artifact_to_dict(artifact)
-        self._write(data)
+        with exclusive_lock(self.path):
+            data = self._read()
+            data["artifacts"][str(artifact.artifact_id)] = _artifact_to_dict(artifact)
+            self._write(data)
 
     def save_document(self, document: Document, manifest: ResourceManifest) -> None:
-        data = self._read()
-        data["documents"][str(document.document_id)] = {
-            "document": _document_to_dict(document),
-            "manifest": manifest.to_dict(),
-        }
-        self._write(data)
+        with exclusive_lock(self.path):
+            data = self._read()
+            data["documents"][str(document.document_id)] = {
+                "document": _document_to_dict(document),
+                "manifest": manifest.to_dict(),
+            }
+            self._write(data)
 
     def get_artifact(self, artifact_id: UUID) -> Artifact | None:
         payload = self._read()["artifacts"].get(str(artifact_id))
@@ -101,23 +108,24 @@ class JsonResearchRepository:
         )
 
     def save_work_document_link(self, link: WorkDocumentLink) -> None:
-        data = self._read()
-        if str(link.artifact_id) not in data["artifacts"]:
-            raise ValueError(f"artifact not found for work document link: {link.artifact_id}")
-        if str(link.document_id) not in data["documents"]:
-            raise ValueError(f"document not found for work document link: {link.document_id}")
-        stored_document = data["documents"][str(link.document_id)]["document"]
-        if stored_document["artifact_id"] != str(link.artifact_id):
-            raise ValueError("work document link artifact does not match document artifact")
+        with exclusive_lock(self.path):
+            data = self._read()
+            if str(link.artifact_id) not in data["artifacts"]:
+                raise ValueError(f"artifact not found for work document link: {link.artifact_id}")
+            if str(link.document_id) not in data["documents"]:
+                raise ValueError(f"document not found for work document link: {link.document_id}")
+            stored_document = data["documents"][str(link.document_id)]["document"]
+            if stored_document["artifact_id"] != str(link.artifact_id):
+                raise ValueError("work document link artifact does not match document artifact")
 
-        key = str(link.link_id)
-        serialized = _work_document_link_to_dict(link)
-        existing = data["work_document_links"].get(key)
-        if existing is not None and not _same_work_document_link(existing, serialized):
-            raise ValueError(f"conflicting work document link: {link.link_id}")
-        if existing is None:
-            data["work_document_links"][key] = serialized
-            self._write(data)
+            key = str(link.link_id)
+            serialized = _work_document_link_to_dict(link)
+            existing = data["work_document_links"].get(key)
+            if existing is not None and not _same_work_document_link(existing, serialized):
+                raise ValueError(f"conflicting work document link: {link.link_id}")
+            if existing is None:
+                data["work_document_links"][key] = serialized
+                self._write(data)
 
     def list_work_document_links(self, work_id: UUID) -> tuple[WorkDocumentLink, ...]:
         links = (
@@ -272,3 +280,15 @@ def _document_from_dict(raw: dict[str, Any]) -> Document:
         sections=tuple(sections),
         normalized_at=datetime.fromisoformat(raw["normalized_at"]),
     )
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush an atomic rename where the platform exposes POSIX directory fsync."""
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)

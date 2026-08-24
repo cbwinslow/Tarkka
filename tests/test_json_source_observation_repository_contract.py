@@ -5,12 +5,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
+import pytest
+
 from tarkka.domain.source_observations import (
     ObservationBasis,
     ResourceLinkObservation,
     ResourceRelation,
     SourceObservation,
 )
+from tarkka.infrastructure.storage import json_source_observation_repository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
@@ -89,3 +92,16 @@ def test_json_source_repository_rejects_stable_id_conflicts(tmp_path: Path) -> N
         first,
         conflicting,
     )
+
+
+def test_json_source_repository_fsyncs_parent_directory_after_atomic_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flushed: list[Path] = []
+    monkeypatch.setattr(json_source_observation_repository, "_fsync_directory", flushed.append)
+
+    repository = JsonSourceObservationRepository(tmp_path / "observations.json")
+    repository.save_observation(_observation())
+
+    assert flushed == [repository.path.parent, repository.path.parent]

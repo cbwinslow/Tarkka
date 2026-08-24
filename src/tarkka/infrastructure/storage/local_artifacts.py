@@ -48,6 +48,8 @@ class LocalArtifactStore:
                 shutil.copyfile(source, temp_path)
                 if self._digest_file(temp_path)[0] != sha256:
                     raise OSError("artifact checksum changed while copying")
+                with temp_path.open("rb") as handle:
+                    os.fsync(handle.fileno())
                 os.replace(temp_path, destination)
                 _fsync_directory(destination.parent)
             finally:

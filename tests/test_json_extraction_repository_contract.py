@@ -15,6 +15,7 @@ from tarkka.domain.extraction import (
     Limitation,
 )
 from tarkka.domain.models import Document, Passage, Section
+from tarkka.infrastructure.storage import json_extraction_repository
 from tarkka.infrastructure.storage.json_extraction_repository import (
     ExtractionConflictError,
     JsonExtractionRepository,
@@ -149,3 +150,16 @@ def test_json_extraction_repository_rejects_conflicting_run_content(tmp_path: Pa
         conflicting,
         ExtractionConflictError,
     )
+
+
+def test_json_extraction_repository_fsyncs_parent_directory_after_atomic_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flushed: list[Path] = []
+    monkeypatch.setattr(json_extraction_repository, "_fsync_directory", flushed.append)
+
+    repository = JsonExtractionRepository(tmp_path / "extractions.json")
+    repository.save_batch(_batch())
+
+    assert flushed == [repository.path.parent, repository.path.parent]

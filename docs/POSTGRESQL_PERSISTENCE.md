@@ -6,10 +6,10 @@ Tarkka uses PostgreSQL as its production metadata system of record and `psycopg`
 database driver. PostgreSQL repositories remain infrastructure adapters behind application ports;
 domain models must not become ORM entities.
 
-The current SQL migrations remain the authoritative, append-only schema history. The next persistence
-milestone will add a small Tarkka migration runner and a schema-version table that applies those SQL
-files in a single ordered, recorded operation. It will not run automatically during application
-startup. Deployments must run the explicit upgrade command before starting a service or worker.
+The current SQL migrations remain the authoritative, append-only schema history. Migration discovery
+is deterministic and checksummed. The next persistence increment adds the explicit database-backed
+upgrade runner and schema-version table; it will not run automatically during application startup.
+Deployments must run the explicit upgrade command before starting a service or worker.
 
 ## Package choices
 

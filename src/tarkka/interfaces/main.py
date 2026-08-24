@@ -32,6 +32,8 @@ from tarkka.infrastructure.extraction.rule_claims import (
     NoClaimsFoundError,
     RuleBasedClaimExtractor,
 )
+from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.migrations import upgrade
 from tarkka.infrastructure.storage.identity_decision_log import JsonlIdentityDecisionLog
 from tarkka.infrastructure.storage.json_extraction_repository import (
     ExtractionConflictError,
@@ -93,6 +95,25 @@ def _extraction_repository() -> JsonExtractionRepository:
 
 def _document_repository() -> JsonResearchRepository:
     return JsonResearchRepository(_home() / "catalog.json")
+
+
+def _cmd_db_upgrade(_: argparse.Namespace) -> int:
+    try:
+        result = upgrade(PostgresSettings.from_environment())
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "applied": [migration.name for migration in result.applied],
+                "skipped": [migration.name for migration in result.skipped],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
 
 
 def _configured_claim_extractor(name: str) -> StructuredExtractor:
@@ -353,6 +374,20 @@ def _claims_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _db_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tarkka db",
+        description="manage explicit PostgreSQL schema upgrades",
+    )
+    sub = parser.add_subparsers(dest="db_command", required=True)
+    upgrade_parser = sub.add_parser(
+        "upgrade",
+        help="apply missing checksummed PostgreSQL migrations",
+    )
+    upgrade_parser.set_defaults(func=_cmd_db_upgrade)
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "identity":
@@ -363,6 +398,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     if arguments and arguments[0] == "claims":
         args = _claims_parser().parse_args(arguments[1:])
+        return int(args.func(args))
+    if arguments and arguments[0] == "db":
+        args = _db_parser().parse_args(arguments[1:])
         return int(args.func(args))
     if arguments and arguments[0] == "bibliography":
         return bibliography_main(arguments[1:], _home())

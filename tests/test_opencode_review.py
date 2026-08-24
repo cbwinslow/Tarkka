@@ -91,7 +91,9 @@ def test_build_prompt_marks_pr_content_as_untrusted_and_tracks_clipping() -> Non
 
 
 def test_extract_review_accepts_openai_compatible_response() -> None:
-    result = extract_review({"choices": [{"message": {"content": "No material findings."}}]})
+    result = extract_review(
+        {"candidates": [{"content": {"parts": [{"text": "No material findings."}]}}]}
+    )
 
     assert result == "No material findings."
 
@@ -101,11 +103,11 @@ def test_extract_review_accepts_openai_compatible_response() -> None:
     [
         None,
         {},
-        {"choices": []},
-        {"choices": [None]},
-        {"choices": [{}]},
-        {"choices": [{"message": {}}]},
-        {"choices": [{"message": {"content": "   "}}]},
+        {"candidates": []},
+        {"candidates": [None]},
+        {"candidates": [{}]},
+        {"candidates": [{"content": {}}]},
+        {"candidates": [{"content": {"parts": [{"text": "   "}]}}]},
     ],
 )
 def test_extract_review_rejects_malformed_responses(payload: object) -> None:
@@ -163,29 +165,37 @@ def test_request_does_not_retry_post(monkeypatch: pytest.MonkeyPatch) -> None:
     assert attempts == 1
 
 
-def test_request_review_builds_openai_compatible_request(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_request_review_builds_gemini_request(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     def fake_request(url: str, **kwargs: Any) -> bytes:
         captured["url"] = url
         captured.update(kwargs)
         return json.dumps(
-            {"choices": [{"message": {"content": "No material findings."}}]}
+            {"candidates": [{"content": {"parts": [{"text": "No material findings."}]}}]}
         ).encode()
 
     monkeypatch.setattr(reviewer, "_request", fake_request)
 
     result = reviewer.request_review(
         "secret-key",
-        "x-preview-f-free",
+        "gemini-3.7-flash",
         [{"role": "user", "content": "review"}],
     )
 
     assert result == "No material findings."
     assert captured["url"] == reviewer._ZEN_ENDPOINT
     assert captured["method"] == "POST"
-    assert captured["headers"]["Authorization"] == "Bearer secret-key"
-    assert captured["payload"]["model"] == "x-preview-f-free"
+    assert captured["headers"]["x-goog-api-key"] == "secret-key"
+    assert captured["payload"]["contents"] == [{"role": "user", "parts": [{"text": "review"}]}]
+    assert "systemInstruction" not in captured["payload"]
+
+
+def test_request_review_rejects_non_gemini_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reviewer, "_request", lambda *_args, **_kwargs: b"{}")
+
+    with pytest.raises(ValueError, match="unsupported"):
+        reviewer.request_review("secret-key", "x-preview-f-free", [])
 
 
 def test_list_pr_comments_paginates_until_short_page(monkeypatch: pytest.MonkeyPatch) -> None:

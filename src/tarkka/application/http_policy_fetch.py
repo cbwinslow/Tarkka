@@ -107,6 +107,13 @@ class HttpPolicyFetchService(HttpAcquisitionService):
         if not policy.allows_uri(normalized_uri):
             raise ValueError("policy resource URI is outside the acquisition policy")
 
+        pending = self._finalization_repository.get(
+            checkpoint.checkpoint_id,
+            normalized_uri,
+        )
+        if pending is not None:
+            return self._recover_policy_result(checkpoint, pending)
+
         active = begin_policy_request(
             checkpoint,
             policy,
@@ -217,9 +224,29 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                 "policy fetch finalization marker does not exist",
                 checkpoint=checkpoint,
             )
+        return self._recover_policy_result(checkpoint, finalization).observation
+
+    def _recover_policy_result(
+        self,
+        checkpoint: TraversalCheckpoint,
+        finalization: PolicyFetchFinalization,
+    ) -> HttpPolicyFetchResult:
         if not self._artifact_store.exists(finalization.artifact_sha256):
             raise HttpPolicyFetchCommitError(
                 "policy fetch finalization artifact is not durable",
+                checkpoint=checkpoint,
+            )
+
+        try:
+            body = self._artifact_store.read_bytes_by_sha256(finalization.artifact_sha256)
+        except Exception as exc:
+            raise HttpPolicyFetchCommitError(
+                f"unable to read durable policy artifact: {type(exc).__name__}",
+                checkpoint=checkpoint,
+            ) from exc
+        if hashlib.sha256(body).hexdigest() != finalization.artifact_sha256:
+            raise HttpPolicyFetchCommitError(
+                "policy fetch finalization artifact identity changed",
                 checkpoint=checkpoint,
             )
 
@@ -235,18 +262,34 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                 "policy fetch finalization observation identity changed",
                 checkpoint=checkpoint,
             )
+
         try:
+            artifact = self._artifact_store.put_bytes(
+                body,
+                original_name=_artifact_name(finalization.response.final_uri),
+                source_uri=finalization.response.final_uri,
+                media_type=finalization.response.media_type or "application/octet-stream",
+            )
+            if artifact.sha256 != finalization.artifact_sha256:
+                raise RuntimeError("artifact store returned unexpected recovery identity")
             self._observation_repository.save_observation(observation)
             self._finalization_repository.delete(
                 checkpoint.checkpoint_id,
-                normalized_uri,
+                finalization.requested_uri,
             )
         except Exception as exc:
             raise HttpPolicyFetchCommitError(
                 f"policy fetch finalization recovery interrupted: {type(exc).__name__}",
                 checkpoint=checkpoint,
             ) from exc
-        return observation
+
+        return HttpPolicyFetchResult(
+            checkpoint=checkpoint,
+            artifact=artifact,
+            observation=observation,
+            response=finalization.response,
+            body=body,
+        )
 
     def _finish_policy(
         self,

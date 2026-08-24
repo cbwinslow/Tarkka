@@ -224,9 +224,8 @@ def test_transaction_reuses_connection_and_rejects_nesting() -> None:
 
     with repository.transaction():
         repository.save_work(_work())
-        with pytest.raises(RuntimeError, match="nested"):
-            with repository.transaction():
-                pass
+        with pytest.raises(RuntimeError, match="nested"), repository.transaction():
+            pass
         assert not connection.closed
 
     assert connection.closed

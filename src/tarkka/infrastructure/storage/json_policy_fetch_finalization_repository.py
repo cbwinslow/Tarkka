@@ -91,8 +91,11 @@ class JsonPolicyFetchFinalizationRepository:
         if not isinstance(decoded, dict):
             raise RuntimeError("invalid policy finalization journal: root must be an object")
         data = cast(dict[str, Any], decoded)
-        if data.get("schema_version") != 1:
-            raise RuntimeError("invalid or unsupported policy finalization journal")
+        schema_version = data.get("schema_version")
+        if schema_version != 1:
+            raise RuntimeError(
+                f"unsupported policy finalization journal schema_version: {schema_version!r}"
+            )
         if not isinstance(data.get("finalizations"), dict):
             raise RuntimeError("invalid policy finalization journal bucket")
         return data

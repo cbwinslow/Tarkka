@@ -79,12 +79,11 @@ packages = ["tarkka"]
 source_paths = ["src/tarkka"]
 only_mutate = [
     "src/tarkka/domain/identifiers.py",
-    "src/tarkka/domain/robots_rules.py",
+    "src/tarkka/infrastructure/storage/parser_identity.py",
 ]
 pytest_add_cli_args_test_selection = [
     "tests/test_identifiers.py",
-    "tests/test_robots_access_policy.py",
-    "tests/test_robots_parser_malformed_records.py",
+    "tests/test_parser_identity.py",
 ]
 mutate_only_covered_lines = true
 max_stack_depth = 8

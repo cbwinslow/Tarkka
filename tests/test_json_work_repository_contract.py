@@ -17,6 +17,8 @@ _IDENTIFIER_ID = UUID("00000000-0000-0000-0000-000000000c03")
 _CONFLICTING_IDENTIFIER_ID = UUID("00000000-0000-0000-0000-000000000c04")
 _SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-000000000c05")
 _CONFLICTING_SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-000000000c06")
+_SECOND_IDENTIFIER_ID = UUID("00000000-0000-0000-0000-000000000c07")
+_SECOND_SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-000000000c08")
 _MISSING_WORK_ID = UUID("00000000-0000-0000-0000-000000000cff")
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -49,12 +51,14 @@ def _identifier(
     *,
     work_id: UUID = _WORK_ID,
     identifier_id: UUID = _IDENTIFIER_ID,
+    scheme: str = "doi",
+    value: str = "10.1000/example",
 ) -> WorkIdentifier:
     return WorkIdentifier(
         identifier_id=identifier_id,
         work_id=work_id,
-        scheme="doi",
-        value="10.1000/example",
+        scheme=scheme,
+        value=value,
         created_at=_CREATED_AT,
     )
 
@@ -63,13 +67,15 @@ def _source_record(
     *,
     work_id: UUID = _WORK_ID,
     source_record_id: UUID = _SOURCE_RECORD_ID,
+    provider: str = "openalex",
+    provider_id: str = "W123",
 ) -> WorkSourceRecord:
     return WorkSourceRecord(
         source_record_id=source_record_id,
         work_id=work_id,
         record=DiscoveryRecord(
-            provider="openalex",
-            provider_id="W123",
+            provider=provider,
+            provider_id=provider_id,
             title="Evidence-first research",
             year=2026,
             doi="10.1000/example",
@@ -98,6 +104,33 @@ def test_json_work_repository_satisfies_graph_round_trip_contract(tmp_path: Path
         _work(),
         _identifier(),
         _source_record(),
+    )
+
+
+def test_json_work_repository_lists_identity_state_deterministically(tmp_path: Path) -> None:
+    repository = JsonWorkRepository(tmp_path / "works.json")
+    identifiers = (
+        _identifier(),
+        _identifier(
+            identifier_id=_SECOND_IDENTIFIER_ID,
+            scheme="arxiv",
+            value="2401.12345",
+        ),
+    )
+    source_records = (
+        _source_record(),
+        _source_record(
+            source_record_id=_SECOND_SOURCE_RECORD_ID,
+            provider="crossref",
+            provider_id="10.1000/example",
+        ),
+    )
+
+    WorkRepositoryContract.assert_multi_entry_listing_is_deterministic(
+        repository,
+        _work(),
+        identifiers,
+        source_records,
     )
 
 

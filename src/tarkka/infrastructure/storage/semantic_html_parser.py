@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import UUID
 
 from tarkka.domain.citations import BibliographicReference, CitationMention
 from tarkka.domain.models import Artifact, Document, Passage, Section
@@ -18,6 +18,7 @@ from tarkka.domain.source_observations import (
     ResourceRelation,
     SourceObservation,
 )
+from tarkka.infrastructure.storage.parser_identity import parser_stable_id
 from tarkka.ports.parsing import NativeDocumentParseResult
 
 _VOID_TAGS = frozenset(
@@ -560,5 +561,4 @@ def _has_ancestor_block(root: _Node, target: _Node) -> bool:
     return visit(root, False)
 
 
-def _stable_id(namespace: UUID, key: str) -> UUID:
-    return uuid5(NAMESPACE_URL, f"tarkka:{namespace}:{key}")
+_stable_id = parser_stable_id

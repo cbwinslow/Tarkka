@@ -2,6 +2,16 @@
 
 Tarkka can traverse persisted `WorkRelation` records without requiring a graph database. Traversal is deterministic, cycle-safe, and bounded before it becomes a discovery or acquisition mechanism.
 
+The local CLI exposes this graph inspection without widening the boundary:
+
+```bash
+tarkka citations traverse <work-id> --max-depth 1 --max-works 50
+```
+
+It returns stable Work IDs and provenance-backed relation summaries. The CLI accepts only
+bounded depth (at most 5), Work count (at most 100), and relation count (at most 500);
+it does not fetch, discover, resolve, or acquire any external source.
+
 ## Local traversal policy
 
 `CitationTraversalPolicy` places hard limits on:

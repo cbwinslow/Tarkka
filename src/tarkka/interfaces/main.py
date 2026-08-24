@@ -11,6 +11,11 @@ from tarkka.application.citation_resolution import (
     AmbiguousCitingWorkError,
     CitationResolutionService,
 )
+from tarkka.application.citation_traversal import (
+    CitationTraversalPolicy,
+    CitationTraversalService,
+    TraversalDirection,
+)
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.identity_review import (
     IdentityCandidateNotFoundError,
@@ -34,6 +39,7 @@ from tarkka.domain.citations import (
     CitationMention,
     CitationResolution,
     WorkRelation,
+    WorkRelationKind,
 )
 from tarkka.domain.extraction import (
     Claim,
@@ -84,6 +90,9 @@ from tarkka.ports.extraction import StructuredExtractor
 
 _MAX_CITATION_PAGE_SIZE = 100
 _MAX_CITATION_OFFSET = 10_000
+_MAX_CITATION_TRAVERSAL_DEPTH = 5
+_MAX_CITATION_TRAVERSAL_WORKS = 100
+_MAX_CITATION_TRAVERSAL_RELATIONS = 500
 _MAX_RESOURCE_PAGE_SIZE = 100
 _MAX_RESOURCE_OFFSET = 10_000
 _MAX_VERIFICATION_PAGE_SIZE = 100
@@ -706,6 +715,70 @@ def _cmd_citations_resolve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_citations_traverse(args: argparse.Namespace) -> int:
+    if args.max_depth < 0 or args.max_relations < 0 or args.max_works < 1:
+        print(
+            "error: traversal bounds must be non-negative and max-works at least one",
+            file=sys.stderr,
+        )
+        return 2
+    if (
+        args.max_depth > _MAX_CITATION_TRAVERSAL_DEPTH
+        or args.max_works > _MAX_CITATION_TRAVERSAL_WORKS
+        or args.max_relations > _MAX_CITATION_TRAVERSAL_RELATIONS
+    ):
+        print("error: traversal bounds exceed the configured maximum", file=sys.stderr)
+        return 2
+    try:
+        if _work_repository().get_work(args.work_id) is None:
+            print(f"error: work not found: {args.work_id}", file=sys.stderr)
+            return 2
+        policy = CitationTraversalPolicy(
+            max_depth=args.max_depth,
+            max_works=args.max_works,
+            max_relations=args.max_relations,
+            direction=TraversalDirection(args.direction),
+            relation_kinds=(
+                frozenset(WorkRelationKind(kind) for kind in args.kinds)
+                if args.kinds is not None
+                else CitationTraversalPolicy().relation_kinds
+            ),
+        )
+        repository = _existing_citation_repository()
+        if repository is None:
+            result = None
+        else:
+            result = CitationTraversalService(repository).traverse(args.work_id, policy)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "root_work_id": str(args.work_id),
+                "policy": {
+                    "max_depth": policy.max_depth,
+                    "max_works": policy.max_works,
+                    "max_relations": policy.max_relations,
+                    "direction": policy.direction.value,
+                    "relation_kinds": sorted(kind.value for kind in policy.relation_kinds),
+                },
+                "max_depth_reached": result.max_depth_reached if result is not None else 0,
+                "stopped_by": result.stopped_by.value if result and result.stopped_by else None,
+                "work_ids": (
+                    [str(item) for item in result.work_ids] if result else [str(args.work_id)]
+                ),
+                "relations": [_work_relation_payload(item) for item in result.relations]
+                if result
+                else [],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _resource_link_summary(link: ResourceLinkObservation) -> dict[str, object]:
     return {
         "link_id": str(link.link_id),
@@ -1030,6 +1103,22 @@ def _citations_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--offset", type=int, default=0)
     resolve.add_argument("--limit", type=int, default=100)
     resolve.set_defaults(func=_cmd_citations_resolve)
+
+    traverse = sub.add_parser(
+        "traverse",
+        help="traverse locally persisted Work relations under hard graph bounds",
+    )
+    traverse.add_argument("work_id", type=_parse_work_id)
+    traverse.add_argument(
+        "--direction",
+        choices=tuple(TraversalDirection),
+        default=TraversalDirection.OUTBOUND.value,
+    )
+    traverse.add_argument("--kind", dest="kinds", choices=tuple(WorkRelationKind), action="append")
+    traverse.add_argument("--max-depth", type=int, default=1)
+    traverse.add_argument("--max-works", type=int, default=100)
+    traverse.add_argument("--max-relations", type=int, default=500)
+    traverse.set_defaults(func=_cmd_citations_traverse)
     return parser
 
 

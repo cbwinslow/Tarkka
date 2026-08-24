@@ -20,6 +20,8 @@ tarkka read <document-id> --section 0
 tarkka citations list <document-id> --limit 20
 tarkka citations show <document-id> <reference-id>
 tarkka citations resolve <document-id>
+# Traverse only locally persisted citation relations; this does not fetch sources.
+tarkka citations traverse <work-id> --max-depth 1 --max-works 50
 
 # Inspect preserved supplements, datasets, software, and alternate representations.
 tarkka resources list <document-id> --limit 20

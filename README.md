@@ -19,6 +19,7 @@ tarkka read <document-id> --section 0
 # For JATS, EPUB, and semantic HTML: inspect preserved citations progressively.
 tarkka citations list <document-id> --limit 20
 tarkka citations show <document-id> <reference-id>
+tarkka citations resolve <document-id>
 
 # Inspect preserved supplements, datasets, software, and alternate representations.
 tarkka resources list <document-id> --limit 20
@@ -29,6 +30,8 @@ Tarkka stores immutable source artifacts by SHA-256, records acquisition provena
 content into `Document -> Section -> Passage`, and exposes compact manifests before full content.
 Native-structure parsers also preserve bibliography entries, inline citations, and exact contexts;
 the citation CLI lists compact references before expanding a single reference's source text/context.
+`citations resolve` performs exact identifier resolution and creates a native `cites` relation only
+when the citing Work is explicit or uniquely linked to the Document.
 They also preserve source-observed resource relationships; the resources CLI follows the same
 compact-list then explicit-detail pattern without fetching or identity-resolving a target.
 

@@ -146,6 +146,8 @@ See [`SOURCE_DOCUMENT_PRESERVATION.md`](SOURCE_DOCUMENT_PRESERVATION.md).
    - resolved citation identity
    - provenance-backed WorkRelation
    - bounded cited/citing traversal policy
+   - delivered: exact-identifier resolution CLI that creates `CITES` relations only with an
+     explicit or uniquely linked citing Work
 3. **#27 — native document structure adapters**
    - JATS XML first-class structure
    - Docling/PDF native/reconstructed figures/tables/equations/layout

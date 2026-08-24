@@ -33,10 +33,12 @@ The local CLI exposes this chain without returning an entire bibliography or doc
 ```bash
 tarkka citations list <document-id> --offset 0 --limit 20
 tarkka citations show <document-id> <reference-id>
+tarkka citations resolve <document-id>
 ```
 
 `list` returns bounded reference metadata and stable IDs (at most 100 records per request), but
 omits raw bibliography text and context passages. `show` expands exactly one reference, its
 recorded resolution state when one exists, and only the citation mentions/contexts tied to that
 reference. Inspection never initializes a missing local citation catalog. This is a local interface
-over the existing citation repository; it does not resolve identities or infer support.
+over the existing citation repository. `resolve` performs exact identity resolution but does not
+infer evidentiary support; it also processes a bounded reference page (at most 100) per request.

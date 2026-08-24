@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 
-from tarkka.application.citation_resolution import CitationResolutionService
+from tarkka.application.citation_resolution import (
+    AmbiguousCitingWorkError,
+    CitationResolutionService,
+)
 from tarkka.domain.citations import (
     BibliographicReference,
     CitationResolutionStatus,
@@ -14,6 +17,7 @@ from tarkka.domain.citations import (
 )
 from tarkka.domain.models import Work
 from tarkka.domain.source_observations import ObservationBasis
+from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.domain.work_identity import WorkIdentifier
 from tarkka.infrastructure.storage.json_citation_repository import (
     CitationConflictError,
@@ -48,6 +52,20 @@ def _save_work_with_identifier(
             )
         )
     return work
+
+
+class _DocumentLinks:
+    def __init__(self, links: tuple[WorkDocumentLink, ...]) -> None:
+        self._links = links
+
+    def list_work_document_links(self, work_id: UUID) -> tuple[WorkDocumentLink, ...]:
+        return tuple(link for link in self._links if link.work_id == work_id)
+
+    def save_work_document_link(self, link: WorkDocumentLink) -> None:
+        self._links = (*self._links, link)
+
+    def list_document_work_links(self, document_id: UUID) -> tuple[WorkDocumentLink, ...]:
+        return tuple(link for link in self._links if link.document_id == document_id)
 
 
 def test_reference_resolves_by_normalized_doi_and_is_idempotent(tmp_path: Path) -> None:
@@ -187,6 +205,170 @@ def test_document_resolution_creates_native_cites_relation_once(tmp_path: Path) 
     assert relation.source_observation_id == observation_id
     assert citations.get_relation(relation.relation_id) == relation
     assert citations.list_relations_from(citing.work_id) == (relation,)
+
+
+def test_document_resolution_infers_one_persisted_citing_work_link(tmp_path: Path) -> None:
+    citations, works = _repositories(tmp_path)
+    citing = Work(work_id=uuid4(), title="Citing work")
+    with works.transaction():
+        works.save_work(citing)
+    cited = _save_work_with_identifier(
+        works,
+        title="Cited work",
+        scheme="doi",
+        value="10.1000/inferred-citing-work",
+    )
+    document_id = uuid4()
+    reference = BibliographicReference(
+        reference_id=uuid4(),
+        document_id=document_id,
+        ordinal=0,
+        raw_text="Cited work",
+        identifiers={"doi": "10.1000/inferred-citing-work"},
+    )
+    citations.save_reference(reference)
+    links = _DocumentLinks(
+        (
+            WorkDocumentLink(
+                link_id=uuid4(),
+                work_id=citing.work_id,
+                artifact_id=uuid4(),
+                document_id=document_id,
+            ),
+        )
+    )
+
+    result = CitationResolutionService(citations, works, work_documents=links).resolve_document(
+        document_id
+    )
+
+    assert result.citing_work_id == citing.work_id
+    assert result.relations[0].subject_work_id == citing.work_id
+    assert result.relations[0].object_work_id == cited.work_id
+
+
+def test_document_resolution_refuses_to_guess_among_multiple_work_links(tmp_path: Path) -> None:
+    citations, works = _repositories(tmp_path)
+    document_id = uuid4()
+    links = _DocumentLinks(
+        tuple(
+            WorkDocumentLink(
+                link_id=uuid4(),
+                work_id=uuid4(),
+                artifact_id=uuid4(),
+                document_id=document_id,
+            )
+            for _ in range(2)
+        )
+    )
+
+    with pytest.raises(AmbiguousCitingWorkError, match="multiple canonical Work links"):
+        CitationResolutionService(citations, works, work_documents=links).resolve_document(
+            document_id
+        )
+
+
+def test_document_resolution_without_citing_work_or_link_resolves_without_relations(
+    tmp_path: Path,
+) -> None:
+    citations, works = _repositories(tmp_path)
+
+    result = CitationResolutionService(citations, works).resolve_document(uuid4())
+
+    assert result.citing_work_id is None
+    assert result.relations == ()
+
+
+def test_document_resolution_with_no_persisted_work_links_does_not_guess(tmp_path: Path) -> None:
+    citations, works = _repositories(tmp_path)
+
+    result = CitationResolutionService(
+        citations,
+        works,
+        work_documents=_DocumentLinks(()),
+    ).resolve_document(uuid4())
+
+    assert result.citing_work_id is None
+
+
+def test_document_resolution_rejects_unknown_explicit_or_inferred_citing_work(
+    tmp_path: Path,
+) -> None:
+    citations, works = _repositories(tmp_path)
+    document_id = uuid4()
+    unknown = uuid4()
+
+    with pytest.raises(ValueError, match="citing work not found"):
+        CitationResolutionService(citations, works).resolve_document(
+            document_id,
+            citing_work_id=unknown,
+        )
+    with pytest.raises(ValueError, match="citing work not found"):
+        CitationResolutionService(
+            citations,
+            works,
+            work_documents=_DocumentLinks(
+                (
+                    WorkDocumentLink(
+                        link_id=uuid4(),
+                        work_id=unknown,
+                        artifact_id=uuid4(),
+                        document_id=document_id,
+                    ),
+                )
+            ),
+        ).resolve_document(document_id)
+
+
+def test_explicit_citing_work_must_match_persisted_document_links(tmp_path: Path) -> None:
+    citations, works = _repositories(tmp_path)
+    document_id = uuid4()
+    linked = Work(work_id=uuid4(), title="Linked work")
+    other = Work(work_id=uuid4(), title="Other work")
+    with works.transaction():
+        works.save_work(linked)
+        works.save_work(other)
+    links = _DocumentLinks(
+        (
+            WorkDocumentLink(
+                link_id=uuid4(),
+                work_id=linked.work_id,
+                artifact_id=uuid4(),
+                document_id=document_id,
+            ),
+        )
+    )
+
+    with pytest.raises(ValueError, match="not linked to the source document"):
+        CitationResolutionService(citations, works, work_documents=links).resolve_document(
+            document_id,
+            citing_work_id=other.work_id,
+        )
+
+
+def test_document_resolution_paginates_references_before_resolving(tmp_path: Path) -> None:
+    citations, works = _repositories(tmp_path)
+    document_id = uuid4()
+    for ordinal in range(3):
+        citations.save_reference(
+            BibliographicReference(
+                reference_id=uuid4(),
+                document_id=document_id,
+                ordinal=ordinal,
+                raw_text=f"Reference {ordinal}",
+            )
+        )
+
+    result = CitationResolutionService(citations, works).resolve_document(
+        document_id,
+        offset=1,
+        limit=1,
+    )
+
+    assert result.total_references == 3
+    assert [item.reference_id for item in result.resolutions] == [
+        citations.list_references(document_id, offset=1, limit=1)[0].reference_id
+    ]
 
 
 def test_document_resolution_rejects_conflicting_relation_provenance(tmp_path: Path) -> None:

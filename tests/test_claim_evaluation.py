@@ -476,7 +476,10 @@ def test_evaluation_package_reexports_public_api() -> None:
     assert evaluation_package.ClaimEvaluationReport is claims_module.ClaimEvaluationReport
     assert set(evaluation_package.__all__) == {
         "ClaimEvaluationReport",
+        "EvidenceRelationEvaluationReport",
         "GoldClaim",
+        "GoldEvidenceRelation",
         "GoldEvidenceSpan",
         "evaluate_claims",
+        "evaluate_evidence_relations",
     }

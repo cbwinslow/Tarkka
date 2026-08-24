@@ -32,3 +32,6 @@ version when a revised assessment is needed.
 `list` is bounded to 100 records per request; `show` expands only the selected
 assessment and its exact evidence and context anchors when present. Recording
 an assessment does not fetch cited sources or make an identity assertion.
+
+For deterministic, human-adjudicated evaluation of these assessments, see
+[`EVIDENCE_VERIFICATION_EVALUATION.md`](EVIDENCE_VERIFICATION_EVALUATION.md).

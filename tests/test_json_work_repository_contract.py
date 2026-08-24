@@ -21,6 +21,7 @@ _SECOND_IDENTIFIER_ID = UUID("00000000-0000-0000-0000-000000000c07")
 _SECOND_SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-000000000c08")
 _MISSING_WORK_ID = UUID("00000000-0000-0000-0000-000000000cff")
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+_UPDATED_CREATED_AT = datetime(2027, 1, 1, tzinfo=UTC)
 
 
 def _work() -> Work:
@@ -137,7 +138,12 @@ def test_json_work_repository_lists_identity_state_deterministically(tmp_path: P
 def test_json_work_repository_allows_work_metadata_evolution(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
     original = _work()
-    evolved = replace(original, abstract="Updated abstract", venue="Updated venue")
+    evolved = replace(
+        original,
+        abstract="Updated abstract",
+        venue="Updated venue",
+        created_at=_UPDATED_CREATED_AT,
+    )
 
     WorkRepositoryContract.assert_work_can_evolve_without_losing_identity(
         repository,

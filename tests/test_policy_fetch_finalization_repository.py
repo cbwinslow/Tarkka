@@ -44,6 +44,23 @@ def _finalization(
     )
 
 
+def _replacement(
+    first: PolicyFetchFinalization,
+    *,
+    content: bytes,
+) -> PolicyFetchFinalization:
+    sha256 = hashlib.sha256(content).hexdigest()
+    artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{sha256}")
+    observation = first.response.to_source_observation(native_artifact_id=artifact_id)
+    return PolicyFetchFinalization(
+        checkpoint_id=first.checkpoint_id,
+        requested_uri=first.requested_uri,
+        artifact_sha256=sha256,
+        observation_id=observation.observation_id,
+        response=first.response,
+    )
+
+
 def test_finalization_round_trips_without_sensitive_headers(tmp_path: Path) -> None:
     finalization = _finalization()
     path = tmp_path / "policy-finalizations.json"
@@ -68,16 +85,7 @@ def test_same_finalization_save_is_idempotent(tmp_path: Path) -> None:
 
 def test_conflicting_finalization_fails_closed(tmp_path: Path) -> None:
     first = _finalization(content=b"one")
-    second_sha = hashlib.sha256(b"two").hexdigest()
-    artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{second_sha}")
-    second_observation = first.response.to_source_observation(native_artifact_id=artifact_id)
-    second = PolicyFetchFinalization(
-        checkpoint_id=first.checkpoint_id,
-        requested_uri=first.requested_uri,
-        artifact_sha256=second_sha,
-        observation_id=second_observation.observation_id,
-        response=first.response,
-    )
+    second = _replacement(first, content=b"two")
     repository = JsonPolicyFetchFinalizationRepository(tmp_path / "journal.json")
     repository.save(first)
 
@@ -87,15 +95,29 @@ def test_conflicting_finalization_fails_closed(tmp_path: Path) -> None:
     assert repository.get(first.checkpoint_id, first.requested_uri) == first
 
 
-def test_delete_is_idempotent(tmp_path: Path) -> None:
+def test_delete_is_idempotent_for_same_record(tmp_path: Path) -> None:
     finalization = _finalization()
     repository = JsonPolicyFetchFinalizationRepository(tmp_path / "journal.json")
     repository.save(finalization)
 
-    repository.delete(finalization.checkpoint_id, finalization.requested_uri)
-    repository.delete(finalization.checkpoint_id, finalization.requested_uri)
+    repository.delete(finalization)
+    repository.delete(finalization)
 
     assert repository.get(finalization.checkpoint_id, finalization.requested_uri) is None
+
+
+def test_stale_delete_cannot_remove_newer_finalization(tmp_path: Path) -> None:
+    first = _finalization(content=b"one")
+    second = _replacement(first, content=b"two")
+    repository = JsonPolicyFetchFinalizationRepository(tmp_path / "journal.json")
+    repository.save(first)
+    repository.delete(first)
+    repository.save(second)
+
+    with pytest.raises(PolicyFetchFinalizationConflictError, match="changed before deletion"):
+        repository.delete(first)
+
+    assert repository.get(second.checkpoint_id, second.requested_uri) == second
 
 
 def test_future_schema_is_not_rewritten(tmp_path: Path) -> None:

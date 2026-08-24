@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.domain.work_documents import WorkDocumentLink
+from tarkka.infrastructure.storage import json_repository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
@@ -56,6 +57,21 @@ def test_json_repository_satisfies_idempotent_save_contract(tmp_path: Path) -> N
         result.document,
         result.manifest,
     )
+
+
+def test_json_repository_fsyncs_parent_directory_after_atomic_write(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "catalog.json"
+    flushed: list[Path] = []
+    monkeypatch.setattr(json_repository, "_fsync_directory", flushed.append)
+
+    repository = JsonResearchRepository(path)
+    result = _ingest_sample(tmp_path)
+    repository.save_artifact(result.artifact)
+
+    assert flushed
+    assert flushed[-1] == path.parent
 
 
 def test_json_repository_adds_links_without_invalidating_existing_catalogs(tmp_path: Path) -> None:

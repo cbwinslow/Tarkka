@@ -155,13 +155,12 @@ def _validate_relation_entries(entries: dict[str, Any]) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    try:
-        descriptor = os.open(path, os.O_RDONLY)
-    except OSError:
+    """Flush an atomic rename where the platform exposes POSIX directory fsync."""
+    if os.name != "posix":
         return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
     try:
         os.fsync(descriptor)
-    except OSError:
-        pass
     finally:
         os.close(descriptor)

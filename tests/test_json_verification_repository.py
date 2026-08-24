@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
@@ -8,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
+from tarkka.infrastructure.storage import json_verification_repository
 from tarkka.infrastructure.storage.json_verification_repository import (
     JsonVerificationRepository,
     VerificationConflictError,
@@ -92,3 +94,31 @@ def test_verification_catalog_rejects_relation_identity_mismatch(tmp_path: Path)
 
     with pytest.raises(RuntimeError, match="relation_id does not match catalog key"):
         repository.get_relation(relation.relation_id)
+
+
+def test_verification_write_reports_directory_sync_failure_after_atomic_replace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repository = JsonVerificationRepository(tmp_path / "verifications.json")
+    relation = _relation()
+    data = repository._read()
+    data["relations"][str(relation.relation_id)] = json_verification_repository._to_dict(relation)
+    original_fsync = os.fsync
+    fsync_calls: list[int] = []
+
+    def fail_second_sync(descriptor: int) -> None:
+        fsync_calls.append(descriptor)
+        if len(fsync_calls) == 2:
+            raise OSError("directory fsync unavailable")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", fail_second_sync)
+
+    with pytest.raises(OSError, match="directory fsync unavailable"):
+        repository._write(data)
+
+    assert len(fsync_calls) == 2
+    # The atomic replacement happened before directory sync; retry is idempotent.
+    assert repository.get_relation(relation.relation_id) == relation
+    repository.save_relation(relation)

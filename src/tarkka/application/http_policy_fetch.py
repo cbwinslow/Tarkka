@@ -197,7 +197,7 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                 checkpoint=failed,
             ) from exc
 
-    def recover_finalization(
+    def recover_policy_finalization(
         self,
         checkpoint: TraversalCheckpoint,
         *,

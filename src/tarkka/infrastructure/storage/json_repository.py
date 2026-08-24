@@ -10,6 +10,7 @@ from uuid import UUID
 
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
+from tarkka.domain.work_documents import WorkDocumentLink
 
 
 class JsonResearchRepository:
@@ -23,7 +24,14 @@ class JsonResearchRepository:
         self.path = path.expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
-            self._write({"schema_version": 1, "artifacts": {}, "documents": {}})
+            self._write(
+                {
+                    "schema_version": 1,
+                    "artifacts": {},
+                    "documents": {},
+                    "work_document_links": {},
+                }
+            )
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -39,6 +47,11 @@ class JsonResearchRepository:
             data.get("documents"), dict
         ):
             raise RuntimeError("invalid Tarkka catalog: artifacts/documents must be JSON objects")
+        # This additive field was introduced without a schema bump so existing local catalogs
+        # remain readable. It is materialized on the next link write.
+        links = data.setdefault("work_document_links", {})
+        if not isinstance(links, dict):
+            raise RuntimeError("invalid Tarkka catalog: work_document_links must be a JSON object")
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -87,6 +100,49 @@ class JsonResearchRepository:
             estimated_tokens={key: int(value) for key, value in raw["tokens"].items()},
         )
 
+    def save_work_document_link(self, link: WorkDocumentLink) -> None:
+        data = self._read()
+        if str(link.artifact_id) not in data["artifacts"]:
+            raise ValueError(f"artifact not found for work document link: {link.artifact_id}")
+        if str(link.document_id) not in data["documents"]:
+            raise ValueError(f"document not found for work document link: {link.document_id}")
+        stored_document = data["documents"][str(link.document_id)]["document"]
+        if stored_document["artifact_id"] != str(link.artifact_id):
+            raise ValueError("work document link artifact does not match document artifact")
+
+        key = str(link.link_id)
+        serialized = _work_document_link_to_dict(link)
+        existing = data["work_document_links"].get(key)
+        if existing is not None and not _same_work_document_link(existing, serialized):
+            raise ValueError(f"conflicting work document link: {link.link_id}")
+        if existing is None:
+            data["work_document_links"][key] = serialized
+            self._write(data)
+
+    def list_work_document_links(self, work_id: UUID) -> tuple[WorkDocumentLink, ...]:
+        links = (
+            _work_document_link_from_dict(raw)
+            for raw in self._read()["work_document_links"].values()
+        )
+        return tuple(
+            sorted(
+                (link for link in links if link.work_id == work_id),
+                key=lambda link: str(link.link_id),
+            )
+        )
+
+    def list_document_work_links(self, document_id: UUID) -> tuple[WorkDocumentLink, ...]:
+        links = (
+            _work_document_link_from_dict(raw)
+            for raw in self._read()["work_document_links"].values()
+        )
+        return tuple(
+            sorted(
+                (link for link in links if link.document_id == document_id),
+                key=lambda link: str(link.link_id),
+            )
+        )
+
 
 def _artifact_to_dict(artifact: Artifact) -> dict[str, Any]:
     return {
@@ -99,6 +155,34 @@ def _artifact_to_dict(artifact: Artifact) -> dict[str, Any]:
         "acquired_at": artifact.acquired_at.isoformat(),
         "source_uri": artifact.source_uri,
     }
+
+
+def _work_document_link_to_dict(link: WorkDocumentLink) -> dict[str, str]:
+    return {
+        "link_id": str(link.link_id),
+        "work_id": str(link.work_id),
+        "artifact_id": str(link.artifact_id),
+        "document_id": str(link.document_id),
+        "linked_at": link.linked_at.isoformat(),
+    }
+
+
+def _work_document_link_from_dict(raw: dict[str, str]) -> WorkDocumentLink:
+    return WorkDocumentLink(
+        link_id=UUID(raw["link_id"]),
+        work_id=UUID(raw["work_id"]),
+        artifact_id=UUID(raw["artifact_id"]),
+        document_id=UUID(raw["document_id"]),
+        linked_at=datetime.fromisoformat(raw["linked_at"]),
+    )
+
+
+def _same_work_document_link(left: dict[str, str], right: dict[str, str]) -> bool:
+    """Link creation is idempotent; ``linked_at`` records the first successful write."""
+    return all(
+        left[field] == right[field]
+        for field in ("link_id", "work_id", "artifact_id", "document_id")
+    )
 
 
 def _artifact_from_dict(raw: dict[str, Any]) -> Artifact:

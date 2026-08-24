@@ -110,6 +110,14 @@ A normalized parse of an artifact.
 
 A document can be regenerated using a different parser/version without changing the artifact.
 
+### Work-document link
+
+A provenance-safe association stating that a canonical Work is represented by a
+specific immutable Artifact and its normalized Document. This is separate from
+both Work identity and the acquisition event: the link does not claim that an
+artifact created a Work, while the acquisition record retains the provider,
+transport, and retrieval-time details.
+
 ### Section
 
 Hierarchical structural element with stable parent ordering.

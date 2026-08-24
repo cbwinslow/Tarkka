@@ -348,6 +348,7 @@ def _cmd_work_acquire(args: argparse.Namespace) -> int:
             resolvers=(ArxivFullTextResolver(), SourceRecordFullTextResolver()),
             fetcher=UrllibBinaryFetcher(),
             ingest=ingest,
+            work_documents=document_repository,
         )
         result = service.acquire(args.work_id)
     except (
@@ -366,6 +367,7 @@ def _cmd_work_acquire(args: argparse.Namespace) -> int:
         "source_uri": result.resource.source_uri,
         "artifact_id": str(result.ingest.artifact.artifact_id),
         "document_id": str(result.ingest.document.document_id),
+        "work_document_link_id": str(result.work_document_link.link_id),
         "manifest": result.ingest.manifest.to_dict(),
     }
     print(json.dumps(payload, indent=2, sort_keys=True))

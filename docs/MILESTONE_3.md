@@ -98,6 +98,8 @@ canonical Work
         Artifact / Acquisition
              ↓
         Document / Section / Passage
+             ↓
+       persisted Work-document representation link
 ```
 
 Representative CLI flow:
@@ -116,6 +118,10 @@ tarkka identity decide \
   --right <right-index> \
   --decision accept
 ```
+
+Successful acquisition records the Work-to-Artifact-to-Document representation
+link in the local document catalog. The acquisition log continues to preserve
+provider and retrieval provenance independently of that identity association.
 
 ## Deferred by design
 

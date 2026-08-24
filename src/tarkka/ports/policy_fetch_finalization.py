@@ -17,8 +17,4 @@ class PolicyFetchFinalizationRepository(Protocol):
         requested_uri: str,
     ) -> PolicyFetchFinalization | None: ...
 
-    def delete(
-        self,
-        checkpoint_id: UUID,
-        requested_uri: str,
-    ) -> None: ...
+    def delete(self, finalization: PolicyFetchFinalization) -> None: ...

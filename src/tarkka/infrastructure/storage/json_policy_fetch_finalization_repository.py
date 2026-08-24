@@ -69,7 +69,9 @@ class JsonPolicyFetchFinalizationRepository:
         try:
             raw = self.path.read_text(encoding="utf-8")
         except OSError as exc:
-            raise OSError(f"unable to read policy finalization journal {self.path}: {exc}") from exc
+            raise OSError(
+                f"unable to read policy finalization journal {self.path}: {exc}"
+            ) from exc
         try:
             decoded: Any = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -132,11 +134,16 @@ def _finalization_from_dict(raw: dict[str, Any]) -> PolicyFetchFinalization:
         raise RuntimeError("invalid policy finalization record")
     try:
         response_raw = raw["response"]
+        if not isinstance(response_raw, dict):
+            raise ValueError("response must be an object")
+        headers_raw = response_raw["headers"]
+        if not isinstance(headers_raw, dict):
+            raise ValueError("response headers must be an object")
         response = HttpResponseSnapshot(
             requested_uri=response_raw["requested_uri"],
             final_uri=response_raw["final_uri"],
             status_code=response_raw["status_code"],
-            headers={name: tuple(values) for name, values in response_raw["headers"].items()},
+            headers={name: tuple(values) for name, values in headers_raw.items()},
             redirect_chain=tuple(response_raw["redirect_chain"]),
             depth=response_raw["depth"],
             observed_at=datetime.fromisoformat(response_raw["observed_at"]),

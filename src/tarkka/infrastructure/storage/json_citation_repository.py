@@ -139,6 +139,20 @@ class JsonCitationRepository:
         )
         return tuple(values)
 
+    def list_mentions_for_ids(
+        self, document_id: UUID, mention_ids: frozenset[UUID]
+    ) -> tuple[CitationMention, ...]:
+        if not mention_ids:
+            return ()
+        keys = {str(item) for item in mention_ids}
+        values = [
+            _mention_from_dict(item)
+            for item in self._read()["mentions"].values()
+            if item["document_id"] == str(document_id) and item["mention_id"] in keys
+        ]
+        values.sort(key=_mention_sort_key)
+        return tuple(values)
+
     def count_mentions_for_reference(self, document_id: UUID, reference_id: UUID) -> int:
         return sum(
             item["document_id"] == str(document_id)
@@ -176,6 +190,61 @@ class JsonCitationRepository:
         ]
         values.sort(key=lambda item: (item.char_start, str(item.context_id)))
         return tuple(values)
+
+    def count_contexts_for_passages(
+        self, document_id: UUID, passage_ids: frozenset[UUID]
+    ) -> int:
+        if not passage_ids:
+            return 0
+        keys = {str(item) for item in passage_ids}
+        return sum(
+            item["document_id"] == str(document_id) and item.get("passage_id") in keys
+            for item in self._read()["contexts"].values()
+        )
+
+    def list_contexts_for_passages(
+        self,
+        document_id: UUID,
+        passage_ids: frozenset[UUID],
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[CitationContext, ...]:
+        _validate_page(offset, limit)
+        if not passage_ids or limit == 0:
+            return ()
+        keys = {str(item) for item in passage_ids}
+        values = (
+            _context_from_dict(item)
+            for item in self._read()["contexts"].values()
+            if item["document_id"] == str(document_id) and item.get("passage_id") in keys
+        )
+        if limit is None:
+            return tuple(sorted(values, key=_context_sort_key)[offset:])
+        page = heapq.nsmallest(offset + limit, values, key=_context_sort_key)
+        return tuple(page[offset:])
+
+    def page_contexts_for_passages(
+        self,
+        document_id: UUID,
+        passage_ids: frozenset[UUID],
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[int, tuple[CitationContext, ...]]:
+        """Return page and total from one immutable read snapshot."""
+        _validate_page(offset, limit)
+        if not passage_ids or limit == 0:
+            return 0, ()
+        keys = {str(item) for item in passage_ids}
+        matching = [
+            item
+            for item in self._read()["contexts"].values()
+            if item["document_id"] == str(document_id) and item.get("passage_id") in keys
+        ]
+        matching.sort(key=lambda item: (item["char_start"], item["context_id"]))
+        selected = matching[offset:] if limit is None else matching[offset : offset + limit]
+        return len(matching), tuple(_context_from_dict(item) for item in selected)
 
     def list_contexts_for_mentions(
         self, document_id: UUID, mention_ids: frozenset[UUID]
@@ -344,6 +413,10 @@ def _mention_sort_key(mention: CitationMention) -> tuple[int, str]:
         mention.char_start if mention.char_start is not None else -1,
         str(mention.mention_id),
     )
+
+
+def _context_sort_key(context: CitationContext) -> tuple[int, str]:
+    return (context.char_start, str(context.context_id))
 
 
 def _uuid(value: UUID | None) -> str | None:

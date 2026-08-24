@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from tarkka.domain.extraction import Claim, EvidenceRecord, HumanReviewState
+from tarkka.domain.citations import CitationContext
+from tarkka.domain.extraction import Claim, Evidence, EvidenceRecord, HumanReviewState
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.ports.verification import (
     CitationContextReader,
@@ -37,6 +38,28 @@ class EvidenceVerificationRequest:
     citation_context_id: UUID | None = None
     human_review_state: HumanReviewState = HumanReviewState.UNREVIEWED
     reasoning_summary: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CitationVerificationCandidate:
+    """One exact citation context co-located with a Claim's text evidence.
+
+    This is a review aid, not an assertion that the cited source supports the
+    claim. A caller must still select a relation kind and record a separate,
+    immutable assessment.
+    """
+
+    citation_context: CitationContext
+    evidence_ids: tuple[UUID, ...]
+    reference_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class CitationVerificationCandidatePage:
+    """One coherent page of citation-aware verification candidates."""
+
+    total: int
+    candidates: tuple[CitationVerificationCandidate, ...]
 
 
 class EvidenceVerificationService:
@@ -71,6 +94,55 @@ class EvidenceVerificationService:
         )
         self._relations.save_relation(relation)
         return self._relations.get_relation(relation.relation_id) or relation
+
+    def citation_candidates(
+        self,
+        claim_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> CitationVerificationCandidatePage:
+        """Return bounded exact citation contexts for the Claim's passage evidence.
+
+        Figure, table, and equation evidence deliberately produce no citation-context
+        candidate because they have no normalized passage anchor. Unanchored native
+        contexts are likewise omitted rather than guessed into a passage.
+        """
+        if offset < 0 or limit < 0:
+            raise ValueError("verification candidate offset and limit must be non-negative")
+        claim = self._claim(claim_id)
+        evidence_by_passage: dict[UUID, list[UUID]] = {}
+        for evidence_id in claim.evidence_ids:
+            evidence = self._source.get_evidence(evidence_id)
+            if evidence is None:
+                raise EvidenceNotFoundError(f"evidence not found: {evidence_id}")
+            if isinstance(evidence, Evidence):
+                evidence_by_passage.setdefault(evidence.passage_id, []).append(evidence.evidence_id)
+        if not evidence_by_passage or self._citations is None:
+            return CitationVerificationCandidatePage(total=0, candidates=())
+        total, contexts = self._citations.page_contexts_for_passages(
+            claim.document_id,
+            frozenset(evidence_by_passage),
+            offset=offset,
+            limit=limit,
+        )
+        mentions = self._citations.list_mentions_for_ids(
+            claim.document_id,
+            frozenset(context.mention_id for context in contexts),
+        )
+        reference_ids = {mention.mention_id: mention.reference_id for mention in mentions}
+        return CitationVerificationCandidatePage(
+            total=total,
+            candidates=tuple(
+                CitationVerificationCandidate(
+                    citation_context=context,
+                    evidence_ids=tuple(evidence_by_passage[context.passage_id]),
+                    reference_id=reference_ids.get(context.mention_id),
+                )
+                for context in contexts
+                if context.passage_id is not None
+            )
+        )
 
     def _claim(self, claim_id: UUID) -> Claim:
         value = self._source.get_extraction(claim_id)

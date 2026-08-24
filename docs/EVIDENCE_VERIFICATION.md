@@ -16,6 +16,10 @@ tarkka verify record <claim-id> \
 
 tarkka verify list <claim-id> --limit 20
 tarkka verify show <relation-id>
+
+# Before recording, inspect only citation contexts that are exactly co-located
+# with the Claim's existing passage evidence; this does not infer support.
+tarkka verify candidates <claim-id> --limit 20
 ```
 
 The record operation validates that the target is a Claim, that non-
@@ -32,6 +36,15 @@ version when a revised assessment is needed.
 `list` is bounded to 100 records per request; `show` expands only the selected
 assessment and its exact evidence and context anchors when present. Recording
 an assessment does not fetch cited sources or make an identity assertion.
+
+`candidates` is a bounded review aid. It returns stable citation-context and
+evidence IDs only where a preserved citation context and the Claim's existing
+text evidence share the same normalized passage. When the native mention has a
+bibliography reference, it also returns that `reference_id`, which can be
+expanded through `tarkka citations show <document-id> <reference-id>`. It
+excludes figure, table, equation, and unanchored contexts rather than guessing
+an association. A candidate is not an assessment and never asserts that a
+cited source supports, contradicts, or even discusses the Claim.
 
 For deterministic, human-adjudicated evaluation of these assessments, see
 [`EVIDENCE_VERIFICATION_EVALUATION.md`](EVIDENCE_VERIFICATION_EVALUATION.md).

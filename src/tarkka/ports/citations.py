@@ -49,6 +49,10 @@ class CitationRepository(Protocol):
 
     def list_mentions(self, document_id: UUID) -> tuple[CitationMention, ...]: ...
 
+    def list_mentions_for_ids(
+        self, document_id: UUID, mention_ids: frozenset[UUID]
+    ) -> tuple[CitationMention, ...]: ...
+
     def count_mentions_for_reference(self, document_id: UUID, reference_id: UUID) -> int: ...
 
     def list_mentions_for_reference(
@@ -61,6 +65,28 @@ class CitationRepository(Protocol):
     ) -> tuple[CitationMention, ...]: ...
 
     def list_contexts(self, document_id: UUID) -> tuple[CitationContext, ...]: ...
+
+    def count_contexts_for_passages(
+        self, document_id: UUID, passage_ids: frozenset[UUID]
+    ) -> int: ...
+
+    def list_contexts_for_passages(
+        self,
+        document_id: UUID,
+        passage_ids: frozenset[UUID],
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[CitationContext, ...]: ...
+
+    def page_contexts_for_passages(
+        self,
+        document_id: UUID,
+        passage_ids: frozenset[UUID],
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[int, tuple[CitationContext, ...]]: ...
 
     def list_contexts_for_mentions(
         self, document_id: UUID, mention_ids: frozenset[UUID]

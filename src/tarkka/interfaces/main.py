@@ -936,6 +936,58 @@ def _cmd_verify_record(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_verify_candidates(args: argparse.Namespace) -> int:
+    if args.offset < 0 or args.limit < 0:
+        print(
+            "error: verification candidate offset and limit must be non-negative",
+            file=sys.stderr,
+        )
+        return 2
+    if args.offset > _MAX_VERIFICATION_OFFSET or args.limit > _MAX_VERIFICATION_PAGE_SIZE:
+        print(
+            "error: verification candidate pagination exceeds the configured maximum",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        service = _verification_service()
+        page = service.citation_candidates(
+            args.claim_id,
+            offset=args.offset,
+            limit=args.limit,
+        )
+    except (ClaimNotFoundError, EvidenceNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "claim_id": str(args.claim_id),
+                "offset": args.offset,
+                "limit": args.limit,
+                "total": page.total,
+                "candidates": [
+                    {
+                        "citation_context_id": str(item.citation_context.context_id),
+                        "mention_id": str(item.citation_context.mention_id),
+                        "reference_id": str(item.reference_id)
+                        if item.reference_id is not None
+                        else None,
+                        "passage_id": str(item.citation_context.passage_id)
+                        if item.citation_context.passage_id is not None
+                        else None,
+                        "evidence_ids": [str(value) for value in item.evidence_ids],
+                    }
+                    for item in page.candidates
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _cmd_verify_list(args: argparse.Namespace) -> int:
     if args.offset < 0 or args.limit < 0:
         print("error: verification offset and limit must be non-negative", file=sys.stderr)
@@ -1160,6 +1212,15 @@ def _verify_parser() -> argparse.ArgumentParser:
     record.add_argument("--review-state", choices=tuple(HumanReviewState), default="unreviewed")
     record.add_argument("--reasoning-summary")
     record.set_defaults(func=_cmd_verify_record)
+
+    candidates = sub.add_parser(
+        "candidates",
+        help="list exact citation contexts co-located with a claim's text evidence",
+    )
+    candidates.add_argument("claim_id", type=_parse_claim_id)
+    candidates.add_argument("--offset", type=int, default=0)
+    candidates.add_argument("--limit", type=int, default=20)
+    candidates.set_defaults(func=_cmd_verify_candidates)
 
     listing = sub.add_parser("list", help="list compact verification assessments for a claim")
     listing.add_argument("claim_id", type=_parse_claim_id)

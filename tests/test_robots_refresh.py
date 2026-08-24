@@ -163,7 +163,7 @@ def test_404_refresh_maps_to_unavailable() -> None:
     assert cache.entry == result.entry
 
 
-def test_503_refresh_uses_stale_success_only_inside_hard_24_hour_window() -> None:
+def test_503_refresh_uses_stale_success_and_persists_retry_window() -> None:
     previous = _stale_success(age=timedelta(hours=7))
     fetched = _http_result(503, body=b"busy")
     cache = _Cache(previous)
@@ -180,10 +180,31 @@ def test_503_refresh_uses_stale_success_only_inside_hard_24_hour_window() -> Non
     )
 
     assert result.used_stale_success is True
-    assert result.entry == previous
+    assert result.entry.result == previous.result
+    assert result.entry.fetched_at == previous.fetched_at
+    assert result.entry.expires_at == _NOW + timedelta(minutes=15)
     assert result.refresh_entry.result.outcome is RobotsFetchOutcome.UNREACHABLE
     assert result.refresh_entry.source_observation_id == fetched.observation.observation_id
-    assert cache.entry == previous
+    assert cache.entry == result.entry
+    assert cache.entry.is_fresh(_NOW + timedelta(minutes=14)) is True
+
+
+def test_stale_success_retry_window_never_extends_past_original_24_hours() -> None:
+    previous = _stale_success(age=timedelta(hours=23, minutes=55))
+    fetched = _http_result(503, body=b"busy")
+
+    result = RobotsRefreshService(
+        policy_fetcher=_Fetcher(fetched),
+        robots_cache=_Cache(previous),
+    ).refresh(
+        fetched.checkpoint,
+        _policy(),
+        robots_uri=_ROBOTS,
+        depth=1,
+        now=_NOW,
+    )
+
+    assert result.entry.expires_at == previous.fetched_at + timedelta(hours=24)
 
 
 def test_network_failure_does_not_reuse_success_older_than_24_hours() -> None:
@@ -228,4 +249,46 @@ def test_redirect_limit_is_explicit_and_never_uses_stale_success() -> None:
 
     assert result.used_stale_success is False
     assert result.entry.result.outcome is RobotsFetchOutcome.REDIRECT_LIMIT_EXCEEDED
+    assert cache.entry == result.entry
+
+
+def test_oversized_success_fails_closed_without_decoding_or_stale_fallback() -> None:
+    fetched = _http_result(200, body=b"x" * ((512 * 1024) + 1))
+    previous = _stale_success(age=timedelta(hours=7))
+    cache = _Cache(previous)
+
+    result = RobotsRefreshService(
+        policy_fetcher=_Fetcher(fetched),
+        robots_cache=cache,
+    ).refresh(
+        fetched.checkpoint,
+        _policy(),
+        robots_uri=_ROBOTS,
+        depth=1,
+        now=_NOW,
+    )
+
+    assert result.used_stale_success is False
+    assert result.entry.result.outcome is RobotsFetchOutcome.UNREACHABLE
+    assert result.entry.source_observation_id == fetched.observation.observation_id
+    assert cache.entry == result.entry
+
+
+def test_non_utf8_success_fails_closed_without_stale_fallback() -> None:
+    fetched = _http_result(200, body=b"User-agent: *\n#\xff\n")
+    cache = _Cache(_stale_success(age=timedelta(hours=7)))
+
+    result = RobotsRefreshService(
+        policy_fetcher=_Fetcher(fetched),
+        robots_cache=cache,
+    ).refresh(
+        fetched.checkpoint,
+        _policy(),
+        robots_uri=_ROBOTS,
+        depth=1,
+        now=_NOW,
+    )
+
+    assert result.used_stale_success is False
+    assert result.entry.result.outcome is RobotsFetchOutcome.UNREACHABLE
     assert cache.entry == result.entry

@@ -67,9 +67,7 @@ the current Work schema migrations in order first:
 ```bash
 uv sync --extra postgres
 export TARKKA_DATABASE_URL=postgresql://localhost/tarkka
-psql "$TARKKA_DATABASE_URL" -f migrations/0001_core.sql
-psql "$TARKKA_DATABASE_URL" -f migrations/0004_work_identity.sql
-psql "$TARKKA_DATABASE_URL" -f migrations/0008_work_external_ids.sql
+tarkka db upgrade
 TARKKA_WORK_BACKEND=postgres \
 tarkka work show <work-id>
 ```

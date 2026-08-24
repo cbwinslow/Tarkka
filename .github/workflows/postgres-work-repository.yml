@@ -12,6 +12,7 @@ on:
       - "src/tarkka/domain/models.py"
       - "src/tarkka/domain/work_identity.py"
       - "src/tarkka/interfaces/cli.py"
+      - "src/tarkka/interfaces/main.py"
       - "src/tarkka/ports/works.py"
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
@@ -29,6 +30,7 @@ on:
       - "src/tarkka/domain/models.py"
       - "src/tarkka/domain/work_identity.py"
       - "src/tarkka/interfaces/cli.py"
+      - "src/tarkka/interfaces/main.py"
       - "src/tarkka/ports/works.py"
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
@@ -80,7 +82,7 @@ jobs:
         run: uv sync --frozen --group dev --extra postgres
       - name: Run PostgreSQL WorkRepository contract
         run: >-
-          uv run --no-sync pytest
+          uv run --no-sync tarkka db upgrade && uv run --no-sync pytest
           tests/test_postgres_work_repository_contract.py
           --junitxml=postgres-work-repository-results.xml
       - name: Retain PostgreSQL contract results

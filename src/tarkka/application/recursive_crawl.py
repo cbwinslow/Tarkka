@@ -142,6 +142,7 @@ class RecursiveCrawlPolicyGate:
         seconds_since_last_request: float | None = None,
     ) -> RecursiveCrawlGateResult:
         target = _queued_target(checkpoint, target_id)
+        _validate_rights_for_target(target, rights)
         early = self._evaluate_early_policy(
             checkpoint,
             target,
@@ -185,6 +186,7 @@ class RecursiveCrawlPolicyGate:
     ) -> RecursiveCrawlGateResult:
         """Re-evaluate after a bounded refresh using the explicitly selected robots entry."""
         target = _queued_target(checkpoint, target_id)
+        _validate_rights_for_target(target, rights)
         early = self._evaluate_early_policy(
             checkpoint,
             target,
@@ -401,3 +403,13 @@ def _queued_target(checkpoint: TraversalCheckpoint, target_id: UUID) -> Traversa
     if target.status is not TraversalStatus.QUEUED:
         raise ValueError("recursive crawl policy gate requires a queued target")
     return target
+
+
+def _validate_rights_for_target(
+    target: TraversalTarget,
+    rights: RightsAccessDecision,
+) -> None:
+    if not isinstance(rights, RightsAccessDecision):
+        raise ValueError("rights must be a RightsAccessDecision")
+    if rights.target_uri != target.uri:
+        raise ValueError("rights decision does not belong to the recursive crawl target")

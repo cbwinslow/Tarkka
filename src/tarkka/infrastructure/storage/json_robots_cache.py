@@ -52,9 +52,15 @@ class JsonRobotsCache:
                 if entry.fetched_at == existing.fetched_at:
                     if payload == existing_payload:
                         return
-                    raise RobotsCacheConflictError(
-                        "conflicting robots cache entries share the same fetch time"
-                    )
+                    if _same_fetch_identity(entry, existing):
+                        if entry.expires_at < existing.expires_at:
+                            raise RobotsCacheConflictError(
+                                "robots cache cannot shorten retry expiry for the same fetch"
+                            )
+                    else:
+                        raise RobotsCacheConflictError(
+                            "conflicting robots cache entries share the same fetch time"
+                        )
             data["entries"][key] = payload
             self._write(data)
 
@@ -93,6 +99,15 @@ class JsonRobotsCache:
 
 def _empty_catalog() -> dict[str, Any]:
     return {"schema_version": 1, "entries": {}}
+
+
+def _same_fetch_identity(left: RobotsCacheEntry, right: RobotsCacheEntry) -> bool:
+    return (
+        left.result == right.result
+        and left.fetched_at == right.fetched_at
+        and left.source_observation_id == right.source_observation_id
+        and left.artifact_sha256 == right.artifact_sha256
+    )
 
 
 def _entry_to_dict(entry: RobotsCacheEntry) -> dict[str, Any]:

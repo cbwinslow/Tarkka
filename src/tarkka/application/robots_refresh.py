@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Protocol
 
@@ -19,6 +19,8 @@ _SUCCESS_TTL = timedelta(hours=6)
 _UNAVAILABLE_TTL = timedelta(hours=1)
 _UNREACHABLE_TTL = timedelta(minutes=15)
 _REDIRECT_LIMIT_TTL = timedelta(hours=1)
+_MAX_STALE_SUCCESS_AGE = timedelta(hours=24)
+_MAX_ROBOTS_BYTES = 512 * 1024
 
 
 class PolicyResourceFetcher(Protocol):
@@ -67,8 +69,8 @@ class RobotsRefreshService:
 
     Successful results use a six-hour normal refresh interval. A stale successful copy may
     temporarily backstop an unreachable refresh only while its original fetch is less than 24
-    hours old; the failed refresh remains separately provenance-visible in ``refresh_entry`` and
-    its HTTP artifact/observation remains durable through ``HttpPolicyFetchService``.
+    hours old. The stale copy is re-cached only through the short unreachable retry window so
+    multiple queued targets do not hammer robots.txt during the same outage.
     """
 
     def __init__(
@@ -129,7 +131,10 @@ class RobotsRefreshService:
             )
 
         refresh_entry = _entry_from_http_fetch(fetched)
-        if refresh_entry.result.outcome is RobotsFetchOutcome.UNREACHABLE:
+        if (
+            refresh_entry.result.outcome is RobotsFetchOutcome.UNREACHABLE
+            and 500 <= fetched.response.status_code <= 599
+        ):
             return self._finish_unreachable(
                 checkpoint=fetched.checkpoint,
                 previous=previous,
@@ -153,9 +158,15 @@ class RobotsRefreshService:
         now: datetime,
     ) -> RobotsRefreshResult:
         if previous is not None and previous.may_reuse_after_unreachable(now):
+            hard_expiry = previous.fetched_at + _MAX_STALE_SUCCESS_AGE
+            selected = replace(
+                previous,
+                expires_at=min(now + _UNREACHABLE_TTL, hard_expiry),
+            )
+            self._robots_cache.save(selected)
             return RobotsRefreshResult(
                 checkpoint=checkpoint,
-                entry=previous,
+                entry=selected,
                 refresh_entry=refresh_entry,
                 used_stale_success=True,
             )
@@ -170,13 +181,29 @@ class RobotsRefreshService:
 def _entry_from_http_fetch(fetched: HttpPolicyFetchResult) -> RobotsCacheEntry:
     status_code = fetched.response.status_code
     if 200 <= status_code <= 299:
-        result = RobotsFetchResult(
-            robots_uri=fetched.response.requested_uri,
-            outcome=RobotsFetchOutcome.SUCCESS,
-            content=fetched.body.decode("utf-8", errors="replace"),
-            status_code=status_code,
-        )
-        ttl = _SUCCESS_TTL
+        if len(fetched.body) > _MAX_ROBOTS_BYTES:
+            result = RobotsFetchResult(
+                robots_uri=fetched.response.requested_uri,
+                outcome=RobotsFetchOutcome.UNREACHABLE,
+            )
+            ttl = _UNREACHABLE_TTL
+        else:
+            try:
+                content = fetched.body.decode("utf-8")
+            except UnicodeDecodeError:
+                result = RobotsFetchResult(
+                    robots_uri=fetched.response.requested_uri,
+                    outcome=RobotsFetchOutcome.UNREACHABLE,
+                )
+                ttl = _UNREACHABLE_TTL
+            else:
+                result = RobotsFetchResult(
+                    robots_uri=fetched.response.requested_uri,
+                    outcome=RobotsFetchOutcome.SUCCESS,
+                    content=content,
+                    status_code=status_code,
+                )
+                ttl = _SUCCESS_TTL
     elif 400 <= status_code <= 499:
         result = RobotsFetchResult(
             robots_uri=fetched.response.requested_uri,

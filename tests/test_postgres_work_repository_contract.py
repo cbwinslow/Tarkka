@@ -25,6 +25,7 @@ _SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-00000000d005")
 _CONFLICTING_SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-00000000d006")
 _SECOND_IDENTIFIER_ID = UUID("00000000-0000-0000-0000-00000000d007")
 _SECOND_SOURCE_RECORD_ID = UUID("00000000-0000-0000-0000-00000000d008")
+_RESAVED_IDENTIFIER_ID = UUID("00000000-0000-0000-0000-00000000d009")
 _MISSING_WORK_ID = UUID("00000000-0000-0000-0000-00000000d0ff")
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 _UPDATED_CREATED_AT = datetime(2027, 1, 1, tzinfo=UTC)
@@ -64,13 +65,14 @@ def _identifier(
     identifier_id: UUID = _IDENTIFIER_ID,
     scheme: str = "doi",
     value: str = "10.1000/postgres",
+    created_at: datetime = _CREATED_AT,
 ) -> WorkIdentifier:
     return WorkIdentifier(
         identifier_id=identifier_id,
         work_id=work_id,
         scheme=scheme,
         value=value,
-        created_at=_CREATED_AT,
+        created_at=created_at,
     )
 
 
@@ -187,6 +189,20 @@ def test_postgres_work_repository_allows_work_metadata_evolution(
     )
 
 
+def test_postgres_work_repository_preserves_identifier_creation_metadata(
+    repository: PostgresWorkRepository,
+) -> None:
+    WorkRepositoryContract.assert_identifier_resave_preserves_creation_metadata(
+        repository,
+        _work(),
+        _identifier(),
+        _identifier(
+            identifier_id=_RESAVED_IDENTIFIER_ID,
+            created_at=_UPDATED_CREATED_AT,
+        ),
+    )
+
+
 def test_postgres_work_repository_rejects_identifier_alias_conflict(
     repository: PostgresWorkRepository,
 ) -> None:
@@ -233,7 +249,5 @@ def test_postgres_work_repository_transaction_rolls_back_all_identity_state(
 def test_postgres_work_repository_standalone_write_commits() -> None:
     writer = PostgresWorkRepository(_settings())
     reader = PostgresWorkRepository(_settings())
-
     writer.save_work(_work())
-
     assert reader.get_work(_WORK_ID) == _work()

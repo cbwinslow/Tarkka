@@ -92,6 +92,7 @@ class _Refresher:
 class _Acquirer:
     def __init__(self) -> None:
         self.calls: list[tuple[TraversalCheckpoint, ResourceAcquisitionPolicy, float | None]] = []
+        self.request_uris: list[str | None] = []
 
     def acquire(
         self,
@@ -102,8 +103,8 @@ class _Acquirer:
         request_uri: str | None = None,
         seconds_since_last_request: float | None = None,
     ) -> HttpAcquisitionResult:
-        del request_uri
         self.calls.append((checkpoint, policy, seconds_since_last_request))
+        self.request_uris.append(request_uri)
         target = next(item for item in checkpoint.targets if item.target_id == target_id)
         body = b"article"
         digest = hashlib.sha256(body).hexdigest()
@@ -124,8 +125,15 @@ class _Acquirer:
             observed_at=_NOW,
         )
         observation = snapshot.to_source_observation(native_artifact_id=artifact_id)
+        completed = replace(
+            checkpoint,
+            budget=replace(
+                checkpoint.budget,
+                requests_used=checkpoint.budget.requests_used + 1,
+            ),
+        )
         return HttpAcquisitionResult(
-            checkpoint=checkpoint,
+            checkpoint=completed,
             artifact=artifact,
             observation=observation,
             response=snapshot,
@@ -219,6 +227,8 @@ def test_missing_cache_refreshes_then_hands_updated_budget_to_target_acquirer() 
     assert len(acquirer.calls) == 1
     acquired_checkpoint, _, interval = acquirer.calls[0]
     assert acquired_checkpoint.budget.requests_used == 1
+    assert result.gate.checkpoint.budget.requests_used == 1
+    assert result.checkpoint.budget.requests_used == 2
     assert interval == 0.0
 
 
@@ -258,6 +268,7 @@ def test_refresh_request_does_not_satisfy_robots_crawl_delay() -> None:
 
     assert result.gate.status is RecursiveCrawlGateStatus.DEFERRED_PACING
     assert result.acquisition is None
+    assert result.checkpoint == result.gate.checkpoint
     assert acquirer.calls == []
 
 
@@ -321,3 +332,25 @@ def test_fresh_cache_avoids_refresh_and_uses_existing_target_acquirer() -> None:
     assert result.gate.robots_entry == cached
     assert refresher.calls == 0
     assert len(acquirer.calls) == 1
+
+
+def test_transient_request_uri_is_forwarded_only_to_target_acquisition() -> None:
+    checkpoint, target_id = _checkpoint()
+    cached = _robots(fetched_at=_NOW - timedelta(minutes=5))
+    refresher = _Refresher(_robots())
+    acquirer = _Acquirer()
+    transient = "https://example.org/article?token=secret"
+
+    result = _coordinator(_Cache(cached), refresher, acquirer).acquire(
+        checkpoint,
+        target_id,
+        _policy(),
+        product_token="TarkkaBot",
+        rights=_rights(),
+        now=_NOW,
+        request_uri=transient,
+    )
+
+    assert result.gate.status is RecursiveCrawlGateStatus.READY
+    assert refresher.calls == 0
+    assert acquirer.request_uris == [transient]

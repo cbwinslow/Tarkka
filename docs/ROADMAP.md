@@ -220,6 +220,7 @@ Delivered foundation:
 - support/contradiction/qualification and related labels, including explicit no-evidence state
 - confidence, human-review state, concise reasoning summary, and optional citation-context anchor
 - bounded local CLI recording and progressive evidence/context expansion
+- deterministic exact-handle evaluation metrics for verification labels
 
 ## Phase 5 — Agent-first serving
 

@@ -12,7 +12,6 @@ Resolved decisions should be removed from this file and reflected in the appropr
 
 ## Persistence
 
-- Should the current thin PostgreSQL approach remain intentionally small, or should SQLAlchemy/Alembic become worthwhile as persistent Work/evidence models grow?
 - Should the lightweight local profile eventually support SQLite, or would that create too much behavioral divergence from PostgreSQL?
 - Which future research entities should be immutable/versioned versus mutable with audit history?
 

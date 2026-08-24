@@ -36,6 +36,9 @@ The repository currently targets Python 3.11–3.13 in CI and uses:
 
 Future dependencies should be adopted only when they materially improve the implementation and remain replaceable behind a narrow contract where appropriate.
 
+For the selected PostgreSQL driver, migration, ORM, validation, and pooling approach, read
+`docs/POSTGRESQL_PERSISTENCE.md`.
+
 ## Development environment
 
 Use the committed `uv.lock` and the development dependency group:
@@ -187,6 +190,9 @@ SearchSnapshots and raw artifacts are audit/reproducibility boundaries. Do not s
 ## Database migrations
 
 Treat migrations as append-only historical artifacts after merge/release. Avoid rewriting published migration history.
+
+The existing SQL files are authoritative. A future explicit Tarkka migration runner will record
+applied versions and checksums; application startup must never run migrations implicitly.
 
 Migration design should preserve:
 

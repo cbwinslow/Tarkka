@@ -17,7 +17,11 @@ ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresWorkRepository:
-    """PostgreSQL implementation of the canonical Work persistence boundary."""
+    """PostgreSQL implementation of the canonical Work persistence boundary.
+
+    Active transaction connections are scoped to the current execution context so unrelated
+    contexts never share transaction state through a repository instance.
+    """
 
     def __init__(
         self,
@@ -134,8 +138,7 @@ class PostgresWorkRepository:
                     created_at
                 ) VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (scheme, value) DO UPDATE SET
-                    identifier_id = EXCLUDED.identifier_id,
-                    created_at = EXCLUDED.created_at
+                    work_id = tarkka.work_identifier.work_id
                 WHERE tarkka.work_identifier.work_id = EXCLUDED.work_id
                 """,
                 (

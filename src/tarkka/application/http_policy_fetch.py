@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from urllib.parse import urljoin
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import NAMESPACE_URL, uuid5
 
 from tarkka.application.http_acquisition import (
+    _REDIRECT_STATUSES,
     HttpAcquisitionCheckpointError,
     HttpAcquisitionService,
-    _REDIRECT_STATUSES,
     _artifact_name,
     _redirect_location,
 )

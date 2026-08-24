@@ -118,10 +118,12 @@ class JsonWorkRepository:
         identifier: WorkIdentifier,
     ) -> None:
         existing = data["identifiers"].get(key)
-        if existing and existing["work_id"] != str(identifier.work_id):
-            raise ValueError(
-                f"identifier {identifier.scheme}:{identifier.value} belongs to another work"
-            )
+        if existing:
+            if existing["work_id"] != str(identifier.work_id):
+                raise ValueError(
+                    f"identifier {identifier.scheme}:{identifier.value} belongs to another work"
+                )
+            return
         data["identifiers"][key] = _identifier_to_dict(identifier)
 
     @staticmethod

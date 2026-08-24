@@ -225,14 +225,18 @@ uv run --with mutmut==3.7.0 mutmut run
 uv run --with mutmut==3.7.0 mutmut results
 ```
 
-The exact tool pin and command are recorded in `pyproject.toml`, along with mutmut's mutation scope and focused pytest selection. The initial scope is deliberately small:
+The exact tool pin and command are recorded in `pyproject.toml`, along with mutmut's mutation scope and focused pytest selection. The current baseline deliberately targets persistence-sensitive identity logic with stable external contracts:
 
-- `src/tarkka/domain/resource_acquisition.py`
-- `src/tarkka/domain/traversal.py`
+- `src/tarkka/domain/identifiers.py`
+- `src/tarkka/infrastructure/storage/parser_identity.py`
 
-These modules are deterministic, security/reliability-sensitive, and already have focused unit/property/state-machine coverage. Adapter-heavy, generated, network-backed, and persistence-heavy modules are excluded until mutation results would provide a useful signal rather than noise.
+The first verified baseline generated 52 mutants: 45 were killed, 6 survived, and 1 timed out. The six survivors only alter diagnostic `ValueError` message text, which is not part of the normalization contract. The timeout replaces DOI prefix removal with suffix removal and loops rather than surviving behaviorally. All generated deterministic parser-UUID mutations are killed. No mutation-score threshold is enforced yet.
 
-Mutation testing currently establishes a baseline; it does **not** enforce a mutation-score threshold. Review surviving mutants individually:
+The original acquisition/traversal targets are intentionally deferred. `mutmut==3.7.0` cannot currently instrument their dataclass lifecycle reliably: dataclass-generated `__init__` frames invoke instrumented `__post_init__` code from filename `<string>`, which mutmut's trampoline attempts to resolve as a file under `mutants/`. Production validators must not gain tool-specific pragmas merely to accommodate that instrumentation edge case. Revisit those targets when mutmut can handle the lifecycle safely or when the domain exposes an equally clean tool-independent mutation seam.
+
+Adapter-heavy, generated, network-backed, persistence-heavy, or high-noise modules remain excluded until mutation results would provide a useful signal rather than score churn. Broader exploratory runs against robots matching and model-research mapping produced substantially noisier survivor sets and are better handled as focused future mutation campaigns.
+
+Mutation testing establishes a baseline; it does **not** enforce a mutation-score threshold. Review surviving mutants individually:
 
 1. if a survivor represents meaningful behavior, add or strengthen the smallest focused test that kills it;
 2. if it is equivalent or otherwise non-actionable, document that conclusion in the relevant issue/PR rather than padding the score with artificial assertions;

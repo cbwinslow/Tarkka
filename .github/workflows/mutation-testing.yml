@@ -41,7 +41,7 @@ jobs:
         run: uv run --with mutmut==3.7.0 mutmut --version
 
   mutation:
-    if: ${{ github.event_name != 'pull_request' }}
+    # Temporary branch-only exercise of the production mutation job. This change is not merged.
     name: Targeted mutation baseline
     runs-on: ubuntu-24.04
     timeout-minutes: 60

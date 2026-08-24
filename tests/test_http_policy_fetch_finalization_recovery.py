@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 from itertools import count
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 
@@ -11,8 +12,10 @@ from tarkka.application.http_policy_fetch import (
     HttpPolicyFetchCommitError,
     HttpPolicyFetchService,
 )
+from tarkka.domain.http_observations import HttpResponseSnapshot
+from tarkka.domain.policy_fetch_finalization import PolicyFetchFinalization
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
-from tarkka.domain.source_observations import SourceObservation
+from tarkka.domain.source_observations import ResourceLinkObservation, SourceObservation
 from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
 from tarkka.infrastructure.storage.json_policy_fetch_finalization_repository import (
     JsonPolicyFetchFinalizationRepository,
@@ -85,13 +88,14 @@ class _FailOnceObservationRepository:
     def get_observation(self, observation_id: UUID) -> SourceObservation | None:
         return self.delegate.get_observation(observation_id)
 
-    def save_resource_link(self, link: object) -> None:
-        del link
-        raise AssertionError("resource links are not used by policy fetch recovery")
+    def save_resource_link(self, link: ResourceLinkObservation) -> None:
+        self.delegate.save_resource_link(link)
 
-    def list_resource_links(self, observation_id: UUID) -> tuple[object, ...]:
-        del observation_id
-        return ()
+    def list_resource_links(
+        self,
+        observation_id: UUID,
+    ) -> tuple[ResourceLinkObservation, ...]:
+        return self.delegate.list_resource_links(observation_id)
 
 
 def _policy() -> ResourceAcquisitionPolicy:
@@ -136,7 +140,7 @@ def test_partial_observation_commit_recovers_without_network_refetch(tmp_path: P
         resolver=resolver,
         transport=transport,
         artifact_store=artifacts,
-        observation_repository=failing_observations,  # type: ignore[arg-type]
+        observation_repository=failing_observations,
         checkpoint_repository=checkpoints,
         finalization_repository=finalizations,
         clock=lambda: next(ticks),
@@ -192,12 +196,6 @@ def test_recovery_fails_closed_when_expected_artifact_is_missing(tmp_path: Path)
     finalizations = JsonPolicyFetchFinalizationRepository(
         tmp_path / "policy-finalizations.json"
     )
-
-    response = HttpTransportResponse(
-        status_code=200,
-        headers={"Content-Type": ("text/plain",)},
-        body=b"not persisted",
-    )
     ticks = count(100.0, 0.25)
     service = HttpPolicyFetchService(
         resolver=resolver,
@@ -210,15 +208,11 @@ def test_recovery_fails_closed_when_expected_artifact_is_missing(tmp_path: Path)
         sleeper=lambda _: None,
     )
 
-    # Generate a valid marker using the normal finalization identity rules, then remove the
-    # artifact by never committing it. The helper is deliberately imported locally so the test
-    # exercises the public recovery API rather than duplicating its identity validation.
-    from hashlib import sha256
-    from uuid import NAMESPACE_URL, uuid5
-
-    from tarkka.domain.http_observations import HttpResponseSnapshot
-    from tarkka.domain.policy_fetch_finalization import PolicyFetchFinalization
-
+    response = HttpTransportResponse(
+        status_code=200,
+        headers={"Content-Type": ("text/plain",)},
+        body=b"not persisted",
+    )
     snapshot = HttpResponseSnapshot(
         requested_uri=_ROBOTS_URI,
         final_uri=_ROBOTS_URI,
@@ -226,7 +220,7 @@ def test_recovery_fails_closed_when_expected_artifact_is_missing(tmp_path: Path)
         headers=response.headers,
         depth=1,
     )
-    digest = sha256(response.body).hexdigest()
+    digest = hashlib.sha256(response.body).hexdigest()
     artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{digest}")
     observation = snapshot.to_source_observation(native_artifact_id=artifact_id)
     marker = PolicyFetchFinalization(

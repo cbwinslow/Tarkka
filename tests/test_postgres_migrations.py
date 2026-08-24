@@ -88,7 +88,13 @@ def test_upgrade_applies_unrecorded_sql_and_records_checksums(tmp_path: Path) ->
     assert result.skipped == ()
     assert connection.autocommit
     assert connection.closed
-    assert [params[0] for _, params in connection.calls if params] == [1, 2]
+    assert [
+        params[0]
+        for sql, params in connection.calls
+        if params and "INSERT INTO tarkka.schema_migration" in sql
+    ] == [1, 2]
+    assert connection.calls[0][0].startswith("SELECT pg_advisory_lock")
+    assert connection.calls[-1][0].startswith("SELECT pg_advisory_unlock")
 
 
 def test_upgrade_rejects_changed_or_unknown_history(tmp_path: Path) -> None:

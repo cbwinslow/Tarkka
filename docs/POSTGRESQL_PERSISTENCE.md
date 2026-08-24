@@ -31,6 +31,8 @@ Deployments must run the explicit upgrade command before starting a service or w
 - Migrations are append-only after merge. An upgrade records a checksum for each applied file and
   refuses a changed historical migration.
 - Schema upgrades are explicit and idempotent. No normal CLI/API/MCP command performs DDL.
+- An upgrade holds a PostgreSQL advisory lock for the complete catalog/ledger operation so concurrent
+  deploy processes cannot race to apply the same version.
 - Production repositories use PostgreSQL capabilities directly when useful; a future SQLite profile
   must be a separately tested adapter, not a lowest-common-denominator constraint on the schema.
 

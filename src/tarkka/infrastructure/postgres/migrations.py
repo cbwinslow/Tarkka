@@ -12,7 +12,13 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
+from tarkka.infrastructure.postgres.connection import (
+    PostgresSettings,
+    connect,
+    translate_driver_error,
+)
+
+_MIGRATION_ADVISORY_LOCK = 5_788_907_137
 
 
 class MigrationCatalogError(RuntimeError):
@@ -87,8 +93,11 @@ def upgrade(
     """
     migrations = discover_migrations(directory or default_migrations_directory())
     connection = connection_factory(settings)
+    lock_acquired = False
     try:
         connection.autocommit = True
+        connection.execute("SELECT pg_advisory_lock(%s)", (_MIGRATION_ADVISORY_LOCK,))
+        lock_acquired = True
         _ensure_history_table(connection)
         history = _read_history(connection)
         catalog_versions = {migration.version for migration in migrations}
@@ -116,7 +125,14 @@ def upgrade(
             )
             applied.append(migration)
         return MigrationUpgradeResult(tuple(applied), tuple(skipped))
+    except Exception as exc:
+        translated = translate_driver_error(exc)
+        if translated is not None:
+            raise translated from exc
+        raise
     finally:
+        if lock_acquired:
+            connection.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_ADVISORY_LOCK,))
         connection.close()
 
 

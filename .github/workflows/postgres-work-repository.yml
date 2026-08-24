@@ -15,6 +15,7 @@ on:
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
       - "tests/test_postgres_work_repository_contract.py"
+      - "tests/test_postgres_work_repository_unit.py"
   push:
     branches: [main]
     paths:
@@ -29,6 +30,7 @@ on:
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
       - "tests/test_postgres_work_repository_contract.py"
+      - "tests/test_postgres_work_repository_unit.py"
 
 concurrency:
   group: postgres-work-repository-${{ github.workflow }}-${{ github.ref }}
@@ -47,8 +49,8 @@ jobs:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: tarkka
-          POSTGRES_PASSWORD: tarkka
           POSTGRES_DB: tarkka_test
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -57,7 +59,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      TARKKA_DATABASE_URL: postgresql://tarkka:tarkka@localhost:5432/tarkka_test
+      # This database exists only inside the ephemeral Actions job; trust auth avoids fake secrets.
+      TARKKA_DATABASE_URL: postgresql://tarkka@localhost:5432/tarkka_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

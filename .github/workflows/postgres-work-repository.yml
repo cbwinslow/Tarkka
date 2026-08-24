@@ -17,7 +17,9 @@ on:
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
       - "tests/test_postgres_work_repository_contract.py"
+      - "tests/test_postgres_verification_repository_contract.py"
       - "tests/test_postgres_work_repository_unit.py"
+      - "tests/test_postgres_verification_repository_unit.py"
       - "tests/test_work_cli_backend.py"
   push:
     branches: [main]
@@ -35,7 +37,9 @@ on:
       - "src/tarkka/infrastructure/postgres/**"
       - "tests/contracts/work_repository.py"
       - "tests/test_postgres_work_repository_contract.py"
+      - "tests/test_postgres_verification_repository_contract.py"
       - "tests/test_postgres_work_repository_unit.py"
+      - "tests/test_postgres_verification_repository_unit.py"
       - "tests/test_work_cli_backend.py"
 
 concurrency:
@@ -80,10 +84,11 @@ jobs:
         run: uv lock --check
       - name: Sync PostgreSQL test environment
         run: uv sync --frozen --group dev --extra postgres
-      - name: Run PostgreSQL WorkRepository contract
+      - name: Run PostgreSQL repository contracts
         run: >-
           uv run --no-sync tarkka db upgrade && uv run --no-sync pytest
           tests/test_postgres_work_repository_contract.py
+          tests/test_postgres_verification_repository_contract.py
           --junitxml=postgres-work-repository-results.xml
       - name: Retain PostgreSQL contract results
         if: ${{ !cancelled() }}

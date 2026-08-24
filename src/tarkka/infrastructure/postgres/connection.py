@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
 from os import environ
 from typing import Any
 
@@ -28,7 +29,7 @@ class PostgresSettings:
 def connect(settings: PostgresSettings) -> Any:
     """Create a psycopg connection without making psycopg a core runtime dependency."""
     try:
-        import psycopg  # type: ignore[import-not-found]
+        psycopg = import_module("psycopg")
     except ImportError as exc:
         raise PostgresDependencyError(
             "PostgreSQL support requires `pip install tarkka[postgres]`"
@@ -42,7 +43,7 @@ def connect(settings: PostgresSettings) -> Any:
 def translate_driver_error(exc: Exception) -> PostgresOperationError | None:
     """Translate optional psycopg errors without importing it in the base profile."""
     try:
-        import psycopg
+        psycopg = import_module("psycopg")
     except ImportError:
         return None
     if isinstance(exc, psycopg.Error):

@@ -138,6 +138,7 @@ def test_verify_cli_lists_bounded_citation_context_candidates(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["total"] == 1
+    assert payload["document_id"] == str(batch.document_id)
     assert payload["candidates"] == [
         {
             "citation_context_id": str(context.context_id),
@@ -147,6 +148,23 @@ def test_verify_cli_lists_bounded_citation_context_candidates(
             "reference_id": str(reference_id),
         }
     ]
+
+    assert main(["citations", "context", str(batch.document_id), str(context.context_id)]) == 0
+
+    context_payload = json.loads(capsys.readouterr().out)
+    assert context_payload["context_id"] == str(context.context_id)
+    assert context_payload["text"] == evidence.text
+    assert context_payload["citation_mention"] == {
+        "char_end": None,
+        "char_start": None,
+        "mention_id": str(context.mention_id),
+        "passage_id": str(evidence.passage_id),
+        "raw_text": "[1]",
+        "reference_id": str(reference_id),
+        "section_id": None,
+        "source_anchor": None,
+        "source_observation_id": None,
+    }
 
 
 def test_verify_cli_lists_empty_catalog_with_stable_pagination_shape(

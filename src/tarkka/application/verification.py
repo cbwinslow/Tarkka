@@ -58,6 +58,7 @@ class CitationVerificationCandidate:
 class CitationVerificationCandidatePage:
     """One coherent page of citation-aware verification candidates."""
 
+    document_id: UUID
     total: int
     candidates: tuple[CitationVerificationCandidate, ...]
 
@@ -119,7 +120,11 @@ class EvidenceVerificationService:
             if isinstance(evidence, Evidence):
                 evidence_by_passage.setdefault(evidence.passage_id, []).append(evidence.evidence_id)
         if not evidence_by_passage or self._citations is None:
-            return CitationVerificationCandidatePage(total=0, candidates=())
+            return CitationVerificationCandidatePage(
+                document_id=claim.document_id,
+                total=0,
+                candidates=(),
+            )
         total, contexts = self._citations.page_contexts_for_passages(
             claim.document_id,
             frozenset(evidence_by_passage),
@@ -132,6 +137,7 @@ class EvidenceVerificationService:
         )
         reference_ids = {mention.mention_id: mention.reference_id for mention in mentions}
         return CitationVerificationCandidatePage(
+            document_id=claim.document_id,
             total=total,
             candidates=tuple(
                 CitationVerificationCandidate(

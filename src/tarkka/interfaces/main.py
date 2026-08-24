@@ -471,6 +471,13 @@ def _citation_mention_payload(
     contexts: tuple[CitationContext, ...],
 ) -> dict[str, object]:
     return {
+        **_citation_mention_summary(mention),
+        "contexts": [_citation_context_payload(context) for context in contexts],
+    }
+
+
+def _citation_mention_summary(mention: CitationMention) -> dict[str, object]:
+    return {
         "mention_id": str(mention.mention_id),
         "reference_id": str(mention.reference_id) if mention.reference_id is not None else None,
         "raw_text": mention.raw_text,
@@ -484,7 +491,6 @@ def _citation_mention_payload(
             if mention.source_observation_id is not None
             else None
         ),
-        "contexts": [_citation_context_payload(context) for context in contexts],
     }
 
 
@@ -616,6 +622,32 @@ def _cmd_citations_show(args: argparse.Namespace) -> int:
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_citations_context(args: argparse.Namespace) -> int:
+    try:
+        repository = _existing_citation_repository()
+        if repository is None:
+            print(f"error: citation context not found: {args.context_id}", file=sys.stderr)
+            return 2
+        context = repository.get_context(args.document_id, args.context_id)
+        if context is None:
+            print(f"error: citation context not found: {args.context_id}", file=sys.stderr)
+            return 2
+        mentions = repository.list_mentions_for_ids(
+            args.document_id,
+            frozenset((context.mention_id,)),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    payload = _citation_context_payload(context)
+    payload["document_id"] = str(args.document_id)
+    payload["citation_mention"] = (
+        _citation_mention_summary(mentions[0]) if mentions else None
+    )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
@@ -963,6 +995,7 @@ def _cmd_verify_candidates(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "claim_id": str(args.claim_id),
+                "document_id": str(page.document_id),
                 "offset": args.offset,
                 "limit": args.limit,
                 "total": page.total,
@@ -1145,6 +1178,11 @@ def _citations_parser() -> argparse.ArgumentParser:
     show.add_argument("--offset", type=int, default=0)
     show.add_argument("--limit", type=int, default=100)
     show.set_defaults(func=_cmd_citations_show)
+
+    context = sub.add_parser("context", help="show one exact citation context and its mention")
+    context.add_argument("document_id", type=_parse_document_id)
+    context.add_argument("context_id", type=_parse_context_id)
+    context.set_defaults(func=_cmd_citations_context)
 
     resolve = sub.add_parser(
         "resolve",

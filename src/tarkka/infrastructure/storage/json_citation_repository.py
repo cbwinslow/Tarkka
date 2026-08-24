@@ -191,6 +191,12 @@ class JsonCitationRepository:
         values.sort(key=lambda item: (item.char_start, str(item.context_id)))
         return tuple(values)
 
+    def get_context(self, document_id: UUID, context_id: UUID) -> CitationContext | None:
+        payload = self._read()["contexts"].get(str(context_id))
+        if payload is None or payload["document_id"] != str(document_id):
+            return None
+        return _context_from_dict(payload)
+
     def count_contexts_for_passages(
         self, document_id: UUID, passage_ids: frozenset[UUID]
     ) -> int:

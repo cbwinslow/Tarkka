@@ -20,6 +20,7 @@ tarkka verify show <relation-id>
 # Before recording, inspect only citation contexts that are exactly co-located
 # with the Claim's existing passage evidence; this does not infer support.
 tarkka verify candidates <claim-id> --limit 20
+tarkka citations context <document-id> <context-id>
 ```
 
 The record operation validates that the target is a Claim, that non-
@@ -41,7 +42,10 @@ an assessment does not fetch cited sources or make an identity assertion.
 evidence IDs only where a preserved citation context and the Claim's existing
 text evidence share the same normalized passage. When the native mention has a
 bibliography reference, it also returns that `reference_id`, which can be
-expanded through `tarkka citations show <document-id> <reference-id>`. It
+expanded through `tarkka citations show <document-id> <reference-id>`. The
+candidate response includes its `document_id`; use it with `tarkka citations
+context` to expand the exact local context and mention before recording an
+assessment, including when the mention has no bibliography reference. It
 excludes figure, table, equation, and unanchored contexts rather than guessing
 an association. A candidate is not an assessment and never asserts that a
 cited source supports, contradicts, or even discusses the Claim.

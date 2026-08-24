@@ -261,6 +261,42 @@ Crawler and citation expansion policies should expose explicit budgets such as:
 - retry/rate policies
 - optional elapsed-time budget
 
+### Recursive robots and rights gate
+
+Recursive web traversal applies policy before a discovered target starts its normal HTTP attempt:
+
+```text
+queued target
+    ↓ technical policy + shared budget
+fresh robots cache? ── no ──→ bounded /robots.txt fetch through HttpPolicyFetchService
+    │                              ↓
+    │                    durable artifact + HTTP observation
+    │                              ↓
+    │                    robots outcome/cache entry
+    └────────────── yes / refreshed ───────────────┐
+                                                   ↓
+                                      robots + rights eligibility
+                                                   ↓
+                                      pacing/budget re-check
+                                          ↓                 ↓
+                                       READY             SKIP/DEFER
+                                          ↓
+                               existing HttpAcquisitionService
+```
+
+Operational rules:
+
+- `/robots.txt` uses the same DNS, SSRF, redirect, request, byte, elapsed-time, and persistence boundaries as other HTTP acquisition. There is no robots-only network client.
+- The robots request charges the same `TraversalCheckpoint` budget but does not start or increment the discovered content target's attempt count.
+- After a robots refresh, target pacing is re-evaluated from zero elapsed time since the policy request. A policy fetch cannot accidentally satisfy a target crawl-delay.
+- HTTP 4xx robots responses are modeled as unavailable; 5xx and transport/network failures are unreachable and fail closed; redirect-limit exhaustion remains a distinct outcome.
+- Successful robots entries normally refresh after six hours and are never treated as ordinarily fresh for more than their stored expiry.
+- If a refresh is temporarily unreachable, an earlier successful entry may be used only while the original successful fetch is less than 24 hours old. This fallback is not used for redirect exhaustion and does not rewrite the old fetch timestamp.
+- Cache entries retain the robots HTTP `SourceObservation` ID and artifact SHA-256 when a response produced durable provenance. Failed transport attempts without a response legitimately lack those identifiers.
+- Rights provenance remains independent in `RightsAccessDecision`; permission to retrieve does not imply permission to store, analyze, or redistribute.
+- Policy denial durably marks the discovered target `SKIPPED` without consuming its target attempt budget.
+- Direct/user-requested `HttpAcquisitionService.acquire()` remains independent of robots policy; this gate applies to recursive discovered-target orchestration.
+
 ## Adapter extensibility
 
 New sources should be easy to add through narrow ports and capability manifests.

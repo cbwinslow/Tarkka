@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -24,7 +25,9 @@ def _entry(
     fetched_at: datetime = _T0,
     lifetime: timedelta = timedelta(hours=1),
     content: str = "User-agent: *\nAllow: /\n",
+    with_provenance: bool = False,
 ) -> RobotsCacheEntry:
+    observation_id = uuid4() if with_provenance else None
     return RobotsCacheEntry(
         result=RobotsFetchResult(
             robots_uri=_ROBOTS,
@@ -34,16 +37,27 @@ def _entry(
         ),
         fetched_at=fetched_at,
         expires_at=fetched_at + lifetime,
+        source_observation_id=observation_id,
+        artifact_sha256=("a" * 64 if with_provenance else None),
     )
 
 
-def test_cache_round_trip_survives_reopen(tmp_path: Path) -> None:
+def test_cache_round_trip_preserves_provenance(tmp_path: Path) -> None:
     path = tmp_path / "robots.json"
-    JsonRobotsCache(path).save(_entry())
+    entry = _entry(with_provenance=True)
+    JsonRobotsCache(path).save(entry)
 
     restored = JsonRobotsCache(path).get(_ROBOTS)
 
-    assert restored == _entry()
+    assert restored == entry
+
+
+def test_cache_round_trip_supports_legacy_entry_without_provenance(tmp_path: Path) -> None:
+    path = tmp_path / "robots.json"
+    entry = _entry()
+    JsonRobotsCache(path).save(entry)
+
+    assert JsonRobotsCache(path).get(_ROBOTS) == entry
 
 
 def test_cache_replaces_entry_with_newer_fetch(tmp_path: Path) -> None:
@@ -81,6 +95,29 @@ def test_cache_rejects_conflicting_same_time_entry(tmp_path: Path) -> None:
         cache.save(_entry(content="User-agent: *\nDisallow: /\n"))
 
 
+def test_cache_allows_monotonic_retry_expiry_for_same_fetch(tmp_path: Path) -> None:
+    cache = JsonRobotsCache(tmp_path / "robots.json")
+    original = _entry(lifetime=timedelta(hours=1))
+    extended = _entry(lifetime=timedelta(hours=2))
+    cache.save(original)
+
+    cache.save(extended)
+
+    assert cache.get(_ROBOTS) == extended
+
+
+def test_cache_rejects_shorter_retry_expiry_for_same_fetch(tmp_path: Path) -> None:
+    cache = JsonRobotsCache(tmp_path / "robots.json")
+    longer = _entry(lifetime=timedelta(hours=2))
+    shorter = _entry(lifetime=timedelta(hours=1))
+    cache.save(longer)
+
+    with pytest.raises(RobotsCacheConflictError, match="shorten retry expiry"):
+        cache.save(shorter)
+
+    assert cache.get(_ROBOTS) == longer
+
+
 def test_cache_entry_freshness_uses_half_open_expiry_window() -> None:
     entry = _entry(lifetime=timedelta(hours=1))
 
@@ -89,9 +126,41 @@ def test_cache_entry_freshness_uses_half_open_expiry_window() -> None:
     assert entry.is_fresh(_T0 + timedelta(hours=1)) is False
 
 
+def test_stale_success_fallback_is_bounded_by_original_24_hour_age() -> None:
+    entry = _entry(lifetime=timedelta(hours=6))
+
+    assert entry.is_fresh(_T0 + timedelta(hours=7)) is False
+    assert entry.may_reuse_after_unreachable(_T0 + timedelta(hours=23, minutes=59)) is True
+    assert entry.may_reuse_after_unreachable(_T0 + timedelta(hours=24)) is False
+
+
+def test_non_success_entry_cannot_be_used_as_stale_fallback() -> None:
+    entry = RobotsCacheEntry(
+        result=RobotsFetchResult(
+            robots_uri=_ROBOTS,
+            outcome=RobotsFetchOutcome.UNREACHABLE,
+            status_code=503,
+        ),
+        fetched_at=_T0,
+        expires_at=_T0 + timedelta(minutes=15),
+    )
+
+    assert entry.may_reuse_after_unreachable(_T0 + timedelta(minutes=20)) is False
+
+
 def test_cache_entry_rejects_lifetime_over_24_hours() -> None:
     with pytest.raises(ValueError, match="24 hours"):
         _entry(lifetime=timedelta(hours=24, seconds=1))
+
+
+def test_cache_entry_requires_provenance_identifiers_as_pair() -> None:
+    with pytest.raises(ValueError, match="supplied together"):
+        RobotsCacheEntry(
+            result=_entry().result,
+            fetched_at=_T0,
+            expires_at=_T0 + timedelta(hours=1),
+            source_observation_id=uuid4(),
+        )
 
 
 def test_cache_entry_rejects_noncanonical_robots_uri() -> None:

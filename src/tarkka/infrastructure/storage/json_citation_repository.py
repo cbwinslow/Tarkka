@@ -139,22 +139,34 @@ class JsonCitationRepository:
         )
         return tuple(values)
 
+    def count_mentions_for_reference(self, document_id: UUID, reference_id: UUID) -> int:
+        return sum(
+            item["document_id"] == str(document_id)
+            and item["reference_id"] == str(reference_id)
+            for item in self._read()["mentions"].values()
+        )
+
     def list_mentions_for_reference(
-        self, document_id: UUID, reference_id: UUID
+        self,
+        document_id: UUID,
+        reference_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
     ) -> tuple[CitationMention, ...]:
-        values = [
+        _validate_page(offset, limit)
+        if limit == 0:
+            return ()
+        values = (
             _mention_from_dict(item)
             for item in self._read()["mentions"].values()
             if item["document_id"] == str(document_id)
             and item["reference_id"] == str(reference_id)
-        ]
-        values.sort(
-            key=lambda item: (
-                item.char_start if item.char_start is not None else -1,
-                str(item.mention_id),
-            )
         )
-        return tuple(values)
+        if limit is None:
+            return tuple(sorted(values, key=_mention_sort_key)[offset:])
+        page = heapq.nsmallest(offset + limit, values, key=_mention_sort_key)
+        return tuple(page[offset:])
 
     def list_contexts(self, document_id: UUID) -> tuple[CitationContext, ...]:
         values = [
@@ -325,6 +337,13 @@ def _validate_page(offset: int, limit: int | None) -> None:
 
 def _reference_sort_key(reference: BibliographicReference) -> tuple[int, str]:
     return (reference.ordinal, str(reference.reference_id))
+
+
+def _mention_sort_key(mention: CitationMention) -> tuple[int, str]:
+    return (
+        mention.char_start if mention.char_start is not None else -1,
+        str(mention.mention_id),
+    )
 
 
 def _uuid(value: UUID | None) -> str | None:

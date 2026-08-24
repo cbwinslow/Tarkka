@@ -176,18 +176,20 @@ def test_citations_cli_progressively_expands_preserved_native_citations(
 
     assert expanded["raw_text"] == "First cited work10.1000/first"
     assert expanded["resolution"] is None
-    assert len(expanded["citation_mentions"]) == 2
+    mentions = expanded["citation_mentions"]
+    assert mentions["total"] == 2
+    assert len(mentions["items"]) == 2
     assert all(
         item["reference_id"] == reference["reference_id"]
-        for item in expanded["citation_mentions"]
+        for item in mentions["items"]
     )
-    assert all(item["section_id"] is None for item in expanded["citation_mentions"])
-    assert all(item["passage_id"] is None for item in expanded["citation_mentions"])
-    assert all(item["char_start"] is None for item in expanded["citation_mentions"])
-    assert all(item["char_end"] is None for item in expanded["citation_mentions"])
+    assert all(item["section_id"] is None for item in mentions["items"])
+    assert all(item["passage_id"] is None for item in mentions["items"])
+    assert all(item["char_start"] is None for item in mentions["items"])
+    assert all(item["char_end"] is None for item in mentions["items"])
     assert {
         context["text"]
-        for mention in expanded["citation_mentions"]
+        for mention in mentions["items"]
         for context in mention["contexts"]
     } == {
         "We preserve native structure and cite [1].",
@@ -217,16 +219,19 @@ def test_citations_cli_rejects_negative_pagination(
     assert "non-negative" in captured.err
 
 
-def test_citations_cli_does_not_initialize_a_missing_catalog(
+def test_citations_cli_does_not_initialize_a_missing_catalog_for_unknown_document(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     home = tmp_path / "home"
     monkeypatch.setenv("TARKKA_HOME", str(home))
+    _runtime()
 
     exit_code = main(["citations", "list", str(uuid4())])
 
-    assert exit_code == 0
-    assert json.loads(capsys.readouterr().out)["references"] == []
-    assert not home.exists()
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "document not found" in captured.err
+    assert not (home / "citations.json").exists()

@@ -113,6 +113,11 @@ def _existing_citation_repository() -> JsonCitationRepository | None:
     return JsonCitationRepository.open_existing(_home() / "citations.json")
 
 
+def _document_exists_for_inspection(document_id: UUID) -> bool:
+    path = _home() / "catalog.json"
+    return path.is_file() and JsonResearchRepository(path).get_document(document_id) is not None
+
+
 def _cmd_db_upgrade(_: argparse.Namespace) -> int:
     try:
         result = upgrade(PostgresSettings.from_environment())
@@ -407,6 +412,9 @@ def _cmd_citations_list(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    if not _document_exists_for_inspection(args.document_id):
+        print(f"error: document not found: {args.document_id}", file=sys.stderr)
+        return 2
     try:
         repository = _existing_citation_repository()
         total = repository.count_references(args.document_id) if repository is not None else 0
@@ -439,6 +447,15 @@ def _cmd_citations_list(args: argparse.Namespace) -> int:
 
 
 def _cmd_citations_show(args: argparse.Namespace) -> int:
+    if args.offset < 0 or args.limit < 0:
+        print("error: citation offset and limit must be non-negative", file=sys.stderr)
+        return 2
+    if args.offset > _MAX_CITATION_OFFSET or args.limit > _MAX_CITATION_PAGE_SIZE:
+        print("error: citation pagination exceeds the configured maximum", file=sys.stderr)
+        return 2
+    if not _document_exists_for_inspection(args.document_id):
+        print(f"error: document not found: {args.document_id}", file=sys.stderr)
+        return 2
     try:
         repository = _existing_citation_repository()
         if repository is None:
@@ -455,9 +472,15 @@ def _cmd_citations_show(args: argparse.Namespace) -> int:
         if reference is None:
             print(f"error: reference not found: {args.reference_id}", file=sys.stderr)
             return 2
+        total_mentions = repository.count_mentions_for_reference(
+            args.document_id,
+            reference.reference_id,
+        )
         mentions = repository.list_mentions_for_reference(
             args.document_id,
             reference.reference_id,
+            offset=args.offset,
+            limit=args.limit,
         )
         contexts_by_mention: dict[UUID, list[CitationContext]] = {}
         for context in repository.list_contexts_for_mentions(
@@ -475,17 +498,29 @@ def _cmd_citations_show(args: argparse.Namespace) -> int:
                 "work_id": str(resolution.work_id) if resolution.work_id is not None else None,
                 "candidate_work_ids": [str(item) for item in resolution.candidate_work_ids],
                 "resolver": resolution.resolver,
+                "resolution_id": str(resolution.resolution_id),
+                "source_observation_id": (
+                    str(resolution.source_observation_id)
+                    if resolution.source_observation_id is not None
+                    else None
+                ),
+                "resolved_at": resolution.resolved_at.isoformat(),
             }
             if resolution is not None
             else None
         )
-        payload["citation_mentions"] = [
-            _citation_mention_payload(
-                mention,
-                tuple(contexts_by_mention.get(mention.mention_id, ())),
-            )
-            for mention in mentions
-        ]
+        payload["citation_mentions"] = {
+            "offset": args.offset,
+            "limit": args.limit,
+            "total": total_mentions,
+            "items": [
+                _citation_mention_payload(
+                    mention,
+                    tuple(contexts_by_mention.get(mention.mention_id, ())),
+                )
+                for mention in mentions
+            ],
+        }
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -559,6 +594,8 @@ def _citations_parser() -> argparse.ArgumentParser:
     show = sub.add_parser("show", help="show one reference and its exact citation contexts")
     show.add_argument("document_id", type=_parse_document_id)
     show.add_argument("reference_id", type=_parse_reference_id)
+    show.add_argument("--offset", type=int, default=0)
+    show.add_argument("--limit", type=int, default=100)
     show.set_defaults(func=_cmd_citations_show)
     return parser
 

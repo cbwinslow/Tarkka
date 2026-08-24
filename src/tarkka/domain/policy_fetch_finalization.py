@@ -6,6 +6,20 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from tarkka.domain.http_observations import HttpResponseSnapshot, normalize_http_uri
 
 
+def policy_fetch_finalization_id(checkpoint_id: UUID, requested_uri: str) -> UUID:
+    """Return the stable journal identity for one checkpoint + policy resource."""
+    if not isinstance(checkpoint_id, UUID):
+        raise ValueError("policy finalization checkpoint_id must be a UUID")
+    normalized_uri = normalize_http_uri(
+        requested_uri,
+        field_name="policy finalization requested URI",
+    )
+    return uuid5(
+        NAMESPACE_URL,
+        f"tarkka:{checkpoint_id}:policy-finalization:{normalized_uri}",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PolicyFetchFinalization:
     """Durable intent for one policy-fetch output commit.
@@ -48,7 +62,4 @@ class PolicyFetchFinalization:
 
     @property
     def finalization_id(self) -> UUID:
-        return uuid5(
-            NAMESPACE_URL,
-            f"tarkka:{self.checkpoint_id}:policy-finalization:{self.requested_uri}",
-        )
+        return policy_fetch_finalization_id(self.checkpoint_id, self.requested_uri)

@@ -11,11 +11,15 @@ Milestone numbers in implementation PRs map to the phases below; the phase names
 - Phase 0 — Foundation: **complete**
 - Phase 1 — Core local vertical slice: **substantially complete**
 - Phase 2 — Scholarly discovery and identity: **complete for the local/offline workflow**
-- Phase 3 — Structured research extraction: **text-grounded vocabulary substantially complete; source/document intelligence in progress**
+- Phase 3 — Structured research extraction: **substantially complete for the initial local workflow;
+  source/document intelligence expands incrementally through additional adapters**
 
 The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, generalized evidence locators, first-class Figure/Table/Equation source artifacts, evidence-backed claim extraction, the full first-pass research object vocabulary, model-assisted extraction, evaluation fixtures, bounded model requests, and contract-tested local/PostgreSQL Work persistence.
 
-The immediate architecture focus is now preserving richer source/document structure so future JATS, EPUB, HTML, PDF, crawler, citation, supplement, and provider integrations remain additive rather than forcing rewrites.
+The initial source/document intelligence sequence is delivered. Future JATS, EPUB, HTML, PDF,
+crawler, citation, supplement, and provider integrations must extend these preservation boundaries
+rather than forcing rewrites. The next product capability is evidence verification that distinguishes
+citation from actual support.
 
 ## Phase 0 — Foundation
 
@@ -103,7 +107,7 @@ Exit criteria are met for the local/offline profile: discovery is replayable, se
 
 ## Phase 3 — Structured research extraction and source intelligence
 
-Status: **in progress**
+Status: **substantially complete for the initial local workflow**
 
 Goal: turn research sources into reusable, evidence-grounded research objects without losing native document/provider structure.
 
@@ -126,7 +130,7 @@ Goal: turn research sources into reusable, evidence-grounded research objects wi
 - bounded model requests with request-local evidence validation and semantic overlap deduplication
 - property-based batching tests and explicit testing taxonomy
 
-### Source/document intelligence — current sequence
+### Source/document intelligence — delivered core sequence
 
 The governing rule is:
 

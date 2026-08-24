@@ -78,13 +78,12 @@ packages = ["tarkka"]
 [tool.mutmut]
 source_paths = ["src/tarkka"]
 only_mutate = [
-    "src/tarkka/domain/resource_acquisition.py",
-    "src/tarkka/domain/traversal.py",
+    "src/tarkka/domain/robots_rules.py",
+    "src/tarkka/infrastructure/extraction/model_research.py",
 ]
 pytest_add_cli_args_test_selection = [
-    "tests/test_resource_acquisition_policy.py",
-    "tests/test_traversal_state_machine.py",
-    "tests/test_traversal_checkpoints.py",
+    "tests/test_robots_access_policy.py",
+    "tests/test_model_research_extraction.py",
 ]
 mutate_only_covered_lines = true
 max_stack_depth = 8

@@ -270,7 +270,10 @@ class HttpPolicyFetchService(HttpAcquisitionService):
                 source_uri=finalization.response.final_uri,
                 media_type=finalization.response.media_type or "application/octet-stream",
             )
-            if artifact.sha256 != finalization.artifact_sha256:
+            if (
+                artifact.sha256 != finalization.artifact_sha256
+                or artifact.artifact_id != artifact_id
+            ):
                 raise RuntimeError("artifact store returned unexpected recovery identity")
             self._observation_repository.save_observation(observation)
             self._finalization_repository.delete(finalization)

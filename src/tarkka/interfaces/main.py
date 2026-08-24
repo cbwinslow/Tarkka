@@ -13,6 +13,10 @@ from tarkka.application.identity_review import (
     IdentityReviewService,
     IdentitySnapshotNotFoundError,
 )
+from tarkka.application.research_packages import (
+    ResearchPackageNotFoundError,
+    ResearchPackageService,
+)
 from tarkka.domain.citations import BibliographicReference, CitationContext, CitationMention
 from tarkka.domain.extraction import (
     Claim,
@@ -24,6 +28,7 @@ from tarkka.domain.extraction import (
     TableEvidence,
 )
 from tarkka.domain.identity_candidates import IdentityDecision
+from tarkka.domain.source_observations import ResourceLinkObservation, SourceObservation
 from tarkka.infrastructure.extraction.model_claims import (
     ModelClaimExtractor,
     NoModelClaimsFoundError,
@@ -42,6 +47,9 @@ from tarkka.infrastructure.storage.json_extraction_repository import (
     JsonExtractionRepository,
 )
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+from tarkka.infrastructure.storage.json_source_observation_repository import (
+    JsonSourceObservationRepository,
+)
 from tarkka.infrastructure.storage.search_snapshot_log import (
     JsonlSearchSnapshotLog,
     SnapshotDataError,
@@ -52,6 +60,8 @@ from tarkka.ports.extraction import StructuredExtractor
 
 _MAX_CITATION_PAGE_SIZE = 100
 _MAX_CITATION_OFFSET = 10_000
+_MAX_RESOURCE_PAGE_SIZE = 100
+_MAX_RESOURCE_OFFSET = 10_000
 
 
 def _home() -> Path:
@@ -93,6 +103,13 @@ def _parse_reference_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid bibliographic reference id: {raw}") from exc
 
 
+def _parse_resource_link_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("resource:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid resource link id: {raw}") from exc
+
+
 def _identity_service() -> IdentityReviewService:
     home = _home()
     return IdentityReviewService(
@@ -111,6 +128,10 @@ def _document_repository() -> JsonResearchRepository:
 
 def _existing_citation_repository() -> JsonCitationRepository | None:
     return JsonCitationRepository.open_existing(_home() / "citations.json")
+
+
+def _existing_source_observation_repository() -> JsonSourceObservationRepository | None:
+    return JsonSourceObservationRepository.open_existing(_home() / "source_observations.json")
 
 
 def _document_exists_for_inspection(document_id: UUID) -> bool:
@@ -528,6 +549,107 @@ def _cmd_citations_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resource_link_summary(link: ResourceLinkObservation) -> dict[str, object]:
+    return {
+        "link_id": str(link.link_id),
+        "source_observation_id": str(link.observation_id),
+        "relation": link.relation.value,
+        "target_uri": link.target_uri,
+        "media_type": link.media_type,
+        "label": link.label,
+        "metadata_keys": sorted(link.metadata),
+    }
+
+
+def _source_observation_summary(observation: SourceObservation) -> dict[str, object]:
+    return {
+        "observation_id": str(observation.observation_id),
+        "source_name": observation.source_name,
+        "basis": observation.basis.value,
+        "source_version": observation.source_version,
+        "provider_record_id": observation.provider_record_id,
+        "media_type": observation.media_type,
+    }
+
+
+def _research_package_service() -> ResearchPackageService:
+    documents = _document_repository()
+    return ResearchPackageService(
+        documents=documents,
+        work_documents=documents,
+        observations=_existing_source_observation_repository(),
+    )
+
+
+def _cmd_resources_list(args: argparse.Namespace) -> int:
+    if args.offset < 0 or args.limit < 0:
+        print("error: resource offset and limit must be non-negative", file=sys.stderr)
+        return 2
+    if args.offset > _MAX_RESOURCE_OFFSET or args.limit > _MAX_RESOURCE_PAGE_SIZE:
+        print("error: resource pagination exceeds the configured maximum", file=sys.stderr)
+        return 2
+    if not _document_exists_for_inspection(args.document_id):
+        print(f"error: document not found: {args.document_id}", file=sys.stderr)
+        return 2
+    try:
+        inspection = _research_package_service().inspect(args.document_id)
+    except (ResearchPackageNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    resources = inspection.resource_links[args.offset : args.offset + args.limit]
+    print(
+        json.dumps(
+            {
+                "document_id": str(inspection.document_id),
+                "artifact_id": str(inspection.artifact_id),
+                "work_representations": [
+                    {
+                        "link_id": str(link.link_id),
+                        "work_id": str(link.work_id),
+                        "linked_at": link.linked_at.isoformat(),
+                    }
+                    for link in inspection.work_documents
+                ],
+                "source_observations": [
+                    _source_observation_summary(item) for item in inspection.source_observations
+                ],
+                "resources": {
+                    "offset": args.offset,
+                    "limit": args.limit,
+                    "total": len(inspection.resource_links),
+                    "items": [_resource_link_summary(item) for item in resources],
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_resources_show(args: argparse.Namespace) -> int:
+    if not _document_exists_for_inspection(args.document_id):
+        print(f"error: document not found: {args.document_id}", file=sys.stderr)
+        return 2
+    try:
+        inspection = _research_package_service().inspect(args.document_id)
+    except (ResearchPackageNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    resource = next(
+        (item for item in inspection.resource_links if item.link_id == args.resource_link_id),
+        None,
+    )
+    if resource is None:
+        print(f"error: resource link not found: {args.resource_link_id}", file=sys.stderr)
+        return 2
+    payload = _resource_link_summary(resource)
+    payload["document_id"] = str(inspection.document_id)
+    payload["metadata"] = dict(resource.metadata)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def _identity_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tarkka identity", description="review fuzzy identities")
     sub = parser.add_subparsers(dest="identity_command", required=True)
@@ -600,6 +722,26 @@ def _citations_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resources_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tarkka resources",
+        description="inspect source-observed supplements, datasets, software, and representations",
+    )
+    sub = parser.add_subparsers(dest="resources_command", required=True)
+
+    listing = sub.add_parser("list", help="list compact source-observed resources for a document")
+    listing.add_argument("document_id", type=_parse_document_id)
+    listing.add_argument("--offset", type=int, default=0)
+    listing.add_argument("--limit", type=int, default=100)
+    listing.set_defaults(func=_cmd_resources_list)
+
+    show = sub.add_parser("show", help="show one resource link including native metadata")
+    show.add_argument("document_id", type=_parse_document_id)
+    show.add_argument("resource_link_id", type=_parse_resource_link_id)
+    show.set_defaults(func=_cmd_resources_show)
+    return parser
+
+
 def _db_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tarkka db",
@@ -627,6 +769,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     if arguments and arguments[0] == "citations":
         args = _citations_parser().parse_args(arguments[1:])
+        return int(args.func(args))
+    if arguments and arguments[0] == "resources":
+        args = _resources_parser().parse_args(arguments[1:])
         return int(args.func(args))
     if arguments and arguments[0] == "db":
         args = _db_parser().parse_args(arguments[1:])

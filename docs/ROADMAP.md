@@ -160,6 +160,8 @@ See [`SOURCE_DOCUMENT_PRESERVATION.md`](SOURCE_DOCUMENT_PRESERVATION.md).
    - no research semantics embedded in crawler code
 5. **Research packages / supplements**
    - link article representations, supplements, datasets, and software/code
+   - delivered: bounded, provenance-preserving inspection from a Document/Artifact through
+     its native observations; acquisition and identity resolution remain separate
    - prefer source-linked raw data over chart pixel reconstruction where available
 6. **Optional OCR/vision/chart reconstruction**
    - remain replaceable reconstructed/inferred adapters

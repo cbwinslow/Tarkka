@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
@@ -26,19 +27,22 @@ class PostgresWorkRepository:
     ) -> None:
         self._settings = settings
         self._connect = connection_factory
-        self._transaction_connection: Any | None = None
+        self._transaction_connection: ContextVar[Any | None] = ContextVar(
+            "tarkka_postgres_work_transaction_connection",
+            default=None,
+        )
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        if self._transaction_connection is not None:
+        if self._transaction_connection.get() is not None:
             raise RuntimeError("nested Work repository transactions are not supported")
         connection = self._connect(self._settings)
-        self._transaction_connection = connection
+        token = self._transaction_connection.set(connection)
         try:
             with connection:
                 yield
         finally:
-            self._transaction_connection = None
+            self._transaction_connection.reset(token)
             connection.close()
 
     def save_work(self, work: Work) -> None:
@@ -64,7 +68,6 @@ class PostgresWorkRepository:
                     publication_year = EXCLUDED.publication_year,
                     abstract = EXCLUDED.abstract,
                     venue = EXCLUDED.venue,
-                    created_at = EXCLUDED.created_at,
                     updated_at = now()
                 """,
                 (
@@ -227,8 +230,9 @@ class PostgresWorkRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        if self._transaction_connection is not None:
-            yield self._transaction_connection
+        transaction_connection = self._transaction_connection.get()
+        if transaction_connection is not None:
+            yield transaction_connection
             return
         connection = self._connect(self._settings)
         try:

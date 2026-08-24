@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import count
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -10,7 +11,7 @@ from tarkka.application.http_policy_fetch import (
     HttpPolicyFetchError,
     HttpPolicyFetchService,
 )
-from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
+from tarkka.domain.resource_acquisition import AcquisitionBudgetState, ResourceAcquisitionPolicy
 from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
@@ -105,7 +106,7 @@ def _service(
     checkpoints = JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json")
     observations = JsonSourceObservationRepository(tmp_path / "observations.json")
     artifacts = LocalArtifactStore(tmp_path / "artifacts")
-    ticks = iter((100.0, 100.5, 101.0, 101.5, 102.0, 102.5))
+    ticks = count(100.0, 0.5)
     service = HttpPolicyFetchService(
         resolver=resolver,
         transport=transport,
@@ -223,7 +224,7 @@ def test_policy_fetch_respects_shared_request_budget_before_network(tmp_path: Pa
     checkpoint = TraversalCheckpoint(
         checkpoint_id=checkpoint.checkpoint_id,
         targets=checkpoint.targets,
-        budget=checkpoint.budget.__class__(requests_used=5),
+        budget=AcquisitionBudgetState(requests_used=5),
     )
     resolver = _Resolver({"example.org": (_PUBLIC_ADDRESS,)})
     transport = _Transport([])
@@ -239,3 +240,37 @@ def test_policy_fetch_respects_shared_request_budget_before_network(tmp_path: Pa
 
     assert resolver.calls == []
     assert transport.calls == []
+
+
+def test_policy_fetch_rejects_transport_overflow_and_preserves_spent_budget(
+    tmp_path: Path,
+) -> None:
+    checkpoint, target_id = _checkpoint()
+    resolver = _Resolver({"example.org": (_PUBLIC_ADDRESS,)})
+    transport = _Transport(
+        [
+            HttpTransportResponse(
+                status_code=200,
+                headers={"Content-Type": ("text/plain",)},
+                body=b"x" * 16,
+                limit_exceeded=True,
+            )
+        ]
+    )
+    service, checkpoints, _, _ = _service(tmp_path, resolver=resolver, transport=transport)
+
+    with pytest.raises(HttpPolicyFetchError) as exc_info:
+        service.fetch(
+            checkpoint,
+            _policy(max_bytes=16),
+            uri="https://example.org/robots.txt",
+            depth=1,
+        )
+
+    failed = exc_info.value.checkpoint
+    target = next(item for item in failed.targets if item.target_id == target_id)
+    assert target.status is TraversalStatus.QUEUED
+    assert target.attempts == 0
+    assert failed.budget.requests_used == 1
+    assert failed.budget.bytes_used == 16
+    assert checkpoints.get(checkpoint.checkpoint_id) == failed

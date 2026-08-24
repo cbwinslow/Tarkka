@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from pathlib import Path
 
+_EMPTY_LOCK_STALE_SECONDS = 10.0
 
 @contextmanager
 def exclusive_lock(
@@ -46,8 +47,21 @@ def exclusive_lock(
 def _remove_stale_lock(lock_path: Path) -> bool:
     try:
         raw_pid = lock_path.read_text(encoding="ascii").strip()
+    except (FileNotFoundError, OSError):
+        return False
+    if not raw_pid:
+        try:
+            age = time.time() - lock_path.stat().st_mtime
+        except FileNotFoundError:
+            return True
+        if age < _EMPTY_LOCK_STALE_SECONDS:
+            return False
+        with suppress(FileNotFoundError):
+            lock_path.unlink()
+        return True
+    try:
         pid = int(raw_pid)
-    except (FileNotFoundError, OSError, ValueError):
+    except ValueError:
         return False
     if _process_exists(pid):
         return False

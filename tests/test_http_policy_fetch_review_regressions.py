@@ -8,8 +8,8 @@ from uuid import uuid4
 import pytest
 
 from tarkka.application.http_policy_fetch import (
-    HttpPolicyRedirectLimitError,
     HttpPolicyFetchService,
+    HttpPolicyRedirectLimitError,
 )
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
 from tarkka.domain.traversal import TraversalCheckpoint

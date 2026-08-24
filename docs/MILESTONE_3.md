@@ -73,7 +73,8 @@ Explicit `--provider` selection remains authoritative and does not depend on int
 - provider-neutral `FullTextResolver` and `BinaryFetcher` ports
 - arXiv PDF resolution
 - typed provider-observation full-text resolution, including Semantic Scholar `openAccessPdf`
-- HTTPS-only, size-bounded, media-type-checked downloads
+- HTTPS-only, size-bounded, media-type-checked downloads through the shared pinned transport;
+  redirects stay within the selected HTTPS origin and are re-resolved before every connection
 - immutable Artifact storage plus Acquisition provenance
 - normalization through the existing parser pipeline
 

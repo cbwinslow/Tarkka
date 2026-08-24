@@ -95,6 +95,29 @@ def test_cache_rejects_conflicting_same_time_entry(tmp_path: Path) -> None:
         cache.save(_entry(content="User-agent: *\nDisallow: /\n"))
 
 
+def test_cache_allows_monotonic_retry_expiry_for_same_fetch(tmp_path: Path) -> None:
+    cache = JsonRobotsCache(tmp_path / "robots.json")
+    original = _entry(lifetime=timedelta(hours=1))
+    extended = _entry(lifetime=timedelta(hours=2))
+    cache.save(original)
+
+    cache.save(extended)
+
+    assert cache.get(_ROBOTS) == extended
+
+
+def test_cache_rejects_shorter_retry_expiry_for_same_fetch(tmp_path: Path) -> None:
+    cache = JsonRobotsCache(tmp_path / "robots.json")
+    longer = _entry(lifetime=timedelta(hours=2))
+    shorter = _entry(lifetime=timedelta(hours=1))
+    cache.save(longer)
+
+    with pytest.raises(RobotsCacheConflictError, match="shorten retry expiry"):
+        cache.save(shorter)
+
+    assert cache.get(_ROBOTS) == longer
+
+
 def test_cache_entry_freshness_uses_half_open_expiry_window() -> None:
     entry = _entry(lifetime=timedelta(hours=1))
 

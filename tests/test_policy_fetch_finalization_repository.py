@@ -17,7 +17,11 @@ from tarkka.infrastructure.storage.json_policy_fetch_finalization_repository imp
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.regression]
 
 
-def _finalization(*, content: bytes = b"robots", final_uri: str = "https://example.org/robots.txt") -> PolicyFetchFinalization:
+def _finalization(
+    *,
+    content: bytes = b"robots",
+    final_uri: str = "https://example.org/robots.txt",
+) -> PolicyFetchFinalization:
     checkpoint_id = uuid4()
     sha256 = hashlib.sha256(content).hexdigest()
     artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{sha256}")

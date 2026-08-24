@@ -9,7 +9,8 @@ It is shared application behavior for future MCP, CLI, API, and SDK interfaces;
 it neither selects a provider nor reads documents.
 
 `research.discover` maps to `DiscoveryService.discover`; `research.verify` maps
-to `EvidenceVerificationService.record`. Handle resolution and named deeper
+to `EvidenceVerificationService.record`; and `research.verify.candidates` maps
+to its bounded citation-context review aid. Handle resolution and named deeper
 representations are deliberately not advertised until their application
 services exist. The token estimate includes a documented fixed envelope
 overhead plus each returned operation's estimate; it is a routing estimate, not

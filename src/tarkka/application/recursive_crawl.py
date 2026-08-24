@@ -117,6 +117,13 @@ class RecursiveCrawlResult:
         if self.acquisition is not None and self.gate.status is not RecursiveCrawlGateStatus.READY:
             raise ValueError("only a ready recursive crawl gate may produce an acquisition")
 
+    @property
+    def checkpoint(self) -> TraversalCheckpoint:
+        """Return the newest checkpoint produced by this orchestration result."""
+        if self.acquisition is not None:
+            return self.acquisition.checkpoint
+        return self.gate.checkpoint
+
 
 class RecursiveCrawlPolicyGate:
     """Gate queued discovered targets before handing them to HTTP acquisition."""
@@ -173,7 +180,7 @@ class RecursiveCrawlPolicyGate:
             seconds_since_last_request=seconds_since_last_request,
         )
 
-    def _evaluate_entry(
+    def evaluate_refreshed_entry(
         self,
         checkpoint: TraversalCheckpoint,
         target_id: UUID,
@@ -334,6 +341,7 @@ class RecursiveCrawlCoordinator:
         product_token: str,
         rights: RightsAccessDecision,
         now: datetime,
+        request_uri: str | None = None,
         seconds_since_last_request: float | None = None,
     ) -> RecursiveCrawlResult:
         gate = self._policy_gate.evaluate(
@@ -363,7 +371,7 @@ class RecursiveCrawlCoordinator:
             # A robots refresh just performed (or attempted) network I/O. Re-gate conservatively
             # from zero elapsed time so the policy fetch cannot accidentally satisfy target pacing.
             acquisition_interval = 0.0
-            gate = self._policy_gate._evaluate_entry(
+            gate = self._policy_gate.evaluate_refreshed_entry(
                 refresh.checkpoint,
                 target_id,
                 policy,
@@ -383,6 +391,7 @@ class RecursiveCrawlCoordinator:
             gate.checkpoint,
             target_id,
             effective_policy,
+            request_uri=request_uri,
             seconds_since_last_request=acquisition_interval,
         )
         return RecursiveCrawlResult(

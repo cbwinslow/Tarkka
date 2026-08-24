@@ -93,6 +93,29 @@ class WorkRepositoryContract:
         assert repository.list_source_records(original.work_id) == (source_record,)
 
     @staticmethod
+    def assert_identifier_resave_preserves_creation_metadata(
+        repository: WorkRepository,
+        work: Work,
+        original: WorkIdentifier,
+        resaved: WorkIdentifier,
+    ) -> None:
+        assert original.work_id == work.work_id
+        assert resaved.work_id == work.work_id
+        assert original.scheme == resaved.scheme
+        assert original.value == resaved.value
+        assert original != resaved
+
+        with repository.transaction():
+            repository.save_work(work)
+            repository.save_identifier(original)
+
+        with repository.transaction():
+            repository.save_identifier(resaved)
+
+        assert repository.list_identifiers(work.work_id) == (original,)
+        assert repository.find_work_by_identifier(original.scheme, original.value) == work
+
+    @staticmethod
     def assert_identifier_conflict_rolls_back_transaction(
         repository: WorkRepository,
         first_work: Work,

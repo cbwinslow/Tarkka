@@ -177,6 +177,14 @@ def test_citations_cli_progressively_expands_preserved_native_citations(
     assert expanded["raw_text"] == "First cited work10.1000/first"
     assert expanded["resolution"] is None
     assert len(expanded["citation_mentions"]) == 2
+    assert all(
+        item["reference_id"] == reference["reference_id"]
+        for item in expanded["citation_mentions"]
+    )
+    assert all(item["section_id"] is None for item in expanded["citation_mentions"])
+    assert all(item["passage_id"] is None for item in expanded["citation_mentions"])
+    assert all(item["char_start"] is None for item in expanded["citation_mentions"])
+    assert all(item["char_end"] is None for item in expanded["citation_mentions"])
     assert {
         context["text"]
         for mention in expanded["citation_mentions"]
@@ -200,3 +208,25 @@ def test_citations_cli_rejects_negative_pagination(
     assert exit_code == 2
     assert captured.out == ""
     assert "non-negative" in captured.err
+
+    exit_code = main(["citations", "list", str(uuid4()), "--limit", "-1"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "non-negative" in captured.err
+
+
+def test_citations_cli_does_not_initialize_a_missing_catalog(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("TARKKA_HOME", str(home))
+
+    exit_code = main(["citations", "list", str(uuid4())])
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out)["references"] == []
+    assert not home.exists()

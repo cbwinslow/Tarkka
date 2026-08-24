@@ -50,6 +50,9 @@ from tarkka.interfaces.bibliography_cli import run as bibliography_main
 from tarkka.interfaces.cli import main as legacy_main
 from tarkka.ports.extraction import StructuredExtractor
 
+_MAX_CITATION_PAGE_SIZE = 100
+_MAX_CITATION_OFFSET = 10_000
+
 
 def _home() -> Path:
     return Path(os.environ.get("TARKKA_HOME", "~/.tarkka")).expanduser().resolve()
@@ -106,8 +109,8 @@ def _document_repository() -> JsonResearchRepository:
     return JsonResearchRepository(_home() / "catalog.json")
 
 
-def _citation_repository() -> JsonCitationRepository:
-    return JsonCitationRepository(_home() / "citations.json")
+def _existing_citation_repository() -> JsonCitationRepository | None:
+    return JsonCitationRepository.open_existing(_home() / "citations.json")
 
 
 def _cmd_db_upgrade(_: argparse.Namespace) -> int:
@@ -372,7 +375,12 @@ def _citation_mention_payload(
 ) -> dict[str, object]:
     return {
         "mention_id": str(mention.mention_id),
+        "reference_id": str(mention.reference_id) if mention.reference_id is not None else None,
         "raw_text": mention.raw_text,
+        "section_id": str(mention.section_id) if mention.section_id is not None else None,
+        "passage_id": str(mention.passage_id) if mention.passage_id is not None else None,
+        "char_start": mention.char_start,
+        "char_end": mention.char_end,
         "source_anchor": mention.source_anchor,
         "source_observation_id": (
             str(mention.source_observation_id)
@@ -387,20 +395,41 @@ def _cmd_citations_list(args: argparse.Namespace) -> int:
     if args.offset < 0 or args.limit < 0:
         print("error: citation offset and limit must be non-negative", file=sys.stderr)
         return 2
+    if args.offset > _MAX_CITATION_OFFSET:
+        print(
+            f"error: citation offset must not exceed {_MAX_CITATION_OFFSET}",
+            file=sys.stderr,
+        )
+        return 2
+    if args.limit > _MAX_CITATION_PAGE_SIZE:
+        print(
+            f"error: citation limit must not exceed {_MAX_CITATION_PAGE_SIZE}",
+            file=sys.stderr,
+        )
+        return 2
     try:
-        references = _citation_repository().list_references(args.document_id)
+        repository = _existing_citation_repository()
+        total = repository.count_references(args.document_id) if repository is not None else 0
+        references = (
+            repository.list_references(
+                args.document_id,
+                offset=args.offset,
+                limit=args.limit,
+            )
+            if repository is not None
+            else ()
+        )
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    page = references[args.offset : args.offset + args.limit]
     print(
         json.dumps(
             {
                 "document_id": str(args.document_id),
                 "offset": args.offset,
                 "limit": args.limit,
-                "total": len(references),
-                "references": [_reference_payload(reference) for reference in page],
+                "total": total,
+                "references": [_reference_payload(reference) for reference in references],
             },
             indent=2,
             sort_keys=True,
@@ -411,7 +440,10 @@ def _cmd_citations_list(args: argparse.Namespace) -> int:
 
 def _cmd_citations_show(args: argparse.Namespace) -> int:
     try:
-        repository = _citation_repository()
+        repository = _existing_citation_repository()
+        if repository is None:
+            print(f"error: reference not found: {args.reference_id}", file=sys.stderr)
+            return 2
         reference = next(
             (
                 item
@@ -423,14 +455,16 @@ def _cmd_citations_show(args: argparse.Namespace) -> int:
         if reference is None:
             print(f"error: reference not found: {args.reference_id}", file=sys.stderr)
             return 2
-        contexts_by_mention: dict[UUID, list[CitationContext]] = {}
-        for context in repository.list_contexts(args.document_id):
-            contexts_by_mention.setdefault(context.mention_id, []).append(context)
-        mentions = tuple(
-            mention
-            for mention in repository.list_mentions(args.document_id)
-            if mention.reference_id == reference.reference_id
+        mentions = repository.list_mentions_for_reference(
+            args.document_id,
+            reference.reference_id,
         )
+        contexts_by_mention: dict[UUID, list[CitationContext]] = {}
+        for context in repository.list_contexts_for_mentions(
+            args.document_id,
+            frozenset(mention.mention_id for mention in mentions),
+        ):
+            contexts_by_mention.setdefault(context.mention_id, []).append(context)
         payload = _reference_payload(reference)
         payload["document_id"] = str(args.document_id)
         payload["raw_text"] = reference.raw_text

@@ -35,7 +35,8 @@ tarkka citations list <document-id> --offset 0 --limit 20
 tarkka citations show <document-id> <reference-id>
 ```
 
-`list` returns bounded reference metadata and stable IDs, but omits raw bibliography text and
-context passages. `show` expands exactly one reference, its recorded resolution state when one
-exists, and only the citation mentions/contexts tied to that reference. This is a local interface
+`list` returns bounded reference metadata and stable IDs (at most 100 records per request), but
+omits raw bibliography text and context passages. `show` expands exactly one reference, its
+recorded resolution state when one exists, and only the citation mentions/contexts tied to that
+reference. Inspection never initializes a missing local citation catalog. This is a local interface
 over the existing citation repository; it does not resolve identities or infer support.

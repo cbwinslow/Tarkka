@@ -213,3 +213,33 @@ def test_repository_orders_references_and_mentions_deterministically(tmp_path: P
 
     assert repository.list_references(document_id) == (earlier_reference, later_reference)
     assert repository.list_mentions(document_id) == (earlier_mention, later_mention)
+
+
+def test_repository_pages_references_without_materializing_domain_records(tmp_path: Path) -> None:
+    repository = JsonCitationRepository(tmp_path / "citations.json")
+    document_id = uuid4()
+    references = tuple(
+        BibliographicReference(
+            reference_id=uuid4(),
+            document_id=document_id,
+            ordinal=ordinal,
+            raw_text=f"Reference {ordinal}",
+        )
+        for ordinal in (4, 1, 3, 2)
+    )
+    for reference in references:
+        repository.save_reference(reference)
+
+    assert repository.count_references(document_id) == 4
+    assert [
+        item.ordinal
+        for item in repository.list_references(document_id, offset=1, limit=2)
+    ] == [2, 3]
+    assert repository.list_references(document_id, offset=0, limit=0) == ()
+
+
+def test_open_existing_does_not_initialize_missing_catalog(tmp_path: Path) -> None:
+    path = tmp_path / "missing" / "citations.json"
+
+    assert JsonCitationRepository.open_existing(path) is None
+    assert not path.parent.exists()

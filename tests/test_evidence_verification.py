@@ -11,7 +11,7 @@ from tarkka.application.verification import (
     EvidenceVerificationRequest,
     EvidenceVerificationService,
 )
-from tarkka.domain.citations import CitationContext
+from tarkka.domain.citations import CitationContext, CitationMention
 from tarkka.domain.extraction import Claim, Evidence, ExtractionBatch
 from tarkka.domain.verification import EvidenceRelationKind
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
@@ -122,3 +122,45 @@ def test_no_evidence_is_explicit_and_context_must_belong_to_claim_document(
             )
         )
     assert fixture.batch.document_id == fixture.claim.document_id
+
+
+def test_citation_candidates_are_bounded_to_exact_claim_evidence_passages(tmp_path: Path) -> None:
+    fixture = _service(tmp_path)
+    anchored = CitationContext(
+        context_id=uuid4(),
+        mention_id=uuid4(),
+        document_id=fixture.batch.document_id,
+        text=fixture.evidence.text,
+        char_start=0,
+        char_end=len(fixture.evidence.text),
+        section_id=fixture.evidence.section_id,
+        passage_id=fixture.evidence.passage_id,
+    )
+    unanchored = CitationContext(
+        context_id=uuid4(),
+        mention_id=uuid4(),
+        document_id=fixture.batch.document_id,
+        text="[2]",
+        char_start=0,
+        char_end=3,
+    )
+    fixture.citations.save_context(anchored)
+    fixture.citations.save_context(unanchored)
+    reference_id = uuid4()
+    fixture.citations.save_mention(
+        CitationMention(
+            mention_id=anchored.mention_id,
+            document_id=fixture.batch.document_id,
+            raw_text="[1]",
+            reference_id=reference_id,
+            passage_id=fixture.evidence.passage_id,
+        )
+    )
+
+    page = fixture.service.citation_candidates(fixture.claim.extraction_id, limit=1)
+
+    assert page.total == 1
+    assert len(page.candidates) == 1
+    assert page.candidates[0].citation_context == anchored
+    assert page.candidates[0].evidence_ids == (fixture.evidence.evidence_id,)
+    assert page.candidates[0].reference_id == reference_id

@@ -238,6 +238,42 @@ def test_repository_pages_references_without_materializing_domain_records(tmp_pa
     assert repository.list_references(document_id, offset=0, limit=0) == ()
 
 
+def test_repository_pages_contexts_for_exact_passages(tmp_path: Path) -> None:
+    repository = JsonCitationRepository(tmp_path / "citations.json")
+    document_id = uuid4()
+    passage_id = uuid4()
+    matching = CitationContext(
+        context_id=uuid4(),
+        mention_id=uuid4(),
+        document_id=document_id,
+        text="[1]",
+        char_start=0,
+        char_end=3,
+        passage_id=passage_id,
+    )
+    other = CitationContext(
+        context_id=uuid4(),
+        mention_id=uuid4(),
+        document_id=document_id,
+        text="[2]",
+        char_start=4,
+        char_end=7,
+        passage_id=uuid4(),
+    )
+    repository.save_context(matching)
+    repository.save_context(other)
+
+    assert repository.count_contexts_for_passages(document_id, frozenset()) == 0
+    assert repository.count_contexts_for_passages(document_id, frozenset({passage_id})) == 1
+    assert repository.list_contexts_for_passages(document_id, frozenset()) == ()
+    assert repository.list_contexts_for_passages(
+        document_id, frozenset({passage_id}), limit=0
+    ) == ()
+    assert repository.list_contexts_for_passages(
+        document_id, frozenset({passage_id}), limit=None
+    ) == (matching,)
+
+
 def test_open_existing_does_not_initialize_missing_catalog(tmp_path: Path) -> None:
     path = tmp_path / "missing" / "citations.json"
 

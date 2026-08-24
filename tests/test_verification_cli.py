@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from tarkka.domain.citations import CitationContext
+from tarkka.domain.citations import CitationContext, CitationMention
 from tarkka.domain.extraction import Claim, Evidence
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
@@ -100,6 +100,55 @@ def test_verify_cli_reports_invalid_no_evidence_request(
     assert "must not identify evidence" in capsys.readouterr().err
 
 
+def test_verify_cli_lists_bounded_citation_context_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("TARKKA_HOME", str(home))
+    batch = _batch()
+    JsonExtractionRepository(home / "extractions.json").save_batch(batch)
+    claim = next(item for item in batch.extractions if isinstance(item, Claim))
+    evidence = next(item for item in batch.evidence if isinstance(item, Evidence))
+    context = CitationContext(
+        context_id=uuid4(),
+        mention_id=uuid4(),
+        document_id=batch.document_id,
+        text=evidence.text,
+        char_start=0,
+        char_end=len(evidence.text),
+        section_id=evidence.section_id,
+        passage_id=evidence.passage_id,
+    )
+    citations = JsonCitationRepository(home / "citations.json")
+    reference_id = uuid4()
+    citations.save_mention(
+        CitationMention(
+            mention_id=context.mention_id,
+            document_id=batch.document_id,
+            raw_text="[1]",
+            reference_id=reference_id,
+            passage_id=evidence.passage_id,
+        )
+    )
+    citations.save_context(context)
+
+    assert main(["verify", "candidates", str(claim.extraction_id), "--limit", "1"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["total"] == 1
+    assert payload["candidates"] == [
+        {
+            "citation_context_id": str(context.context_id),
+            "evidence_ids": [str(evidence.evidence_id)],
+            "mention_id": str(context.mention_id),
+            "passage_id": str(evidence.passage_id),
+            "reference_id": str(reference_id),
+        }
+    ]
+
+
 def test_verify_cli_lists_empty_catalog_with_stable_pagination_shape(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -117,3 +166,24 @@ def test_verify_cli_lists_empty_catalog_with_stable_pagination_shape(
         "total": 0,
         "relations": [],
     }
+
+
+@pytest.mark.parametrize(
+    "arguments, message",
+    (
+        (("--offset", "-1"), "offset and limit must be non-negative"),
+        (("--limit", "101"), "pagination exceeds the configured maximum"),
+    ),
+)
+def test_verify_candidates_cli_rejects_out_of_bounds_pagination(
+    arguments: tuple[str, str],
+    message: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
+
+    assert main(["verify", "candidates", str(uuid4()), *arguments]) == 2
+
+    assert message in capsys.readouterr().err

@@ -217,6 +217,36 @@ _OPERATION_REGISTRATIONS = (
         ),
         "One immutable, verifier-versioned evidence-relation handle.",
     ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.verify.candidates",
+            "verify",
+            "Find bounded citation contexts for evidence review.",
+            20,
+        ),
+        EvidenceVerificationService,
+        "citation_candidates",
+        (
+            ResearchField("claim_id", "uuid", True, "Stable Claim extraction identifier."),
+            ResearchField(
+                "offset",
+                "integer",
+                False,
+                "Zero-based candidate offset.",
+                minimum=0,
+                maximum=10000,
+            ),
+            ResearchField(
+                "limit",
+                "integer",
+                False,
+                "Maximum candidates to return.",
+                minimum=0,
+                maximum=100,
+            ),
+        ),
+        "Citation-context/evidence handles for review; never an evidence assessment.",
+    ),
 )
 
 

@@ -19,6 +19,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
     assert [item.operation_id for item in capabilities.operations] == [
         "research.discover",
         "research.verify",
+        "research.verify.candidates",
     ]
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
@@ -27,12 +28,14 @@ def test_research_capabilities_are_stable_and_compact() -> None:
     assert [(item.service_type, item.method_name) for item in _OPERATION_REGISTRATIONS] == [
         (DiscoveryService, "discover"),
         (EvidenceVerificationService, "record"),
+        (EvidenceVerificationService, "citation_candidates"),
     ]
 
 
 def test_research_operation_schema_is_compact_and_only_exposes_implemented_inputs() -> None:
     discover = research_operation_schema("research.discover")
     verify = research_operation_schema("research.verify")
+    candidates = research_operation_schema("research.verify.candidates")
 
     assert [field.name for field in discover.inputs] == [
         "text",
@@ -71,6 +74,15 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert verify.inputs[7].allowed_values == ("unreviewed", "verified", "corrected", "rejected")
     assert verify.operation.operation_id == "research.verify"
     assert verify.estimated_tokens < 200
+    assert [field.name for field in candidates.inputs] == ["claim_id", "offset", "limit"]
+    assert candidates.inputs[1].minimum == 0
+    assert candidates.inputs[1].maximum == 10000
+    assert candidates.inputs[2].minimum == 0
+    assert candidates.inputs[2].maximum == 100
+    assert candidates.result_summary == (
+        "Citation-context/evidence handles for review; never an evidence assessment."
+    )
+    assert candidates.estimated_tokens < 100
     with pytest.raises(UnknownResearchOperationError, match="research.expand") as error:
         research_operation_schema("research.expand")
     assert error.value.operation_id == "research.expand"

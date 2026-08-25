@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Agent-first, evidence-grounded research infrastructure."
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "License TBD"}
+license = {text = "Apache-2.0"}
 authors = [{name = "Tarkka contributors"}]
 dependencies = []
 

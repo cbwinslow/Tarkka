@@ -3,6 +3,13 @@
 Tarkka is an open, agent-first research infrastructure platform for discovering, ingesting,
 normalizing, organizing, and serving evidence-grounded research to humans and AI agents.
 
+## License and releases
+
+Tarkka is licensed under [Apache-2.0](LICENSE). The license covers Tarkka software and
+project-authored documentation; it does not grant rights to research content acquired, processed,
+or referenced by Tarkka. Releases and public package publication are maintainer-controlled and
+will be announced through tagged GitHub releases.
+
 The core is intentionally usable without an LLM, hosted service, or mandatory external API. External
 research providers, document parsers, databases, and future model providers live behind replaceable
 contracts.

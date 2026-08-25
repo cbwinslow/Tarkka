@@ -122,4 +122,7 @@ Keep the published package installable independently of development tooling:
 
 ## License note
 
-The software license has not yet been selected. External contributions should remain minimal until the repository adopts an explicit license and contributor policy.
+Tarkka is licensed under Apache-2.0. By submitting a contribution, you agree that it is
+licensed under the repository's Apache-2.0 license and that you have the right to submit it.
+Do not submit third-party code, fixtures, or research content unless its redistribution terms
+permit doing so. The software license does not grant rights to imported research content.

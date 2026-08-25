@@ -93,6 +93,10 @@ class IngestService:
             original_name=original_name,
             metadata=dict(acquisition_metadata or {}),
         )
+        # Acquisition provenance requires its immutable artifact to exist first in relational
+        # stores. Persist it before parser selection so an acquired artifact remains auditable if
+        # a later parsing or normalization stage fails and is retried.
+        self._repository.save_artifact(artifact)
         if self._acquisition_recorder is not None:
             self._acquisition_recorder.record(acquisition)
 
@@ -132,7 +136,6 @@ class IngestService:
             document = parser.parse(artifact, stored_path)
         manifest = build_document_manifest(document, artifact)
 
-        self._repository.save_artifact(artifact)
         self._repository.save_document(document, manifest)
         if native_parse is not None:
             try:

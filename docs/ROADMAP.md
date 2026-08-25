@@ -263,6 +263,8 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
   and saved-context-package CLI retrieval; JSON remains the dependency-free default
 - optional stdio MCP server exposing compact capability discovery and the same read-only,
   progressive document manifest/section retrieval services as the CLI
+- explicit opt-in MCP usage telemetry for operation outcome, latency, response bytes, and estimated
+  context tokens, with no request arguments or source content persisted
 
 Deliverables:
 

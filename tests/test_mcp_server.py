@@ -7,6 +7,7 @@ import pytest
 
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
+from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
@@ -33,6 +34,14 @@ def _call(server: Any, tool_name: str, arguments: dict[str, object]) -> dict[str
     assert result.is_error is False
     assert isinstance(result.structured_content, dict)
     return result.structured_content
+
+
+class _TelemetryRecorder:
+    def __init__(self) -> None:
+        self.events: list[AgentUsageEvent] = []
+
+    def record(self, event: AgentUsageEvent) -> None:
+        self.events.append(event)
 
 
 def test_mcp_server_registers_only_read_only_initial_operations() -> None:
@@ -120,6 +129,28 @@ def test_mcp_server_preserves_staged_document_disclosure(tmp_path: Path) -> None
     )
     assert detail["section"]["passages"][0]["text"] == "Evidence first."
     assert detail["estimated_tokens"] > 0
+
+
+def test_mcp_server_emits_opt_in_aggregate_usage_without_source_text(tmp_path: Path) -> None:
+    result, documents = _ingest_document(tmp_path)
+    telemetry = _TelemetryRecorder()
+    server = create_server(
+        documents=DocumentRetrievalService(documents=documents), telemetry=telemetry
+    )
+
+    _call(server, "document_manifest", {"document_id": str(result.document.document_id)})
+    _call(server, "document_manifest", {"document_id": "not-a-document"})
+
+    observed = [(event.operation_id, event.outcome, event.error_code) for event in telemetry.events]
+    assert observed == [
+        ("document_manifest", "success", None),
+        ("document_manifest", "error", "invalid_argument"),
+    ]
+    assert all(event.interface == "mcp" and event.elapsed_ms >= 0 for event in telemetry.events)
+    assert all(
+        event.response_bytes > 0 and event.estimated_tokens >= 0 for event in telemetry.events
+    )
+    assert all("Evidence first." not in repr(event) for event in telemetry.events)
 
 
 def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(

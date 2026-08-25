@@ -8,6 +8,13 @@ domain-facing API or enable state-changing operations.
 
 from __future__ import annotations
 
+import json
+import os
+from collections.abc import Callable
+from datetime import UTC, datetime
+from functools import wraps
+from pathlib import Path
+from time import perf_counter
 from uuid import UUID
 
 from mcp.server import MCPServer
@@ -26,7 +33,10 @@ from tarkka.application.research_capabilities import (
 )
 from tarkka.domain.manifest import estimate_tokens
 from tarkka.domain.models import Section
+from tarkka.domain.telemetry import AgentUsageEvent
+from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorder
 from tarkka.interfaces.main import _document_retrieval_service
+from tarkka.ports.telemetry import AgentUsageRecorder
 
 _READ_ONLY = ToolAnnotations(
     read_only_hint=True,
@@ -37,7 +47,11 @@ _READ_ONLY = ToolAnnotations(
 _MAX_SECTION_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 
 
-def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPServer:
+def create_server(
+    *,
+    documents: DocumentRetrievalService | None = None,
+    telemetry: AgentUsageRecorder | None = None,
+) -> MCPServer:
     """Build the stdio MCP server, optionally using an injected retrieval service.
 
     Injection keeps the transport independently testable. Normal execution
@@ -53,6 +67,24 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
             retrieval = _document_retrieval_service()
         return retrieval
 
+    def instrument(
+        operation_id: str,
+    ) -> Callable[[Callable[..., dict[str, object]]], Callable[..., dict[str, object]]]:
+        """Measure a tool response without making optional telemetry part of its outcome."""
+        def decorator(
+            handler: Callable[..., dict[str, object]],
+        ) -> Callable[..., dict[str, object]]:
+            @wraps(handler)
+            def wrapped(*args: object, **kwargs: object) -> dict[str, object]:
+                started = perf_counter()
+                response = handler(*args, **kwargs)
+                _record_response(telemetry, operation_id, response, perf_counter() - started)
+                return response
+
+            return wrapped
+
+        return decorator
+
     server = MCPServer("tarkka")
 
     @server.tool(
@@ -60,6 +92,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         description="List compact Tarkka operation handles before requesting an operation schema.",
         annotations=_READ_ONLY,
     )
+    @instrument("research_capabilities")
     def capabilities() -> dict[str, object]:
         """Return the bounded first-stage capability index."""
         index = research_capabilities()
@@ -85,6 +118,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         ),
         annotations=_READ_ONLY,
     )
+    @instrument("research_operation_schema")
     def operation_schema(operation_id: object) -> dict[str, object]:
         """Return an operation descriptor or a stable unknown-operation error."""
         if not isinstance(operation_id, str):
@@ -128,6 +162,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         description="Return compact normalized-document metadata without expanding source text.",
         annotations=_READ_ONLY,
     )
+    @instrument("document_manifest")
     def manifest(document_id: object) -> dict[str, object]:
         """Return a document manifest selected by its stable handle."""
         parsed = _uuid_or_error(document_id, kind="document")
@@ -147,6 +182,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         ),
         annotations=_READ_ONLY,
     )
+    @instrument("document_sections")
     def sections(document_id: object, offset: int = 0, limit: int = 20) -> dict[str, object]:
         """List one bounded page in the document manifest-to-section ladder."""
         parsed = _uuid_or_error(document_id, kind="document")
@@ -187,6 +223,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         description="Expand one exact normalized section and its source-preserving passages.",
         annotations=_READ_ONLY,
     )
+    @instrument("document_section")
     def section(document_id: object, section_id: object) -> dict[str, object]:
         """Expand a requested section only when it belongs to the requested document."""
         document = _uuid_or_error(document_id, kind="document")
@@ -222,7 +259,12 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
 
 def main() -> None:
     """Run Tarkka's read-only MCP interface over stdio."""
-    create_server().run(transport="stdio")
+    create_server(telemetry=_telemetry_from_environment()).run(transport="stdio")
+
+
+def _telemetry_from_environment() -> AgentUsageRecorder | None:
+    raw_path = os.environ.get("TARKKA_MCP_TELEMETRY_PATH", "").strip()
+    return JsonlAgentUsageRecorder(Path(raw_path)) if raw_path else None
 
 
 def _uuid_or_error(value: object, *, kind: str) -> UUID | dict[str, object]:
@@ -287,3 +329,34 @@ def _not_found_error(exc: LookupError, next_action: str) -> dict[str, object]:
 
 def _unavailable_error(exc: OSError | RuntimeError) -> dict[str, object]:
     return _error("backend_unavailable", str(exc))
+
+
+def _record_response(
+    telemetry: AgentUsageRecorder | None,
+    operation_id: str,
+    response: dict[str, object],
+    elapsed_seconds: float,
+) -> None:
+    if telemetry is None:
+        return
+    error = response.get("error")
+    error_code = error.get("code") if isinstance(error, dict) else None
+    outcome = "error" if response.get("ok") is False else "success"
+    estimated_tokens = response.get("estimated_tokens", 0)
+    if not isinstance(estimated_tokens, int) or isinstance(estimated_tokens, bool):
+        estimated_tokens = 0
+    event = AgentUsageEvent(
+        occurred_at=datetime.now(UTC),
+        interface="mcp",
+        operation_id=operation_id,
+        outcome=outcome,
+        elapsed_ms=round(elapsed_seconds * 1_000),
+        response_bytes=len(json.dumps(response, sort_keys=True, separators=(",", ":")).encode()),
+        estimated_tokens=estimated_tokens,
+        error_code=error_code if isinstance(error_code, str) else None,
+    )
+    try:
+        telemetry.record(event)
+    except OSError:
+        # Telemetry is explicitly opt-in and must not turn a read operation into a failure.
+        return

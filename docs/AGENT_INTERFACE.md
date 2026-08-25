@@ -125,6 +125,11 @@ the CLI: `TARKKA_DOCUMENT_BACKEND=json` remains the dependency-free default, whi
 configured PostgreSQL backend reads the same persisted document records. No MCP operation currently
 writes state, runs schema migrations, calls a provider, or bypasses application services.
 
+`TARKKA_MCP_TELEMETRY_PATH` is an explicit opt-in JSONL destination for aggregate MCP usage events.
+Each event contains only operation ID, outcome/error code, elapsed milliseconds, response bytes, and
+estimated response tokens. Request arguments, document IDs, source text, and raw artifacts are never
+written to telemetry. A telemetry write failure cannot alter a research-tool response.
+
 Provider-specific details should be selected through typed arguments/resources where possible.
 
 ## MCP resources

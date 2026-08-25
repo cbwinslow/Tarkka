@@ -133,6 +133,15 @@ remain CLI/application-service operations until their audit boundaries are expos
 Exact section expansion is rejected above the same 8,000 estimated-token budget used for document
 context packages, so one MCP call cannot force an unbounded document response.
 
+For transparent, opt-in local telemetry, set a JSONL destination before starting the server. Events
+contain only tool name, outcome/error code, response byte count, estimated tokens, and latency;
+they never contain document text, request arguments, or identifiers:
+
+```bash
+export TARKKA_MCP_TELEMETRY_PATH=./var/tarkka-mcp-usage.jsonl
+tarkka-mcp
+```
+
 ## Agent-first design
 
 Tarkka uses progressive disclosure to conserve context:

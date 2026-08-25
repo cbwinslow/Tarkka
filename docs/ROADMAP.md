@@ -128,7 +128,7 @@ Goal: turn research sources into reusable, evidence-grounded research objects wi
 - typed Claim, Hypothesis, Method, Dataset, Variable, Model, Metric, Result, and Limitation contracts
 - provider/model-neutral structured extraction ports and postcondition validation
 - `ExtractionRepository` persistence port with run-scoped reads and atomic/idempotent write semantics
-- PostgreSQL reference schema with lineage/evidence validation
+- PostgreSQL reference schema plus extraction repository with lineage/evidence validation
 - deterministic claim extraction
 - local JSON extraction repository
 - claim/evidence CLI inspection

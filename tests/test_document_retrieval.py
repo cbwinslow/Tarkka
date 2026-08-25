@@ -92,6 +92,23 @@ def test_document_context_package_requires_explicit_unique_bounded_sections(tmp_
         service.build(result.document.document_id, (uuid4(),))
 
 
+def test_document_context_package_rejects_an_oversized_selected_payload(tmp_path: Path) -> None:
+    source = tmp_path / "long-paper.md"
+    source.write_text("# Long section\n" + ("x" * 32_001), encoding="utf-8")
+    documents = JsonResearchRepository(tmp_path / "catalog.json")
+    result = IngestService(
+        artifact_store=LocalArtifactStore(tmp_path / "artifacts"),
+        repository=documents,
+        parsers=(PlainTextParser(),),
+    ).ingest(source)
+    service = DocumentContextPackageService(
+        documents=DocumentRetrievalService(documents=documents)
+    )
+
+    with pytest.raises(ValueError, match="estimated-token maximum"):
+        service.build(result.document.document_id, (result.document.sections[0].section_id,))
+
+
 def test_documents_cli_progressively_lists_and_expands_one_section(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

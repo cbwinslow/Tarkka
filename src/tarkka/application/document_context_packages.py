@@ -13,6 +13,7 @@ from tarkka.domain.manifest import ResourceManifest, estimate_tokens
 from tarkka.domain.models import Section
 
 MAX_CONTEXT_PACKAGE_SECTIONS = 10
+MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS = 8_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,13 +44,19 @@ class DocumentContextPackageService:
         sections = tuple(
             self._documents.section(document_id, section_id) for section_id in section_ids
         )
+        estimated_tokens = estimate_tokens(
+            "".join(passage.text for section in sections for passage in section.passages)
+        )
+        if estimated_tokens > MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS:
+            raise ValueError(
+                "context package exceeds the configured estimated-token maximum; "
+                "select fewer or smaller sections"
+            )
         return DocumentContextPackage(
             document_id=document_id,
             manifest=manifest,
             sections=sections,
-            estimated_tokens=estimate_tokens(
-                "".join(passage.text for section in sections for passage in section.passages)
-            ),
+            estimated_tokens=estimated_tokens,
         )
 
 
@@ -57,5 +64,6 @@ __all__ = [
     "DocumentContextPackage",
     "DocumentContextPackageService",
     "DocumentSectionNotFoundError",
+    "MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS",
     "MAX_CONTEXT_PACKAGE_SECTIONS",
 ]

@@ -255,6 +255,7 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
 - transport-neutral manifest-to-section document retrieval with bounded section listings and
   exact source-preserving section expansion
 - bounded, caller-selected document context packages with exact section/passage provenance
+  and an explicit 8,000-token content budget
 
 Deliverables:
 

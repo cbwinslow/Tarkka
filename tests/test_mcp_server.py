@@ -93,7 +93,7 @@ def test_mcp_server_preserves_staged_document_disclosure(tmp_path: Path) -> None
 def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(
     tmp_path: Path,
 ) -> None:
-    _, documents = _ingest_document(tmp_path)
+    result, documents = _ingest_document(tmp_path)
     server = create_server(documents=DocumentRetrievalService(documents=documents))
 
     unknown_operation = _call(
@@ -112,6 +112,35 @@ def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(
     assert invalid_document["ok"] is False
     assert invalid_document["error"]["code"] == "invalid_argument"
 
+    missing_manifest = _call(server, "document_manifest", {"document_id": str(uuid4())})
+    assert missing_manifest["error"]["code"] == "not_found"
+    assert missing_manifest["error"]["next_actions"] == ["research_capabilities"]
+
+    invalid_sections = _call(server, "document_sections", {"document_id": "not-a-document"})
+    assert invalid_sections["error"]["code"] == "invalid_argument"
+
     missing_document = _call(server, "document_sections", {"document_id": str(uuid4())})
     assert missing_document["error"]["code"] == "not_found"
     assert missing_document["error"]["next_actions"] == ["document_manifest"]
+
+    invalid_pagination = _call(
+        server,
+        "document_sections",
+        {"document_id": str(result.document.document_id), "offset": -1},
+    )
+    assert invalid_pagination["error"]["code"] == "invalid_argument"
+
+    invalid_section = _call(
+        server,
+        "document_section",
+        {"document_id": str(result.document.document_id), "section_id": "not-a-section"},
+    )
+    assert invalid_section["error"]["code"] == "invalid_argument"
+
+    missing_section = _call(
+        server,
+        "document_section",
+        {"document_id": str(result.document.document_id), "section_id": str(uuid4())},
+    )
+    assert missing_section["error"]["code"] == "not_found"
+    assert missing_section["error"]["next_actions"] == ["document_sections"]

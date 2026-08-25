@@ -55,4 +55,3 @@ class SavedDocumentContextPackageService:
             )
         package = self._packages.build(saved.document_id, saved.section_ids)
         return ResolvedSavedDocumentContextPackage(saved=saved, package=package)
-

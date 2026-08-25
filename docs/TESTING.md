@@ -94,6 +94,23 @@ Shared deterministic fault primitives belong in `tests/support/` so these scenar
 
 Network/model/database tests are opt-in and must be marked `external`. The default test suite must never require credentials, internet access, a model server, PostgreSQL, or another separately running service.
 
+### Managed PostgreSQL integration tests
+
+`pytest-postgresql` is a development-only dependency. It connects to an existing PostgreSQL
+server, migrates a dedicated template database, then gives each marked test a disposable clone.
+It never uses `TARKKA_DATABASE_URL`, which is reserved for the application database.
+
+Local defaults target the PostgreSQL 17 Unix socket at `/var/run/postgresql` on port `5434` as
+the local development role. Override only the test endpoint when necessary:
+
+```bash
+export TARKKA_TEST_DATABASE_URL='postgresql://test_role@localhost:5434/postgres'
+uv run pytest tests/test_postgres_native_ingest.py -m 'integration and external'
+```
+
+The test role must be allowed to create and drop databases. Keep application/production data in a
+separate database (for example `tarkka`) and never point `TARKKA_TEST_DATABASE_URL` at it.
+
 ## Markers
 
 Tarkka defines these pytest markers:

@@ -10,7 +10,6 @@ from tarkka.infrastructure.postgres.citation_context_repository import (
     PostgresCitationContextRepository,
 )
 from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
-from tarkka.infrastructure.postgres.migrations import upgrade
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.postgres.source_observation_repository import (
     PostgresSourceObservationRepository,
@@ -18,7 +17,7 @@ from tarkka.infrastructure.postgres.source_observation_repository import (
 from tarkka.infrastructure.storage.jats_parser import JatsParser
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 
-pytestmark = [pytest.mark.integration, pytest.mark.external]
+pytestmark = [pytest.mark.integration, pytest.mark.external, pytest.mark.postgres]
 
 _ROOT = Path(__file__).parents[1]
 
@@ -27,14 +26,9 @@ def _settings() -> PostgresSettings:
     return PostgresSettings.from_environment()
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _apply_migrations() -> None:
-    upgrade(_settings())
-
-
 @pytest.fixture(autouse=True)
-def _clean_tables() -> None:
-    with connect(_settings()) as connection:
+def _clean_tables(tarkka_postgres_settings: PostgresSettings) -> None:
+    with connect(tarkka_postgres_settings) as connection:
         connection.execute("TRUNCATE TABLE tarkka.artifact CASCADE")
 
 

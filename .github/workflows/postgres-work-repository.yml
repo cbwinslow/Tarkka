@@ -95,6 +95,7 @@ jobs:
     env:
       # This database exists only inside the ephemeral Actions job; trust auth avoids fake secrets.
       TARKKA_DATABASE_URL: postgresql://tarkka@localhost:5432/tarkka_test
+      TARKKA_TEST_DATABASE_URL: postgresql://tarkka@localhost:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

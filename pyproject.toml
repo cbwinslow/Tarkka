@@ -23,6 +23,7 @@ dev = [
     "mypy>=1.14",
     "pytest>=8.3",
     "pytest-cov>=6.0",
+    "pytest-postgresql>=8.1.0",
     "ruff>=0.9",
     "sqlfluff>=4.3,<5",
 ]
@@ -51,6 +52,7 @@ markers = [
     "security: adversarial security and provenance boundary coverage",
     "slow: intentionally expensive deterministic tests excluded from fast feedback loops",
     "external: opt-in tests requiring network, databases, models, or other services",
+    "postgres: tests that require a PostgreSQL server",
 ]
 
 [tool.coverage.run]

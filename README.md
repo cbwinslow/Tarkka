@@ -39,6 +39,10 @@ tarkka verify record <claim-id> --kind supports --evidence <evidence-id> \
   --verifier human-review --verifier-version 1 --confidence 0.9
 tarkka verify list <claim-id>
 tarkka verify show <relation-id>
+
+# Start agent/tool discovery with a small operation index, then load one schema.
+tarkka capabilities list
+tarkka capabilities show research.verify.candidates
 ```
 
 Tarkka stores immutable source artifacts by SHA-256, records acquisition provenance, normalizes

@@ -251,6 +251,7 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
 - staged operation-schema discovery with bounded input metadata
 - implemented-service bindings for discovery, verification recording, citation-aware verification
   review, local citation traversal, and native resource-link inspection
+- dependency-free CLI access to the same two-stage capability discovery contract
 
 Deliverables:
 

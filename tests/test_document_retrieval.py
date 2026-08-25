@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 
+from tarkka.application.document_context_packages import DocumentContextPackageService
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
     DocumentRetrievalService,
@@ -72,6 +73,25 @@ def test_document_retrieval_fails_closed_for_unknown_or_cross_document_handles(
         service.sections(first.document.document_id, limit=101)
 
 
+def test_document_context_package_requires_explicit_unique_bounded_sections(tmp_path: Path) -> None:
+    result, documents = _ingest_document(tmp_path)
+    retrieval = DocumentRetrievalService(documents=documents)
+    service = DocumentContextPackageService(documents=retrieval)
+    section_ids = tuple(section.section_id for section in result.document.sections)
+
+    package = service.build(result.document.document_id, section_ids)
+
+    assert package.manifest == result.manifest
+    assert [section.section_id for section in package.sections] == list(section_ids)
+    assert package.estimated_tokens > 0
+    with pytest.raises(ValueError, match="at least one"):
+        service.build(result.document.document_id, ())
+    with pytest.raises(ValueError, match="unique"):
+        service.build(result.document.document_id, (section_ids[0], section_ids[0]))
+    with pytest.raises(DocumentSectionNotFoundError, match="section not found"):
+        service.build(result.document.document_id, (uuid4(),))
+
+
 def test_documents_cli_progressively_lists_and_expands_one_section(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -105,3 +125,22 @@ def test_documents_cli_progressively_lists_and_expands_one_section(
     detail = json.loads(capsys.readouterr().out)
     assert detail["section_id"] == listing["sections"][0]["section_id"]
     assert detail["passages"][0]["text"] == "Evidence first."
+
+    assert (
+        main(
+            [
+                "documents",
+                "package",
+                str(result.document.document_id),
+                "--section",
+                listing["sections"][0]["section_id"],
+            ]
+        )
+        == 0
+    )
+    package = json.loads(capsys.readouterr().out)
+    assert package["manifest"]["id"] == f"doc:{result.document.document_id}"
+    assert [item["section_id"] for item in package["sections"]] == [
+        listing["sections"][0]["section_id"]
+    ]
+    assert package["estimated_tokens"] > 0

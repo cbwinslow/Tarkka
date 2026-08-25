@@ -247,6 +247,21 @@ _OPERATION_REGISTRATIONS = (
         ),
         "Citation-context/evidence handles for review; never an evidence assessment.",
     ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.verify.context",
+            "verify",
+            "Expand one exact citation context for evidence review.",
+            16,
+        ),
+        EvidenceVerificationService,
+        "citation_context",
+        (
+            ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
+            ResearchField("context_id", "uuid", True, "Stable citation-context identifier."),
+        ),
+        "One exact context and its preserved citation mention.",
+    ),
 )
 
 

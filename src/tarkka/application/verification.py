@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from tarkka.domain.citations import CitationContext
+from tarkka.domain.citations import CitationContext, CitationMention
 from tarkka.domain.extraction import Claim, Evidence, EvidenceRecord, HumanReviewState
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.ports.verification import (
@@ -24,6 +24,10 @@ class EvidenceNotFoundError(LookupError):
 
 
 class CitationContextNotFoundError(LookupError):
+    pass
+
+
+class CitationMentionNotFoundError(LookupError):
     pass
 
 
@@ -61,6 +65,14 @@ class CitationVerificationCandidatePage:
     document_id: UUID
     total: int
     candidates: tuple[CitationVerificationCandidate, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CitationContextInspection:
+    """One exact local context together with its required preserved mention."""
+
+    context: CitationContext
+    mention: CitationMention
 
 
 class EvidenceVerificationService:
@@ -149,6 +161,27 @@ class EvidenceVerificationService:
                 if context.passage_id is not None
             )
         )
+
+    def citation_context(
+        self,
+        document_id: UUID,
+        context_id: UUID,
+    ) -> CitationContextInspection:
+        """Expand one context handle and fail closed on incomplete citation lineage."""
+        if self._citations is None:
+            raise CitationContextNotFoundError(f"citation context not found: {context_id}")
+        context = self._citations.get_context(document_id, context_id)
+        if context is None:
+            raise CitationContextNotFoundError(f"citation context not found: {context_id}")
+        mentions = self._citations.list_mentions_for_ids(
+            document_id,
+            frozenset((context.mention_id,)),
+        )
+        if len(mentions) != 1:
+            raise CitationMentionNotFoundError(
+                f"citation mention not found: {context.mention_id}"
+            )
+        return CitationContextInspection(context=context, mention=mentions[0])
 
     def _claim(self, claim_id: UUID) -> Claim:
         value = self._source.get_extraction(claim_id)

@@ -45,7 +45,8 @@ bibliography reference, it also returns that `reference_id`, which can be
 expanded through `tarkka citations show <document-id> <reference-id>`. The
 candidate response includes its `document_id`; use it with `tarkka citations
 context` to expand the exact local context and mention before recording an
-assessment, including when the mention has no bibliography reference. It
+assessment. Context expansion fails closed if its required preserved mention is
+missing; a mention may still have no bibliography reference. It
 excludes figure, table, equation, and unanchored contexts rather than guessing
 an association. A candidate is not an assessment and never asserts that a
 cited source supports, contradicts, or even discusses the Claim.

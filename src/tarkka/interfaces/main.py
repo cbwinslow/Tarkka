@@ -28,6 +28,7 @@ from tarkka.application.research_packages import (
 )
 from tarkka.application.verification import (
     CitationContextNotFoundError,
+    CitationMentionNotFoundError,
     ClaimNotFoundError,
     EvidenceNotFoundError,
     EvidenceVerificationRequest,
@@ -628,26 +629,19 @@ def _cmd_citations_show(args: argparse.Namespace) -> int:
 
 def _cmd_citations_context(args: argparse.Namespace) -> int:
     try:
-        repository = _existing_citation_repository()
-        if repository is None:
-            print(f"error: citation context not found: {args.context_id}", file=sys.stderr)
-            return 2
-        context = repository.get_context(args.document_id, args.context_id)
-        if context is None:
-            print(f"error: citation context not found: {args.context_id}", file=sys.stderr)
-            return 2
-        mentions = repository.list_mentions_for_ids(
-            args.document_id,
-            frozenset((context.mention_id,)),
-        )
-    except (OSError, RuntimeError, ValueError) as exc:
+        inspection = _verification_service().citation_context(args.document_id, args.context_id)
+    except (
+        CitationContextNotFoundError,
+        CitationMentionNotFoundError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    payload = _citation_context_payload(context)
+    payload = _citation_context_payload(inspection.context)
     payload["document_id"] = str(args.document_id)
-    payload["citation_mention"] = (
-        _citation_mention_summary(mentions[0]) if mentions else None
-    )
+    payload["citation_mention"] = _citation_mention_summary(inspection.mention)
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 

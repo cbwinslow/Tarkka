@@ -164,3 +164,17 @@ def test_citation_candidates_are_bounded_to_exact_claim_evidence_passages(tmp_pa
     assert page.candidates[0].citation_context == anchored
     assert page.candidates[0].evidence_ids == (fixture.evidence.evidence_id,)
     assert page.candidates[0].reference_id == reference_id
+
+
+def test_citation_candidates_return_claim_document_for_empty_candidate_sets(tmp_path: Path) -> None:
+    fixture = _service(tmp_path)
+    service = EvidenceVerificationService(
+        source=JsonExtractionRepository(tmp_path / "extractions.json"),
+        relations=fixture.relations,
+    )
+
+    page = service.citation_candidates(fixture.claim.extraction_id)
+
+    assert page.document_id == fixture.batch.document_id
+    assert page.total == 0
+    assert page.candidates == ()

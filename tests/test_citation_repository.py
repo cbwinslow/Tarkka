@@ -82,6 +82,7 @@ def test_json_citation_repository_round_trips_full_citation_graph(tmp_path: Path
     assert reopened.list_contexts(document_id) == (context,)
     assert reopened.get_context(document_id, context.context_id) == context
     assert reopened.get_context(uuid4(), context.context_id) is None
+    assert reopened.get_context(document_id, uuid4()) is None
     assert reopened.get_resolution(reference.reference_id) == resolution
     assert reopened.list_relations_from(citing_work_id) == (relation,)
     assert reopened.list_relations_to(cited_work_id) == (relation,)

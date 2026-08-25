@@ -186,6 +186,19 @@ def test_verify_cli_lists_empty_catalog_with_stable_pagination_shape(
     }
 
 
+def test_citations_context_cli_reports_missing_exact_handle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
+    context_id = uuid4()
+
+    assert main(["citations", "context", str(uuid4()), str(context_id)]) == 2
+
+    assert f"citation context not found: {context_id}" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "arguments, message",
     (

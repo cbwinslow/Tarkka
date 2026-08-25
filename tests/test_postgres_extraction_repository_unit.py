@@ -233,6 +233,38 @@ def test_list_methods_apply_scoping_filtering_and_pagination() -> None:
     assert len(extraction_connection.queries) == 2
 
 
+def test_get_methods_return_one_record_or_none() -> None:
+    evidence = _evidence_records()[0]
+    evidence_repository = PostgresExtractionRepository(
+        PostgresSettings("unused"),
+        connection_factory=lambda _: _Connection([_evidence_row(evidence)]),
+    )
+    assert evidence_repository.get_evidence(evidence.evidence_id) == evidence
+
+    extraction = _extractions()[0]
+    extraction_row = (
+        extraction.extraction_id,
+        extraction.document_id,
+        _RUN_ID,
+        extraction.kind.value,
+        extraction.attribution.value,
+        extraction.provenance.confidence,
+        extraction.provenance.human_review_state.value,
+        extraction.provenance.reasoning_summary,
+        json.dumps(_extraction_payload(extraction)),
+    )
+    extraction_repository = PostgresExtractionRepository(
+        PostgresSettings("unused"), connection_factory=lambda _: _Connection([extraction_row])
+    )
+    assert extraction_repository.get_extraction(extraction.extraction_id) == extraction
+
+    missing_repository = PostgresExtractionRepository(
+        PostgresSettings("unused"), connection_factory=lambda _: _Connection([])
+    )
+    assert missing_repository.get_evidence(UUID(int=0)) is None
+    assert missing_repository.get_extraction(UUID(int=0)) is None
+
+
 @pytest.mark.parametrize("offset, limit", [(-1, 1), (0, 0)])
 def test_invalid_pagination_is_rejected(offset: int, limit: int) -> None:
     with pytest.raises(ValueError, match="offset"):

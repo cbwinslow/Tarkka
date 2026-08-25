@@ -16,6 +16,7 @@ from tarkka.application.citation_traversal import (
     CitationTraversalService,
     TraversalDirection,
 )
+from tarkka.application.document_context_packages import DocumentContextPackageService
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
     DocumentRetrievalService,
@@ -228,6 +229,10 @@ def _document_retrieval_service() -> DocumentRetrievalService:
     return DocumentRetrievalService(documents=_document_repository())
 
 
+def _document_context_package_service() -> DocumentContextPackageService:
+    return DocumentContextPackageService(documents=_document_retrieval_service())
+
+
 def _existing_verification_repository() -> JsonVerificationRepository | None:
     return JsonVerificationRepository.open_existing(_home() / "verifications.json")
 
@@ -398,6 +403,29 @@ def _cmd_documents_section(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(_section_payload(section), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_documents_package(args: argparse.Namespace) -> int:
+    try:
+        package = _document_context_package_service().build(
+            args.document_id, tuple(args.section_ids)
+        )
+    except (DocumentNotFoundError, DocumentSectionNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "document_id": str(package.document_id),
+                "manifest": package.manifest.to_dict(),
+                "estimated_tokens": package.estimated_tokens,
+                "sections": [_section_payload(section) for section in package.sections],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
@@ -1496,6 +1524,13 @@ def _documents_parser() -> argparse.ArgumentParser:
     section.add_argument("document_id", type=_parse_document_id)
     section.add_argument("section_id", type=_parse_section_id)
     section.set_defaults(func=_cmd_documents_section)
+
+    package = sub.add_parser("package", help="build a bounded context package from exact sections")
+    package.add_argument("document_id", type=_parse_document_id)
+    package.add_argument(
+        "--section", dest="section_ids", type=_parse_section_id, action="append", required=True
+    )
+    package.set_defaults(func=_cmd_documents_package)
     return parser
 
 

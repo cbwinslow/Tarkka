@@ -50,3 +50,8 @@ tarkka documents section <document-id> <section-id>
 The `research.documents.*` operations advertise these three steps. A section
 expansion returns only the requested section's normalized passages; it does not
 silently flatten or retrieve the whole document.
+
+For an agent that has already selected exact sections, `tarkka documents package`
+builds a bounded context package with its manifest, exact section/passage provenance,
+and a deterministic token estimate. It requires one or more distinct `--section`
+handles and never chooses or expands sections implicitly.

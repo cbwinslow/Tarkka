@@ -125,3 +125,22 @@ def test_documents_cli_progressively_lists_and_expands_one_section(
     detail = json.loads(capsys.readouterr().out)
     assert detail["section_id"] == listing["sections"][0]["section_id"]
     assert detail["passages"][0]["text"] == "Evidence first."
+
+    assert (
+        main(
+            [
+                "documents",
+                "package",
+                str(result.document.document_id),
+                "--section",
+                listing["sections"][0]["section_id"],
+            ]
+        )
+        == 0
+    )
+    package = json.loads(capsys.readouterr().out)
+    assert package["manifest"]["id"] == f"doc:{result.document.document_id}"
+    assert [item["section_id"] for item in package["sections"]] == [
+        listing["sections"][0]["section_id"]
+    ]
+    assert package["estimated_tokens"] > 0

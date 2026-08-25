@@ -117,6 +117,20 @@ TARKKA_DOCUMENT_BACKEND=postgres \
 tarkka documents manifest <document-id>
 ```
 
+Install the optional MCP transport to expose the same staged, read-only document services to an
+MCP client over stdio. The server deliberately lists capabilities and document structure before
+returning a selected section's source-preserving passage text:
+
+```bash
+uv sync --extra mcp
+tarkka-mcp
+```
+
+The initial MCP tools are `research_capabilities`, `research_operation_schema`,
+`document_manifest`, `document_sections`, and `document_section`. They use the same
+`TARKKA_DOCUMENT_BACKEND` selection as the document CLI; context-package saves and other writes
+remain CLI/application-service operations until their audit boundaries are exposed explicitly.
+
 ## Agent-first design
 
 Tarkka uses progressive disclosure to conserve context:

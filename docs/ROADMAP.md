@@ -261,6 +261,8 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
 - PostgreSQL reference persistence for the same immutable context-package handle contract
 - explicit `TARKKA_DOCUMENT_BACKEND=postgres` runtime selection for document manifest, section,
   and saved-context-package CLI retrieval; JSON remains the dependency-free default
+- optional stdio MCP server exposing compact capability discovery and the same read-only,
+  progressive document manifest/section retrieval services as the CLI
 
 Deliverables:
 

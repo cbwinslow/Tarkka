@@ -59,6 +59,7 @@ Delivered:
 - PostgreSQL `ResearchRepository` adapter preserving documents, manifests, and first-class source artifacts
   with real-service contract validation
 - PostgreSQL append-only acquisition provenance recorder with real-service contract validation
+- PostgreSQL source-observation/resource-link persistence with real-service contract validation
 - plain-text/Markdown parser
 - optional Docling rich-document adapter
 - canonical `Artifact -> Document -> Section -> Passage` normalization

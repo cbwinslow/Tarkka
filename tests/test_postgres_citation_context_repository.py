@@ -15,7 +15,6 @@ from tarkka.infrastructure.postgres.citation_context_repository import (
     PostgresCitationContextRepository,
 )
 from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
-from tarkka.infrastructure.postgres.migrations import upgrade
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.storage.jats_parser import JatsParser
 from tarkka.ports.parsing import NativeDocumentParseResult
@@ -25,10 +24,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.external]
 _ROOT = Path(__file__).parents[1]
 _ARTIFACT_ID = UUID("00000000-0000-0000-0000-00000000c701")
 _ACQUIRED_AT = datetime(2026, 1, 1, tzinfo=UTC)
-
-
-def _settings() -> PostgresSettings:
-    return PostgresSettings.from_environment()
 
 
 def _artifact() -> Artifact:
@@ -44,30 +39,25 @@ def _artifact() -> Artifact:
     )
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _apply_migrations() -> None:
-    upgrade(_settings())
-
-
 @pytest.fixture(autouse=True)
-def _clean_tables() -> None:
-    with connect(_settings()) as connection:
+def _clean_tables(tarkka_postgres_settings: PostgresSettings) -> None:
+    with connect(tarkka_postgres_settings) as connection:
         connection.execute("TRUNCATE TABLE tarkka.artifact CASCADE")
 
 
 @pytest.fixture
-def native_parse() -> NativeDocumentParseResult:
+def native_parse(tarkka_postgres_settings: PostgresSettings) -> NativeDocumentParseResult:
     artifact = _artifact()
     result = JatsParser().parse_native(artifact, _ROOT / "tests/fixtures/jats/sample_article.xml")
-    documents = PostgresResearchRepository(_settings())
+    documents = PostgresResearchRepository(tarkka_postgres_settings)
     documents.save_artifact(artifact)
     documents.save_document(result.document, build_document_manifest(result.document, artifact))
     return result
 
 
 @pytest.fixture
-def repository() -> PostgresCitationContextRepository:
-    return PostgresCitationContextRepository(_settings())
+def repository(tarkka_postgres_settings: PostgresSettings) -> PostgresCitationContextRepository:
+    return PostgresCitationContextRepository(tarkka_postgres_settings)
 
 
 def test_postgres_native_citation_context_persistence_round_trips(
@@ -123,3 +113,44 @@ def test_postgres_context_persistence_derives_section_from_anchored_passage(
     repository.save_context(replace(original, section_id=None))
 
     assert repository.list_contexts(native_parse.document.document_id) == (original,)
+
+
+def test_postgres_citation_repository_supports_citation_aware_verification_reads(
+    repository: PostgresCitationContextRepository, native_parse: NativeDocumentParseResult
+) -> None:
+    for reference in native_parse.references:
+        repository.save_reference(reference)
+    for mention in native_parse.mentions:
+        repository.save_mention(mention)
+    contexts = build_citation_contexts(native_parse.document, native_parse.mentions)
+    for context in contexts:
+        repository.save_context(context)
+
+    document_id = native_parse.document.document_id
+    anchored = next(context for context in contexts if context.passage_id is not None)
+    assert anchored.passage_id is not None
+    assert repository.get_context(document_id, anchored.context_id) == anchored
+    assert repository.get_context(UUID(int=0), anchored.context_id) is None
+    assert repository.list_mentions_for_ids(document_id, frozenset((anchored.mention_id,))) == (
+        next(
+            mention
+            for mention in native_parse.mentions
+            if mention.mention_id == anchored.mention_id
+        ),
+    )
+    assert repository.list_mentions_for_ids(document_id, frozenset()) == ()
+    expected = tuple(context for context in contexts if context.passage_id == anchored.passage_id)
+    assert repository.count_contexts_for_passages(
+        document_id, frozenset((anchored.passage_id,))
+    ) == len(expected)
+    assert (
+        repository.list_contexts_for_passages(
+            document_id, frozenset((anchored.passage_id,)), offset=0, limit=1
+        )
+        == expected[:1]
+    )
+    total, page = repository.page_contexts_for_passages(
+        document_id, frozenset((anchored.passage_id,)), offset=0, limit=1
+    )
+    assert total == len(expected)
+    assert page == expected[:1]

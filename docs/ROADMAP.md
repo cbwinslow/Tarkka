@@ -238,6 +238,8 @@ Delivered foundation:
 - citation-context candidates and exact citation-context expansion for evidence review
 - bounded local citation traversal exposed through the capability index
 - exact source-observed resource-link listing and expansion exposed through the capability index
+- PostgreSQL extraction, citation-context, and verification repositories compose in a tested,
+  provenance-preserving citation-aware verification slice
 
 ## Phase 5 — Agent-first serving
 

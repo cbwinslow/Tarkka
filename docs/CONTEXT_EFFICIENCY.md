@@ -244,6 +244,11 @@ handles and enforces both a section-count limit and an 8,000-token deterministic
 content estimate. Callers must split larger selections into multiple packages rather
 than receiving an unexpectedly large response.
 
+When the caller passes `--save`, Tarkka stores only the immutable document handle,
+ordered section handles, creation time, and original estimate. The returned
+`context_package:<uuid>` can later be resolved without resending the selection or
+duplicating source passages.
+
 ## Deterministic compression before LLM compression
 
 Prefer cheap structural reduction first:

@@ -42,6 +42,10 @@ from tarkka.application.research_packages import (
     ResourceLinkManifest,
     ResourceLinkNotFoundError,
 )
+from tarkka.application.saved_document_context_packages import (
+    SavedDocumentContextPackageNotFoundError,
+    SavedDocumentContextPackageService,
+)
 from tarkka.application.verification import (
     CitationContextNotFoundError,
     CitationMentionNotFoundError,
@@ -86,6 +90,9 @@ from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.migrations import upgrade
 from tarkka.infrastructure.storage.identity_decision_log import JsonlIdentityDecisionLog
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
+from tarkka.infrastructure.storage.json_context_package_repository import (
+    JsonDocumentContextPackageRepository,
+)
 from tarkka.infrastructure.storage.json_extraction_repository import (
     ExtractionConflictError,
     JsonExtractionRepository,
@@ -190,6 +197,13 @@ def _parse_section_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid section id: {raw}") from exc
 
 
+def _parse_context_package_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("context_package:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid context package id: {raw}") from exc
+
+
 def _parse_verification_relation_id(raw: str) -> UUID:
     try:
         return UUID(raw.removeprefix("verification:"))
@@ -231,6 +245,13 @@ def _document_retrieval_service() -> DocumentRetrievalService:
 
 def _document_context_package_service() -> DocumentContextPackageService:
     return DocumentContextPackageService(documents=_document_retrieval_service())
+
+
+def _saved_document_context_package_service() -> SavedDocumentContextPackageService:
+    return SavedDocumentContextPackageService(
+        packages=_document_context_package_service(),
+        store=JsonDocumentContextPackageRepository(_home() / "context_packages.json"),
+    )
 
 
 def _existing_verification_repository() -> JsonVerificationRepository | None:
@@ -408,15 +429,53 @@ def _cmd_documents_section(args: argparse.Namespace) -> int:
 
 def _cmd_documents_package(args: argparse.Namespace) -> int:
     try:
-        package = _document_context_package_service().build(
-            args.document_id, tuple(args.section_ids)
-        )
+        if args.save:
+            resolved = _saved_document_context_package_service().save(
+                args.document_id, tuple(args.section_ids)
+            )
+            package = resolved.package
+            context_package_id: str | None = f"context_package:{resolved.saved.context_package_id}"
+        else:
+            package = _document_context_package_service().build(
+                args.document_id, tuple(args.section_ids)
+            )
+            context_package_id = None
     except (DocumentNotFoundError, DocumentSectionNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(
         json.dumps(
             {
+                "document_id": str(package.document_id),
+                "context_package_id": context_package_id,
+                "manifest": package.manifest.to_dict(),
+                "estimated_tokens": package.estimated_tokens,
+                "sections": [_section_payload(section) for section in package.sections],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_documents_saved_package(args: argparse.Namespace) -> int:
+    try:
+        resolved = _saved_document_context_package_service().get(args.context_package_id)
+    except (
+        DocumentNotFoundError,
+        DocumentSectionNotFoundError,
+        SavedDocumentContextPackageNotFoundError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    package = resolved.package
+    print(
+        json.dumps(
+            {
+                "context_package_id": f"context_package:{resolved.saved.context_package_id}",
+                "created_at": resolved.saved.created_at.isoformat(),
                 "document_id": str(package.document_id),
                 "manifest": package.manifest.to_dict(),
                 "estimated_tokens": package.estimated_tokens,
@@ -1530,7 +1589,12 @@ def _documents_parser() -> argparse.ArgumentParser:
     package.add_argument(
         "--section", dest="section_ids", type=_parse_section_id, action="append", required=True
     )
+    package.add_argument("--save", action="store_true", help="persist this exact package selection")
     package.set_defaults(func=_cmd_documents_package)
+
+    saved_package = sub.add_parser("saved-package", help="resolve one saved context-package handle")
+    saved_package.add_argument("context_package_id", type=_parse_context_package_id)
+    saved_package.set_defaults(func=_cmd_documents_saved_package)
     return parser
 
 

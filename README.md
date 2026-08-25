@@ -49,6 +49,8 @@ tarkka documents manifest <document-id>
 tarkka documents sections <document-id> --limit 20
 tarkka documents section <document-id> <section-id>
 tarkka documents package <document-id> --section <section-id> --section <section-id>
+tarkka documents package <document-id> --section <section-id> --save
+tarkka documents saved-package <context-package-id>
 ```
 
 Tarkka stores immutable source artifacts by SHA-256, records acquisition provenance, normalizes

@@ -8,6 +8,7 @@ import pytest
 
 from tarkka.application.verification import (
     CitationContextNotFoundError,
+    CitationMentionNotFoundError,
     EvidenceVerificationRequest,
     EvidenceVerificationService,
 )
@@ -164,3 +165,33 @@ def test_citation_candidates_are_bounded_to_exact_claim_evidence_passages(tmp_pa
     assert page.candidates[0].citation_context == anchored
     assert page.candidates[0].evidence_ids == (fixture.evidence.evidence_id,)
     assert page.candidates[0].reference_id == reference_id
+
+
+def test_citation_candidates_return_claim_document_for_empty_candidate_sets(tmp_path: Path) -> None:
+    fixture = _service(tmp_path)
+    service = EvidenceVerificationService(
+        source=JsonExtractionRepository(tmp_path / "extractions.json"),
+        relations=fixture.relations,
+    )
+
+    page = service.citation_candidates(fixture.claim.extraction_id)
+
+    assert page.document_id == fixture.batch.document_id
+    assert page.total == 0
+    assert page.candidates == ()
+
+
+def test_citation_context_rejects_orphaned_mention_lineage(tmp_path: Path) -> None:
+    fixture = _service(tmp_path)
+    context = CitationContext(
+        context_id=uuid4(),
+        mention_id=uuid4(),
+        document_id=fixture.batch.document_id,
+        text=fixture.evidence.text,
+        char_start=0,
+        char_end=len(fixture.evidence.text),
+    )
+    fixture.citations.save_context(context)
+
+    with pytest.raises(CitationMentionNotFoundError, match="citation mention not found"):
+        fixture.service.citation_context(fixture.batch.document_id, context.context_id)

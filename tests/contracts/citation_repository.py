@@ -45,6 +45,7 @@ class CitationRepositoryContract:
         assert repository.list_references(reference.document_id) == (reference,)
         assert repository.list_mentions(reference.document_id) == (mention,)
         assert repository.list_contexts(reference.document_id) == (context,)
+        assert repository.get_context(reference.document_id, context.context_id) == context
         assert repository.get_resolution(reference.reference_id) == resolution
         assert repository.get_relation(relation.relation_id) == relation
         assert repository.list_relations_from(relation.subject_work_id) == (relation,)

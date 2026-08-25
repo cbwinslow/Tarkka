@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from tarkka.domain.citations import CitationContext
+from tarkka.domain.citations import CitationContext, CitationMention
 from tarkka.domain.extraction import Claim, Evidence, EvidenceRecord, HumanReviewState
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.ports.verification import (
@@ -24,6 +24,14 @@ class EvidenceNotFoundError(LookupError):
 
 
 class CitationContextNotFoundError(LookupError):
+    pass
+
+
+class CitationRepositoryNotAvailableError(LookupError):
+    pass
+
+
+class CitationMentionNotFoundError(LookupError):
     pass
 
 
@@ -58,8 +66,17 @@ class CitationVerificationCandidate:
 class CitationVerificationCandidatePage:
     """One coherent page of citation-aware verification candidates."""
 
+    document_id: UUID
     total: int
     candidates: tuple[CitationVerificationCandidate, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CitationContextInspection:
+    """One exact local context together with its required preserved mention."""
+
+    context: CitationContext
+    mention: CitationMention
 
 
 class EvidenceVerificationService:
@@ -119,7 +136,11 @@ class EvidenceVerificationService:
             if isinstance(evidence, Evidence):
                 evidence_by_passage.setdefault(evidence.passage_id, []).append(evidence.evidence_id)
         if not evidence_by_passage or self._citations is None:
-            return CitationVerificationCandidatePage(total=0, candidates=())
+            return CitationVerificationCandidatePage(
+                document_id=claim.document_id,
+                total=0,
+                candidates=(),
+            )
         total, contexts = self._citations.page_contexts_for_passages(
             claim.document_id,
             frozenset(evidence_by_passage),
@@ -132,6 +153,7 @@ class EvidenceVerificationService:
         )
         reference_ids = {mention.mention_id: mention.reference_id for mention in mentions}
         return CitationVerificationCandidatePage(
+            document_id=claim.document_id,
             total=total,
             candidates=tuple(
                 CitationVerificationCandidate(
@@ -143,6 +165,27 @@ class EvidenceVerificationService:
                 if context.passage_id is not None
             )
         )
+
+    def citation_context(
+        self,
+        document_id: UUID,
+        context_id: UUID,
+    ) -> CitationContextInspection:
+        """Expand one context handle and fail closed on incomplete citation lineage."""
+        if self._citations is None:
+            raise CitationRepositoryNotAvailableError("citation repository is not available")
+        context = self._citations.get_context(document_id, context_id)
+        if context is None:
+            raise CitationContextNotFoundError(f"citation context not found: {context_id}")
+        mentions = self._citations.list_mentions_for_ids(
+            document_id,
+            frozenset((context.mention_id,)),
+        )
+        if len(mentions) != 1:
+            raise CitationMentionNotFoundError(
+                f"citation mention not found: {context.mention_id}"
+            )
+        return CitationContextInspection(context=context, mention=mentions[0])
 
     def _claim(self, claim_id: UUID) -> Claim:
         value = self._source.get_extraction(claim_id)

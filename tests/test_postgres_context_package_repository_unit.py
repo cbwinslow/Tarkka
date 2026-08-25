@@ -21,9 +21,11 @@ class _Cursor:
         *,
         row: tuple[Any, ...] | None = None,
         rows: tuple[tuple[Any, ...], ...] = (),
+        rowcount: int = 1,
     ) -> None:
         self.row = row
         self.rows = rows
+        self.rowcount = rowcount
 
     def fetchone(self) -> tuple[Any, ...] | None:
         return self.row
@@ -88,7 +90,6 @@ def test_postgres_context_package_store_writes_exact_ordered_selection() -> None
     package = _package()
     connection = _Connection(
         [
-            _Cursor(),  # existing package
             _Cursor(row=(1,)),  # document exists
             _Cursor(rows=_section_rows(package)),  # sections belong to document
             _Cursor(),  # package insert
@@ -117,18 +118,43 @@ def test_postgres_context_package_store_reads_and_rejects_conflicts() -> None:
 
     assert _repository(connection).get(package.context_package_id) == package
 
-    connection = _Connection([_Cursor(row=_header(package)), _Cursor(rows=_section_rows(package))])
+    connection = _Connection(
+        [
+            _Cursor(row=(1,)),  # document exists
+            _Cursor(rows=_section_rows(package)),  # sections belong to document
+            _Cursor(rowcount=0),  # concurrent/existing insert
+            _Cursor(row=_header(package)),
+            _Cursor(rows=_section_rows(package)),
+        ]
+    )
     with pytest.raises(ValueError, match="conflicting context package"):
         _repository(connection).save(replace(package, estimated_tokens=43))
 
 
+def test_postgres_context_package_store_accepts_a_concurrent_idempotent_save() -> None:
+    package = _package()
+    connection = _Connection(
+        [
+            _Cursor(row=(1,)),  # document exists
+            _Cursor(rows=_section_rows(package)),  # sections belong to document
+            _Cursor(rowcount=0),  # concurrent/existing insert
+            _Cursor(row=_header(package)),
+            _Cursor(rows=_section_rows(package)),
+        ]
+    )
+
+    _repository(connection).save(package)
+
+    assert connection.closed
+
+
 def test_postgres_context_package_store_fails_closed_for_missing_document_or_section() -> None:
     package = _package()
-    connection = _Connection([_Cursor(), _Cursor()])
+    connection = _Connection([_Cursor()])
     with pytest.raises(ValueError, match="document not found"):
         _repository(connection).save(package)
 
-    connection = _Connection([_Cursor(), _Cursor(row=(1,)), _Cursor(rows=((uuid4(),),))])
+    connection = _Connection([_Cursor(row=(1,)), _Cursor(rows=((uuid4(),),))])
     with pytest.raises(ValueError, match="sections do not belong"):
         _repository(connection).save(package)
 

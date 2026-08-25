@@ -29,22 +29,18 @@ class PostgresDocumentContextPackageRepository:
 
     def save(self, package: SavedDocumentContextPackage) -> None:
         with self._connection() as connection:
-            existing = self._get(connection, package.context_package_id)
-            if existing is not None:
-                if _identity(existing) != _identity(package):
-                    raise ValueError(f"conflicting context package: {package.context_package_id}")
-                return
             if not self._document_exists(connection, package.document_id):
                 raise ValueError(f"document not found for context package: {package.document_id}")
             if not self._sections_belong_to_document(
                 connection, package.document_id, package.section_ids
             ):
                 raise ValueError("context package sections do not belong to its document")
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO tarkka.document_context_package (
                     context_package_id, document_id, estimated_tokens, created_at
                 ) VALUES (%s, %s, %s, %s)
+                ON CONFLICT (context_package_id) DO NOTHING
                 """,
                 (
                     package.context_package_id,
@@ -53,6 +49,11 @@ class PostgresDocumentContextPackageRepository:
                     package.created_at,
                 ),
             )
+            if cursor.rowcount == 0:
+                existing = self._get(connection, package.context_package_id)
+                if existing is None or _identity(existing) != _identity(package):
+                    raise ValueError(f"conflicting context package: {package.context_package_id}")
+                return
             for ordinal, section_id in enumerate(package.section_ids):
                 connection.execute(
                     """

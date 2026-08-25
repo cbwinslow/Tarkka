@@ -14,11 +14,16 @@ from tarkka.infrastructure.postgres.context_package_repository import (
 
 pytestmark = [pytest.mark.integration, pytest.mark.external]
 
+_psycopg = pytest.importorskip("psycopg")
+
 _ARTIFACT_ID = UUID("00000000-0000-0000-0000-00000000f801")
 _DOCUMENT_ID = UUID("00000000-0000-0000-0000-00000000f802")
 _SECTION_ID = UUID("00000000-0000-0000-0000-00000000f803")
 _OTHER_SECTION_ID = UUID("00000000-0000-0000-0000-00000000f804")
 _PACKAGE_ID = UUID("00000000-0000-0000-0000-00000000f805")
+_OTHER_ARTIFACT_ID = UUID("00000000-0000-0000-0000-00000000f806")
+_OTHER_DOCUMENT_ID = UUID("00000000-0000-0000-0000-00000000f807")
+_CROSS_DOCUMENT_SECTION_ID = UUID("00000000-0000-0000-0000-00000000f808")
 _CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -54,6 +59,36 @@ def _seed_document(settings: PostgresSettings) -> None:
                 """,
                 (section_id, _DOCUMENT_ID, ordinal, 1, f"Section {ordinal}"),
             )
+        connection.execute(
+            """
+            INSERT INTO tarkka.artifact (
+                artifact_id, sha256, size_bytes, media_type, storage_key, acquired_at
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                _OTHER_ARTIFACT_ID,
+                "9" * 64,
+                1,
+                "text/plain",
+                "fixtures/other-package.txt",
+                _CREATED_AT,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO tarkka.document (
+                document_id, artifact_id, title, parser_name, parser_version, normalized_at
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (_OTHER_DOCUMENT_ID, _OTHER_ARTIFACT_ID, "Other fixture", "fixture", "1", _CREATED_AT),
+        )
+        connection.execute(
+            """
+            INSERT INTO tarkka.section (section_id, document_id, ordinal, level, title)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (_CROSS_DOCUMENT_SECTION_ID, _OTHER_DOCUMENT_ID, 0, 1, "Other section"),
+        )
 
 
 def _package() -> SavedDocumentContextPackage:
@@ -88,6 +123,26 @@ def test_postgres_context_package_store_round_trips_immutable_ordered_selection(
             SET estimated_tokens = 43 WHERE context_package_id = %s
             """,
             (package.context_package_id,),
+        )
+    with connect(tarkka_postgres_settings) as connection, pytest.raises(_psycopg.Error):
+        connection.execute(
+            """
+            INSERT INTO tarkka.document_context_package_section (
+                context_package_id, document_id, section_id, ordinal
+            ) VALUES (%s, %s, %s, %s)
+            """,
+            (package.context_package_id, _DOCUMENT_ID, _CROSS_DOCUMENT_SECTION_ID, 2),
+        )
+    with connect(tarkka_postgres_settings) as connection, pytest.raises(
+        Exception, match="immutable"
+    ):
+        connection.execute(
+            """
+            INSERT INTO tarkka.document_context_package_section (
+                context_package_id, document_id, section_id, ordinal
+            ) VALUES (%s, %s, %s, %s)
+            """,
+            (package.context_package_id, _DOCUMENT_ID, _SECTION_ID, 2),
         )
 
 

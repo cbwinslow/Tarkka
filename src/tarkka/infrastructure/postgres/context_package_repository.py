@@ -58,11 +58,19 @@ class PostgresDocumentContextPackageRepository:
                 connection.execute(
                     """
                     INSERT INTO tarkka.document_context_package_section (
-                        context_package_id, section_id, ordinal
-                    ) VALUES (%s, %s, %s)
+                        context_package_id, document_id, section_id, ordinal
+                    ) VALUES (%s, %s, %s, %s)
                     """,
-                    (package.context_package_id, section_id, ordinal),
+                    (package.context_package_id, package.document_id, section_id, ordinal),
                 )
+            connection.execute(
+                """
+                UPDATE tarkka.document_context_package
+                SET is_finalized = true
+                WHERE context_package_id = %s
+                """,
+                (package.context_package_id,),
+            )
 
     def get(self, context_package_id: UUID) -> SavedDocumentContextPackage | None:
         with self._connection() as connection:
@@ -94,7 +102,7 @@ class PostgresDocumentContextPackageRepository:
             """
             SELECT context_package_id, document_id, estimated_tokens, created_at
             FROM tarkka.document_context_package
-            WHERE context_package_id = %s
+            WHERE context_package_id = %s AND is_finalized = true
             """,
             (context_package_id,),
         ).fetchone()

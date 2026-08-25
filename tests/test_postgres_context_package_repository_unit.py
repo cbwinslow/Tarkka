@@ -95,6 +95,7 @@ def test_postgres_context_package_store_writes_exact_ordered_selection() -> None
             _Cursor(),  # package insert
             _Cursor(),  # first section insert
             _Cursor(),  # second section insert
+            _Cursor(),  # package finalization
         ]
     )
 
@@ -107,8 +108,8 @@ def test_postgres_context_package_store_writes_exact_ordered_selection() -> None
         if "INSERT INTO tarkka.document_context_package_section" in sql
     ]
     assert section_insert_params == [
-        (package.context_package_id, package.section_ids[0], 0),
-        (package.context_package_id, package.section_ids[1], 1),
+        (package.context_package_id, package.document_id, package.section_ids[0], 0),
+        (package.context_package_id, package.document_id, package.section_ids[1], 1),
     ]
 
 

@@ -23,7 +23,7 @@ tarkka ingest ./notes.md
 tarkka inspect <document-id>
 tarkka read <document-id> --section 0
 
-# For JATS, EPUB, and semantic HTML: inspect preserved citations progressively.
+# For JATS, LaTeX, EPUB, and semantic HTML: inspect preserved citations progressively.
 tarkka citations list <document-id> --limit 20
 tarkka citations show <document-id> <reference-id>
 tarkka citations resolve <document-id>

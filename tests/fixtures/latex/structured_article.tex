@@ -1,0 +1,35 @@
+\documentclass{article}
+\title{Native LaTeX Fixture}
+\begin{document}
+\maketitle
+
+\section{Introduction}
+Prior work \cite{smith2024} motivates this model.
+
+\subsection{Method}
+We estimate \textbf{a linear relationship}.
+
+\begin{equation}
+y = a + bx
+\label{eq:model}
+\end{equation}
+
+\begin{figure}
+\includegraphics[width=0.8\textwidth]{figures/model.png}
+\caption{Observed and fitted values.}
+\label{fig:model}
+\end{figure}
+
+\begin{table}
+\caption{Model coefficients.}
+\label{tab:coefficients}
+\begin{tabular}{lr}
+Intercept & 1.2 \\
+Slope & 0.4 \\
+\end{tabular}
+\end{table}
+
+\begin{thebibliography}{9}
+\bibitem{smith2024} Smith, A. (2024). Evidence-grounded modeling.
+\end{thebibliography}
+\end{document}

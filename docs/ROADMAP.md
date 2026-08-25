@@ -158,7 +158,9 @@ See [`SOURCE_DOCUMENT_PRESERVATION.md`](SOURCE_DOCUMENT_PRESERVATION.md).
    - JATS XML first-class structure
    - Docling/PDF native/reconstructed figures/tables/equations/layout
    - EPUB and semantic HTML
-   - LaTeX/source bundles where practical
+   - standalone LaTeX source preservation for sections, bibliography/citation anchors,
+     figures/tables/equations, labels, and linked graphics; multi-file source bundles remain a
+     separately bounded acquisition workflow
    - deterministic format-preservation fixture corpus
 4. **#28 — bounded web/resource discovery**
    - HTTP/source observations

@@ -39,6 +39,7 @@ from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
+from tarkka.infrastructure.storage.latex_parser import LatexParser
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.search_snapshot_log import (
     JsonlSearchSnapshotLog,
@@ -99,6 +100,7 @@ def _snapshot_log() -> JsonlSearchSnapshotLog:
 def _parsers() -> tuple[DocumentParser, ...]:
     parsers: list[DocumentParser] = [
         JatsParser(),
+        LatexParser(),
         EpubParser(),
         SemanticHtmlParser(),
         PlainTextParser(),

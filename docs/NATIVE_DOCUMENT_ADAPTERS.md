@@ -11,12 +11,13 @@ Prefer a format-specific native adapter over a general reconstruction adapter wh
 | Adapter | Basis | Structure | Bibliography | Inline citations | Figures | Tables | Equations | Resource/supplement links |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | JATS | native | yes | yes | yes | yes | yes | yes | yes |
+| LaTeX (`.tex`) | native source subset | sections | `thebibliography` | `cite` family | yes | yes | equation/align | linked graphics |
 | Semantic HTML/XHTML | native | yes | yes | yes | yes | yes | MathML | yes |
 | EPUB | native | package + spine | yes | yes | yes | yes | MathML | yes |
 | Docling/PDF | reconstructed | yes | no | no | yes | yes | stable formula label / best effort | no |
 | Plain text | reconstructed | minimal | no | no | no | no | no | no |
 
-Capability manifests are the machine-readable source of truth. The matrix is explanatory and must not advertise a capability that the adapter manifest does not expose. Format-specific documentation records narrower preservation and safety details in `SEMANTIC_HTML.md`, `EPUB.md`, and `DOCLING_ADAPTER.md`.
+Capability manifests are the machine-readable source of truth. The matrix is explanatory and must not advertise a capability that the adapter manifest does not expose. The LaTeX adapter intentionally does not execute macros or follow `\\input`/`\\include`; source-bundle acquisition is a separate bounded future workflow. Format-specific documentation records narrower preservation and safety details in `SEMANTIC_HTML.md`, `EPUB.md`, and `DOCLING_ADAPTER.md`.
 
 ## Preservation rules
 
@@ -28,10 +29,10 @@ Capability manifests are the machine-readable source of truth. The matrix is exp
 - Label reconstructed structure as reconstructed; do not present PDF layout recovery as source-native structure.
 - Use stable IDs derived from the immutable source artifact plus native anchors when the format provides durable anchors.
 - Share normalization boundaries instead of duplicating them: EPUB spine XHTML reuses the semantic HTML parser rather than defining a second HTML model.
-- Keep remaining format support incremental: LaTeX/source bundles and optional OCR/layout adapters should reuse these boundaries rather than redesigning the canonical schema. Bibliography interchange formats such as BibTeX, RIS, and CSL-JSON use the bibliography subsystem rather than pretending to be document adapters.
+- Keep remaining format support incremental: LaTeX source bundles and optional OCR/layout adapters should reuse these boundaries rather than redesigning the canonical schema. Bibliography interchange formats such as BibTeX, RIS, and CSL-JSON use the bibliography subsystem rather than pretending to be document adapters.
 
 ## Fixture policy
 
 Every structure-aware adapter should have deterministic fixtures that fail if expected structure disappears. At minimum, fixtures should cover the capabilities the adapter advertises, including bibliography, citation anchors, figures, tables, equations, and resource links when supported.
 
-Current fixture/regression coverage includes JATS native preservation, semantic HTML structure/citations/artifacts/links, EPUB package/spine preservation and archive safety, and Docling reconstructed figures/tables/formulas plus its documented upstream model contract.
+Current fixture/regression coverage includes JATS and LaTeX native preservation, semantic HTML structure/citations/artifacts/links, EPUB package/spine preservation and archive safety, and Docling reconstructed figures/tables/formulas plus its documented upstream model contract.

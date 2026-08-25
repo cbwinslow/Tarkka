@@ -16,7 +16,7 @@ Milestone numbers in implementation PRs map to the phases below; the phase names
 - Phase 4 — Evidence verification: **substantially complete for the initial local workflow**
 - Phase 5 — Agent-first serving: **foundation in progress**
 
-The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, generalized evidence locators, first-class Figure/Table/Equation source artifacts, evidence-backed claim extraction, the full first-pass research object vocabulary, model-assisted extraction, evaluation fixtures, bounded model requests, and contract-tested local/PostgreSQL Work persistence.
+The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, generalized evidence locators, first-class Figure/Table/Equation source artifacts, evidence-backed claim extraction, the full first-pass research object vocabulary, model-assisted extraction, evaluation fixtures, bounded model requests, and contract-tested local/PostgreSQL Work and normalized-document persistence.
 
 The initial source/document intelligence sequence is delivered. Future JATS, EPUB, HTML, PDF,
 crawler, citation, supplement, and provider integrations must extend these preservation boundaries
@@ -56,6 +56,8 @@ Delivered:
 - lightweight local metadata repository
 - PostgreSQL reference schema/migrations
 - PostgreSQL `WorkRepository` adapter with real-service contract validation
+- PostgreSQL `ResearchRepository` adapter preserving documents, manifests, and first-class source artifacts
+  with real-service contract validation
 - plain-text/Markdown parser
 - optional Docling rich-document adapter
 - canonical `Artifact -> Document -> Section -> Passage` normalization
@@ -67,7 +69,7 @@ Delivered:
 
 Remaining Phase 1 work can proceed only when required by downstream features:
 
-- PostgreSQL repositories for the remaining canonical model beyond Work identity
+- PostgreSQL repositories for the remaining canonical model beyond Work identity and normalized documents
 - structured logging/observability hooks
 - PostgreSQL full-text + pgvector retrieval
 - deterministic chunk/index pipeline beyond the current passage model

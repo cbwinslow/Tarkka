@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.verification import EvidenceVerificationService
 
@@ -113,7 +114,9 @@ class _OperationRegistration:
     """Private metadata binding an advertised handle to an implemented service method."""
 
     operation: ResearchOperation
-    service_type: type[DiscoveryService] | type[EvidenceVerificationService]
+    service_type: (
+        type[DiscoveryService] | type[EvidenceVerificationService] | type[CitationTraversalService]
+    )
     method_name: str
     inputs: tuple[ResearchField, ...]
     result_summary: str
@@ -261,6 +264,49 @@ _OPERATION_REGISTRATIONS = (
             ResearchField("context_id", "uuid", True, "Stable citation-context identifier."),
         ),
         "One exact context and its preserved citation mention.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.citations.traverse",
+            "citations",
+            "Traverse bounded local citation relations.",
+            24,
+        ),
+        CitationTraversalService,
+        "traverse",
+        (
+            ResearchField("work_id", "uuid", True, "Stable root Work identifier."),
+            ResearchField(
+                "max_depth", "integer", False, "Maximum relation depth.", minimum=0, maximum=5
+            ),
+            ResearchField(
+                "max_works",
+                "integer",
+                False,
+                "Maximum returned Work handles.",
+                minimum=1,
+                maximum=100,
+            ),
+            ResearchField(
+                "max_relations",
+                "integer",
+                False,
+                "Maximum returned relations.",
+                minimum=0,
+                maximum=500,
+            ),
+            ResearchField(
+                "direction", "enum", False, "Traversal direction.", ("outbound", "inbound", "both")
+            ),
+            ResearchField(
+                "relation_kinds",
+                "array",
+                False,
+                "Included relation kinds.",
+                item_value_type="string",
+            ),
+        ),
+        "Bounded Work and relation handles with truncation metadata.",
     ),
 )
 

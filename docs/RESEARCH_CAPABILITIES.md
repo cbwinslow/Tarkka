@@ -11,7 +11,8 @@ it neither selects a provider nor reads documents.
 `research.discover` maps to `DiscoveryService.discover`; `research.verify` maps
 to `EvidenceVerificationService.record`; and `research.verify.candidates` maps
 to its bounded citation-context review aid; `research.verify.context` expands
-one returned local context handle. Handle resolution and named deeper
+one returned local context handle. `research.citations.traverse` exposes the
+existing bounded local citation graph traversal. Handle resolution and named deeper
 representations are deliberately not advertised until their application
 services exist. The token estimate includes a documented fixed envelope
 overhead plus each returned operation's estimate; it is a routing estimate, not

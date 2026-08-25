@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, cast
@@ -181,7 +181,7 @@ def _observation_params(value: SourceObservation) -> tuple[object, ...]:
         value.provider_record_id,
         value.media_type,
         value.native_artifact_id,
-        json.dumps(dict(value.metadata), sort_keys=True),
+        json.dumps(_json_value(value.metadata), sort_keys=True),
         value.observed_at,
     )
 
@@ -194,7 +194,7 @@ def _link_params(value: ResourceLinkObservation) -> tuple[object, ...]:
         value.relation.value,
         value.media_type,
         value.label,
-        json.dumps(dict(value.metadata), sort_keys=True),
+        json.dumps(_json_value(value.metadata), sort_keys=True),
     )
 
 
@@ -229,6 +229,17 @@ def _json_object(value: Any) -> dict[str, Any]:
     if not isinstance(decoded, dict):
         raise RuntimeError("PostgreSQL source observation metadata must decode to an object")
     return decoded
+
+
+def _json_value(value: Any) -> Any:
+    """Thaw validated source metadata into values accepted by PostgreSQL JSONB."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(item) for item in value]
+    raise ValueError(f"unsupported source observation metadata value: {type(value).__name__}")
 
 
 def _observation_identity(value: SourceObservation) -> tuple[object, ...]:

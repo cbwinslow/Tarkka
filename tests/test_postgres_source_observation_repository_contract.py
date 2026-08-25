@@ -52,7 +52,10 @@ def _observation() -> SourceObservation:
         source_version="1",
         basis=ObservationBasis.NATIVE,
         native_artifact_id=_ARTIFACT_ID,
-        metadata={"title": "Evidence first"},
+        metadata={
+            "title": "Evidence first",
+            "native": {"identifiers": ["pmcid:PMC123456"]},
+        },
         observed_at=_OBSERVED_AT,
     )
 
@@ -65,6 +68,7 @@ def _link() -> ResourceLinkObservation:
         relation=ResourceRelation.SUPPLEMENT,
         media_type="text/csv",
         label="Supplement",
+        metadata={"native": {"targets": ["table-1", "figure-2"]}},
     )
 
 

@@ -13,7 +13,21 @@ from tarkka.domain.citations import (
 )
 
 
-class CitationRepository(Protocol):
+class NativeCitationRepository(Protocol):
+    """Persistence boundary for parser-preserved bibliography and citation context.
+
+    Native parsing must preserve references, inline mentions, and their local contexts before
+    any provider selection or cross-provider identity resolution is attempted.
+    """
+
+    def save_reference(self, reference: BibliographicReference) -> None: ...
+
+    def save_mention(self, mention: CitationMention) -> None: ...
+
+    def save_context(self, context: CitationContext) -> None: ...
+
+
+class CitationRepository(NativeCitationRepository, Protocol):
     """Persistence boundary for bibliography, citation, and Work-relation state.
 
     Implementations must serialize writes to a reference's resolution key. They must also
@@ -24,12 +38,6 @@ class CitationRepository(Protocol):
     traversal budgets can reach the storage boundary. SQL adapters should translate these into
     WHERE/ORDER BY/LIMIT rather than materializing an unbounded adjacency list first.
     """
-
-    def save_reference(self, reference: BibliographicReference) -> None: ...
-
-    def save_mention(self, mention: CitationMention) -> None: ...
-
-    def save_context(self, context: CitationContext) -> None: ...
 
     def save_resolution(self, resolution: CitationResolution) -> None: ...
 

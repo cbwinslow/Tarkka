@@ -9,7 +9,7 @@ from tarkka.domain.manifest import ResourceManifest, build_document_manifest
 from tarkka.domain.models import Acquisition, Artifact, Document, new_id
 from tarkka.ports.acquisitions import AcquisitionRecorder
 from tarkka.ports.artifacts import ArtifactStore
-from tarkka.ports.citations import CitationRepository
+from tarkka.ports.citations import NativeCitationRepository
 from tarkka.ports.parsing import (
     DocumentParser,
     NativeDocumentParseResult,
@@ -44,7 +44,7 @@ class IngestService:
         repository: ResearchRepository,
         parsers: tuple[DocumentParser, ...],
         acquisition_recorder: AcquisitionRecorder | None = None,
-        citation_repository: CitationRepository | None = None,
+        citation_repository: NativeCitationRepository | None = None,
         source_observation_repository: SourceObservationRepository | None = None,
     ) -> None:
         if not parsers:

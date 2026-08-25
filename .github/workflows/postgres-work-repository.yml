@@ -10,6 +10,8 @@ on:
       - "uv.lock"
       - "src/tarkka/domain/discovery.py"
       - "src/tarkka/domain/models.py"
+      - "src/tarkka/application/ingest.py"
+      - "src/tarkka/ports/citations.py"
       - "src/tarkka/domain/work_identity.py"
       - "src/tarkka/interfaces/cli.py"
       - "src/tarkka/interfaces/main.py"
@@ -22,6 +24,9 @@ on:
       - "tests/test_postgres_research_repository_contract.py"
       - "tests/test_postgres_acquisition_recorder_contract.py"
       - "tests/test_postgres_source_observation_repository_contract.py"
+      - "tests/test_postgres_citation_context_repository.py"
+      - "tests/test_postgres_citation_context_repository_unit.py"
+      - "tests/test_postgres_native_ingest.py"
       - "tests/test_postgres_work_repository_unit.py"
       - "tests/test_postgres_verification_repository_unit.py"
       - "tests/test_postgres_research_repository_unit.py"
@@ -37,6 +42,8 @@ on:
       - "uv.lock"
       - "src/tarkka/domain/discovery.py"
       - "src/tarkka/domain/models.py"
+      - "src/tarkka/application/ingest.py"
+      - "src/tarkka/ports/citations.py"
       - "src/tarkka/domain/work_identity.py"
       - "src/tarkka/interfaces/cli.py"
       - "src/tarkka/interfaces/main.py"
@@ -49,6 +56,9 @@ on:
       - "tests/test_postgres_research_repository_contract.py"
       - "tests/test_postgres_acquisition_recorder_contract.py"
       - "tests/test_postgres_source_observation_repository_contract.py"
+      - "tests/test_postgres_citation_context_repository.py"
+      - "tests/test_postgres_citation_context_repository_unit.py"
+      - "tests/test_postgres_native_ingest.py"
       - "tests/test_postgres_work_repository_unit.py"
       - "tests/test_postgres_verification_repository_unit.py"
       - "tests/test_postgres_research_repository_unit.py"
@@ -106,6 +116,8 @@ jobs:
           tests/test_postgres_research_repository_contract.py
           tests/test_postgres_acquisition_recorder_contract.py
           tests/test_postgres_source_observation_repository_contract.py
+          tests/test_postgres_citation_context_repository.py
+          tests/test_postgres_native_ingest.py
           --junitxml=postgres-work-repository-results.xml
       - name: Retain PostgreSQL contract results
         if: ${{ !cancelled() }}

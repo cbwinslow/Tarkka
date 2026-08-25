@@ -196,7 +196,7 @@ def test_citations_context_cli_reports_missing_exact_handle(
 
     assert main(["citations", "context", str(uuid4()), str(context_id)]) == 2
 
-    assert f"citation context not found: {context_id}" in capsys.readouterr().err
+    assert "citation repository is not available" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

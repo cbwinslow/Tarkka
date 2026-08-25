@@ -27,6 +27,10 @@ class CitationContextNotFoundError(LookupError):
     pass
 
 
+class CitationRepositoryNotAvailableError(LookupError):
+    pass
+
+
 class CitationMentionNotFoundError(LookupError):
     pass
 
@@ -169,7 +173,7 @@ class EvidenceVerificationService:
     ) -> CitationContextInspection:
         """Expand one context handle and fail closed on incomplete citation lineage."""
         if self._citations is None:
-            raise CitationContextNotFoundError(f"citation context not found: {context_id}")
+            raise CitationRepositoryNotAvailableError("citation repository is not available")
         context = self._citations.get_context(document_id, context_id)
         if context is None:
             raise CitationContextNotFoundError(f"citation context not found: {context_id}")

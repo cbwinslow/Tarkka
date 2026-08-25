@@ -29,6 +29,7 @@ from tarkka.application.research_packages import (
 from tarkka.application.verification import (
     CitationContextNotFoundError,
     CitationMentionNotFoundError,
+    CitationRepositoryNotAvailableError,
     ClaimNotFoundError,
     EvidenceNotFoundError,
     EvidenceVerificationRequest,
@@ -633,6 +634,7 @@ def _cmd_citations_context(args: argparse.Namespace) -> int:
     except (
         CitationContextNotFoundError,
         CitationMentionNotFoundError,
+        CitationRepositoryNotAvailableError,
         OSError,
         RuntimeError,
         ValueError,

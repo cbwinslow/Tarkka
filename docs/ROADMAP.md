@@ -259,6 +259,8 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
 - locally durable `context_package:<uuid>` handles that persist only exact document/section
   selections and resolve through the same bounded package service
 - PostgreSQL reference persistence for the same immutable context-package handle contract
+- explicit `TARKKA_DOCUMENT_BACKEND=postgres` runtime selection for document manifest, section,
+  and saved-context-package CLI retrieval; JSON remains the dependency-free default
 
 Deliverables:
 

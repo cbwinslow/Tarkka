@@ -87,7 +87,11 @@ from tarkka.infrastructure.extraction.rule_claims import (
     RuleBasedClaimExtractor,
 )
 from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.context_package_repository import (
+    PostgresDocumentContextPackageRepository,
+)
 from tarkka.infrastructure.postgres.migrations import upgrade
+from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.storage.identity_decision_log import JsonlIdentityDecisionLog
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_context_package_repository import (
@@ -112,7 +116,9 @@ from tarkka.infrastructure.storage.search_snapshot_log import (
 from tarkka.interfaces.bibliography_cli import run as bibliography_main
 from tarkka.interfaces.cli import _work_repository
 from tarkka.interfaces.cli import main as legacy_main
+from tarkka.ports.context_packages import DocumentContextPackageStore
 from tarkka.ports.extraction import StructuredExtractor
+from tarkka.ports.repositories import ResearchRepository
 
 _MAX_CITATION_PAGE_SIZE = 100
 _MAX_CITATION_OFFSET = 10_000
@@ -227,6 +233,29 @@ def _document_repository() -> JsonResearchRepository:
     return JsonResearchRepository(_home() / "catalog.json")
 
 
+def _document_backend() -> str:
+    raw_backend = os.environ.get("TARKKA_DOCUMENT_BACKEND", "")
+    backend = raw_backend.strip().lower() or "json"
+    if backend in {"json", "postgres"}:
+        return backend
+    raise ValueError(
+        "unsupported TARKKA_DOCUMENT_BACKEND "
+        f"{raw_backend!r}; supported values are 'json' and 'postgres'"
+    )
+
+
+def _document_retrieval_repository() -> ResearchRepository:
+    if _document_backend() == "json":
+        return _document_repository()
+    return PostgresResearchRepository(PostgresSettings.from_environment())
+
+
+def _document_context_package_store() -> DocumentContextPackageStore:
+    if _document_backend() == "json":
+        return JsonDocumentContextPackageRepository(_home() / "context_packages.json")
+    return PostgresDocumentContextPackageRepository(PostgresSettings.from_environment())
+
+
 def _existing_citation_repository() -> JsonCitationRepository | None:
     return JsonCitationRepository.open_existing(_home() / "citations.json")
 
@@ -240,7 +269,7 @@ def _verification_repository() -> JsonVerificationRepository:
 
 
 def _document_retrieval_service() -> DocumentRetrievalService:
-    return DocumentRetrievalService(documents=_document_repository())
+    return DocumentRetrievalService(documents=_document_retrieval_repository())
 
 
 def _document_context_package_service() -> DocumentContextPackageService:
@@ -250,7 +279,7 @@ def _document_context_package_service() -> DocumentContextPackageService:
 def _saved_document_context_package_service() -> SavedDocumentContextPackageService:
     return SavedDocumentContextPackageService(
         packages=_document_context_package_service(),
-        store=JsonDocumentContextPackageRepository(_home() / "context_packages.json"),
+        store=_document_context_package_store(),
     )
 
 
@@ -371,7 +400,7 @@ def _section_payload(section: Section) -> dict[str, object]:
 def _cmd_documents_manifest(args: argparse.Namespace) -> int:
     try:
         manifest = _document_retrieval_service().manifest(args.document_id)
-    except DocumentNotFoundError as exc:
+    except (DocumentNotFoundError, OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(manifest.to_dict(), indent=2, sort_keys=True))
@@ -383,7 +412,7 @@ def _cmd_documents_sections(args: argparse.Namespace) -> int:
         page = _document_retrieval_service().sections(
             args.document_id, offset=args.offset, limit=args.limit
         )
-    except (DocumentNotFoundError, ValueError) as exc:
+    except (DocumentNotFoundError, OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(
@@ -420,7 +449,13 @@ def _cmd_documents_sections(args: argparse.Namespace) -> int:
 def _cmd_documents_section(args: argparse.Namespace) -> int:
     try:
         section = _document_retrieval_service().section(args.document_id, args.section_id)
-    except (DocumentNotFoundError, DocumentSectionNotFoundError) as exc:
+    except (
+        DocumentNotFoundError,
+        DocumentSectionNotFoundError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(_section_payload(section), indent=2, sort_keys=True))
@@ -440,7 +475,13 @@ def _cmd_documents_package(args: argparse.Namespace) -> int:
                 args.document_id, tuple(args.section_ids)
             )
             context_package_id = None
-    except (DocumentNotFoundError, DocumentSectionNotFoundError, ValueError) as exc:
+    except (
+        DocumentNotFoundError,
+        DocumentSectionNotFoundError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(
@@ -466,6 +507,8 @@ def _cmd_documents_saved_package(args: argparse.Namespace) -> int:
         DocumentNotFoundError,
         DocumentSectionNotFoundError,
         SavedDocumentContextPackageNotFoundError,
+        OSError,
+        RuntimeError,
         ValueError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)

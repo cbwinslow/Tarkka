@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.discover import DiscoveryService
+from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
 
 # Envelope metadata (version, representation, and routing hints) is included
@@ -73,9 +74,7 @@ class ResearchField:
                 and self.minimum > self.maximum
             ):
                 raise ValueError("research field minimum must not exceed maximum")
-        if self.required_when is not None and (
-            self.required or not self.required_when.strip()
-        ):
+        if self.required_when is not None and (self.required or not self.required_when.strip()):
             raise ValueError("required_when is only valid for optional fields")
 
 
@@ -115,7 +114,10 @@ class _OperationRegistration:
 
     operation: ResearchOperation
     service_type: (
-        type[DiscoveryService] | type[EvidenceVerificationService] | type[CitationTraversalService]
+        type[DiscoveryService]
+        | type[EvidenceVerificationService]
+        | type[CitationTraversalService]
+        | type[ResearchPackageService]
     )
     method_name: str
     inputs: tuple[ResearchField, ...]
@@ -307,6 +309,48 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "Bounded Work and relation handles with truncation metadata.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.resources.list",
+            "get",
+            "List bounded source-observed resource links for a document.",
+            20,
+        ),
+        ResearchPackageService,
+        "resource_links",
+        (
+            ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
+            ResearchField(
+                "offset", "integer", False, "Zero-based resource offset.", minimum=0, maximum=10000
+            ),
+            ResearchField(
+                "limit",
+                "integer",
+                False,
+                "Maximum resource links to return.",
+                minimum=0,
+                maximum=100,
+            ),
+        ),
+        "Source-observed resource-link handles and compact representation provenance.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.resources.show",
+            "expand",
+            "Expand one exact source-observed resource link.",
+            16,
+        ),
+        ResearchPackageService,
+        "resource_link",
+        (
+            ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
+            ResearchField(
+                "link_id", "uuid", True, "Stable source-observed resource-link identifier."
+            ),
+        ),
+        "One exact resource link with preserved native metadata; target resolution is separate.",
     ),
 )
 

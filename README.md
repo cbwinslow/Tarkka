@@ -144,24 +144,19 @@ skills/research-discovery/SKILL.md
 
 ## Current roadmap position
 
-Foundation and the first local ingestion milestones are complete. Scholarly discovery/identity is in
-progress.
+Foundation through the initial structured extraction/source-intelligence workflow is delivered.
+Evidence verification is substantially complete for the local workflow, and the first agent-serving
+foundation now offers compact transport-neutral capability discovery for implemented discovery,
+verification, citation traversal, and source-resource inspection services.
 
 Immediate engineering sequence:
 
 ```text
-persistent canonical Work identity
-  -> external-ID aliases
-  -> Crossref DOI enrichment
-  -> arXiv adapter / richer routing
-  -> finish scholarly identity
-  -> structured extraction
-       claims
-       methods/models
-       variables
-       datasets/software
-       metrics/results
-       limitations
+evidence verification
+  -> bounded source/citation expansion
+  -> compact agent capability discovery
+  -> manifest / summary / evidence expansion services
+  -> MCP serving and saved context packages
 ```
 
 See `docs/ROADMAP.md` and `docs/MILESTONE_3.md` for details.

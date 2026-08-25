@@ -16,3 +16,15 @@ class ArtifactSourceObservationRepository(Protocol):
     ) -> tuple[SourceObservation, ...]: ...
 
     def list_resource_links(self, observation_id: UUID) -> tuple[ResourceLinkObservation, ...]: ...
+
+    def page_resource_links_for_artifact(
+        self,
+        artifact_id: UUID,
+        *,
+        offset: int,
+        limit: int,
+    ) -> tuple[int, tuple[ResourceLinkObservation, ...]]: ...
+
+    def get_resource_link_for_artifact(
+        self, artifact_id: UUID, link_id: UUID
+    ) -> ResourceLinkObservation | None: ...

@@ -5,6 +5,7 @@ import os
 import tempfile
 from collections.abc import Mapping
 from datetime import datetime
+from heapq import nsmallest
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -57,18 +58,58 @@ class JsonSourceObservationRepository:
         payload = self._read()["observations"].get(str(observation_id))
         return _observation_from_dict(payload) if payload is not None else None
 
-    def list_resource_links(
-        self, observation_id: UUID
-    ) -> tuple[ResourceLinkObservation, ...]:
+    def list_resource_links(self, observation_id: UUID) -> tuple[ResourceLinkObservation, ...]:
         values = [
             _resource_link_from_dict(item)
             for item in self._read()["resource_links"].values()
             if item["observation_id"] == str(observation_id)
         ]
-        values.sort(
-            key=lambda item: (item.relation.value, item.target_uri, str(item.link_id))
-        )
+        values.sort(key=lambda item: (item.relation.value, item.target_uri, str(item.link_id)))
         return tuple(values)
+
+    def page_resource_links_for_artifact(
+        self,
+        artifact_id: UUID,
+        *,
+        offset: int,
+        limit: int,
+    ) -> tuple[int, tuple[ResourceLinkObservation, ...]]:
+        data = self._read()
+        observation_ids = {
+            observation_id
+            for observation_id, observation in data["observations"].items()
+            if observation.get("native_artifact_id") == str(artifact_id)
+        }
+        matching = (
+            item
+            for item in data["resource_links"].values()
+            if item["observation_id"] in observation_ids
+        )
+        selected_count = offset + limit
+        if selected_count == 0:
+            return sum(1 for _ in matching), ()
+        selected = nsmallest(selected_count, matching, key=_resource_link_sort_key)
+        total = len(selected)
+        if total == selected_count:
+            total = sum(
+                1
+                for item in data["resource_links"].values()
+                if item["observation_id"] in observation_ids
+            )
+        return total, tuple(_resource_link_from_dict(item) for item in selected[offset:])
+
+    def get_resource_link_for_artifact(
+        self, artifact_id: UUID, link_id: UUID
+    ) -> ResourceLinkObservation | None:
+        data = self._read()
+        payload = data["resource_links"].get(str(link_id))
+        if payload is None:
+            return None
+        link = _resource_link_from_dict(payload)
+        observation = data["observations"].get(str(link.observation_id))
+        if observation is None or observation.get("native_artifact_id") != str(artifact_id):
+            return None
+        return link
 
     def list_observations_for_artifact(self, artifact_id: UUID) -> tuple[SourceObservation, ...]:
         values = [
@@ -162,12 +203,8 @@ def _same_payload(
     ignored_fields: frozenset[str],
 ) -> bool:
     """Compare stable record content while excluding explicitly first-seen fields."""
-    existing_stable = {
-        key: value for key, value in existing.items() if key not in ignored_fields
-    }
-    incoming_stable = {
-        key: value for key, value in incoming.items() if key not in ignored_fields
-    }
+    existing_stable = {key: value for key, value in existing.items() if key not in ignored_fields}
+    incoming_stable = {key: value for key, value in incoming.items() if key not in ignored_fields}
     return existing_stable == incoming_stable
 
 
@@ -178,9 +215,7 @@ def _json_value(value: Any) -> Any:
         return {str(key): _json_value(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
         return [_json_value(item) for item in value]
-    raise ValueError(
-        f"unsupported source observation metadata value: {type(value).__name__}"
-    )
+    raise ValueError(f"unsupported source observation metadata value: {type(value).__name__}")
 
 
 def _observation_to_dict(value: SourceObservation) -> dict[str, Any]:
@@ -191,9 +226,7 @@ def _observation_to_dict(value: SourceObservation) -> dict[str, Any]:
         "source_version": value.source_version,
         "provider_record_id": value.provider_record_id,
         "media_type": value.media_type,
-        "native_artifact_id": (
-            str(value.native_artifact_id) if value.native_artifact_id else None
-        ),
+        "native_artifact_id": (str(value.native_artifact_id) if value.native_artifact_id else None),
         "metadata": _json_value(value.metadata),
         "observed_at": value.observed_at.isoformat(),
     }
@@ -237,3 +270,7 @@ def _resource_link_from_dict(raw: dict[str, Any]) -> ResourceLinkObservation:
         label=raw.get("label"),
         metadata=raw.get("metadata", {}),
     )
+
+
+def _resource_link_sort_key(raw: dict[str, Any]) -> tuple[str, str, str]:
+    return raw["relation"], raw["target_uri"], raw["link_id"]

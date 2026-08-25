@@ -15,7 +15,10 @@ dependencies = []
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
 docling = ["docling>=2.117,<3"]
-all = ["psycopg[binary]>=3.2,<4", "docling>=2.117,<3"]
+all = ["psycopg[binary]>=3.2,<4", "docling>=2.117,<3", "mcp>=2,<3"]
+mcp = [
+    "mcp>=2,<3",
+]
 
 [dependency-groups]
 dev = [
@@ -30,6 +33,7 @@ dev = [
 
 [project.scripts]
 tarkka = "tarkka.interfaces.main:main"
+tarkka-mcp = "tarkka.interfaces.mcp:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tarkka"]

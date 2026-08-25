@@ -28,7 +28,7 @@ jobs:
       - name: Verify lockfile
         run: uv lock --check
       - name: Sync development environment
-        run: uv sync --frozen --group dev
+        run: uv sync --frozen --group dev --extra mcp
       - name: Ruff
         run: uv run --no-sync ruff check .
       - name: Mypy
@@ -64,7 +64,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Sync development environment
-        run: uv sync --frozen --group dev
+        run: uv sync --frozen --group dev --extra mcp
       - name: Pytest
         if: matrix.python-version != '3.13'
         run: >-

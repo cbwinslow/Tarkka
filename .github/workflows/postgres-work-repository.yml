@@ -28,6 +28,7 @@ on:
       - "tests/test_postgres_acquisition_recorder_contract.py"
       - "tests/test_postgres_source_observation_repository_contract.py"
       - "tests/test_postgres_citation_context_repository.py"
+      - "tests/test_postgres_evidence_verification.py"
       - "tests/test_postgres_extraction_repository_contract.py"
       - "tests/test_postgres_extraction_repository_unit.py"
       - "tests/test_postgres_citation_context_repository_unit.py"
@@ -65,6 +66,7 @@ on:
       - "tests/test_postgres_acquisition_recorder_contract.py"
       - "tests/test_postgres_source_observation_repository_contract.py"
       - "tests/test_postgres_citation_context_repository.py"
+      - "tests/test_postgres_evidence_verification.py"
       - "tests/test_postgres_extraction_repository_contract.py"
       - "tests/test_postgres_extraction_repository_unit.py"
       - "tests/test_postgres_citation_context_repository_unit.py"
@@ -128,6 +130,7 @@ jobs:
           tests/test_postgres_acquisition_recorder_contract.py
           tests/test_postgres_source_observation_repository_contract.py
           tests/test_postgres_citation_context_repository.py
+          tests/test_postgres_evidence_verification.py
           tests/test_postgres_extraction_repository_contract.py
           tests/test_postgres_native_ingest.py
           --junitxml=postgres-work-repository-results.xml

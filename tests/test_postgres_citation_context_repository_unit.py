@@ -232,3 +232,45 @@ def test_postgres_native_citation_repository_rejects_invalid_json_shapes() -> No
                 *_reference_row(_reference())[7:],
             )
         )
+
+
+def test_postgres_citation_repository_supports_verification_context_reads() -> None:
+    mention = _mention()
+    context = replace(_context(), passage_id=UUID("00000000-0000-0000-0000-00000000c806"))
+    passage_id = context.passage_id
+    assert passage_id is not None
+    connection = _Connection(
+        [
+            _Cursor(row=_context_row(context)),
+            _Cursor(rows=[_mention_row(mention)]),
+            _Cursor(row=(1,)),
+            _Cursor(rows=[_context_row(context)]),
+            _Cursor(),
+            _Cursor(row=(1,)),
+            _Cursor(rows=[_context_row(context)]),
+        ]
+    )
+    repository = _repository(connection)
+
+    assert repository.get_context(_DOCUMENT_ID, _CONTEXT_ID) == context
+    assert repository.list_mentions_for_ids(_DOCUMENT_ID, frozenset((_MENTION_ID,))) == (mention,)
+    assert repository.list_mentions_for_ids(_DOCUMENT_ID, frozenset()) == ()
+    assert repository.count_contexts_for_passages(_DOCUMENT_ID, frozenset((passage_id,))) == 1
+    assert repository.count_contexts_for_passages(_DOCUMENT_ID, frozenset()) == 0
+    assert repository.list_contexts_for_passages(
+        _DOCUMENT_ID, frozenset((passage_id,)), offset=1, limit=2
+    ) == (context,)
+    assert repository.page_contexts_for_passages(
+        _DOCUMENT_ID, frozenset((passage_id,)), offset=1, limit=2
+    ) == (1, (context,))
+    assert connection.calls[4][0] == "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+
+
+@pytest.mark.parametrize(("offset", "limit"), [(-1, None), (0, -1)])
+def test_postgres_citation_repository_rejects_invalid_context_pagination(
+    offset: int, limit: int | None
+) -> None:
+    with pytest.raises(ValueError, match="citation context"):
+        _repository(_Connection([])).list_contexts_for_passages(
+            _DOCUMENT_ID, frozenset((_MENTION_ID,)), offset=offset, limit=limit
+        )

@@ -127,6 +127,84 @@ class PostgresCitationContextRepository:
             ).fetchall()
         return tuple(_context_from_row(row) for row in rows)
 
+    def get_context(self, document_id: UUID, context_id: UUID) -> CitationContext | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                _SELECT_CONTEXT + " WHERE document_id = %s AND context_id = %s",
+                (document_id, context_id),
+            ).fetchone()
+        return _context_from_row(row) if row is not None else None
+
+    def list_mentions_for_ids(
+        self, document_id: UUID, mention_ids: frozenset[UUID]
+    ) -> tuple[CitationMention, ...]:
+        if not mention_ids:
+            return ()
+        placeholders = ", ".join("%s" for _ in mention_ids)
+        with self._connection() as connection:
+            rows = connection.execute(
+                _SELECT_MENTION
+                + f" WHERE document_id = %s AND mention_id IN ({placeholders})"
+                + " ORDER BY char_start NULLS LAST, source_anchor NULLS LAST, mention_id",
+                (document_id, *sorted(mention_ids)),
+            ).fetchall()
+        return tuple(_mention_from_row(row) for row in rows)
+
+    def count_contexts_for_passages(self, document_id: UUID, passage_ids: frozenset[UUID]) -> int:
+        if not passage_ids:
+            return 0
+        placeholders = ", ".join("%s" for _ in passage_ids)
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT count(*) FROM tarkka.citation_context "
+                + f"WHERE document_id = %s AND passage_id IN ({placeholders})",
+                (document_id, *sorted(passage_ids)),
+            ).fetchone()
+        return int(cast(tuple[Any, ...], row)[0])
+
+    def list_contexts_for_passages(
+        self,
+        document_id: UUID,
+        passage_ids: frozenset[UUID],
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[CitationContext, ...]:
+        _validate_page(offset, limit)
+        if not passage_ids or limit == 0:
+            return ()
+        query, params = _contexts_for_passages_query(document_id, passage_ids, offset, limit)
+        with self._connection() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return tuple(_context_from_row(row) for row in rows)
+
+    def page_contexts_for_passages(
+        self,
+        document_id: UUID,
+        passage_ids: frozenset[UUID],
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[int, tuple[CitationContext, ...]]:
+        """Return a page and total from one repeatable-read PostgreSQL snapshot."""
+        _validate_page(offset, limit)
+        if not passage_ids or limit == 0:
+            return 0, ()
+        query, params = _contexts_for_passages_query(document_id, passage_ids, offset, limit)
+        placeholders = ", ".join("%s" for _ in passage_ids)
+        count_query = (
+            "SELECT count(*) FROM tarkka.citation_context "
+            + f"WHERE document_id = %s AND passage_id IN ({placeholders})"
+        )
+        count_params = (document_id, *sorted(passage_ids))
+        with self._connection() as connection:
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            total = int(
+                cast(tuple[Any, ...], connection.execute(count_query, count_params).fetchone())[0]
+            )
+            rows = connection.execute(query, params).fetchall()
+        return total, tuple(_context_from_row(row) for row in rows)
+
     @staticmethod
     def _get_reference(connection: Any, stable_id: UUID) -> BibliographicReference | None:
         row = connection.execute(
@@ -188,6 +266,32 @@ char_start, char_end, source_anchor, source_observation_id
 FROM tarkka.citation_mention"""
 _SELECT_CONTEXT = """SELECT context_id, mention_id, document_id, text, char_start, char_end,
 section_id, passage_id FROM tarkka.citation_context"""
+
+
+def _contexts_for_passages_query(
+    document_id: UUID,
+    passage_ids: frozenset[UUID],
+    offset: int,
+    limit: int | None,
+) -> tuple[str, tuple[object, ...]]:
+    placeholders = ", ".join("%s" for _ in passage_ids)
+    query = (
+        _SELECT_CONTEXT
+        + f" WHERE document_id = %s AND passage_id IN ({placeholders})"
+        + " ORDER BY char_start, context_id OFFSET %s"
+    )
+    params: tuple[object, ...] = (document_id, *sorted(passage_ids), offset)
+    if limit is not None:
+        query += " LIMIT %s"
+        params += (limit,)
+    return query, params
+
+
+def _validate_page(offset: int, limit: int | None) -> None:
+    if offset < 0:
+        raise ValueError("citation context offset must be non-negative")
+    if limit is not None and limit < 0:
+        raise ValueError("citation context limit must be non-negative")
 
 
 def _reference_params(value: BibliographicReference) -> tuple[object, ...]:

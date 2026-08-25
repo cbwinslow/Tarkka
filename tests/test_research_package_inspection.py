@@ -7,7 +7,10 @@ from uuid import uuid4
 import pytest
 
 from tarkka.application.ingest import IngestResult, IngestService
-from tarkka.application.research_packages import ResearchPackageService
+from tarkka.application.research_packages import (
+    ResearchPackageService,
+    ResourceLinkNotFoundError,
+)
 from tarkka.domain.source_observations import ResourceRelation
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.storage.jats_parser import JatsParser
@@ -60,6 +63,63 @@ def test_research_package_groups_native_resources_without_resolving_them(tmp_pat
     ]
 
 
+def test_research_package_service_progressively_lists_and_expands_resources(tmp_path: Path) -> None:
+    result, documents, observations = _ingest_native_document(tmp_path)
+    service = ResearchPackageService(
+        documents=documents,
+        work_documents=documents,
+        observations=observations,
+    )
+
+    page = service.resource_links(result.document.document_id, offset=0, limit=1)
+
+    assert page.document_id == result.document.document_id
+    assert page.artifact_id == result.artifact.artifact_id
+    assert page.total == 1
+    assert len(page.resource_links) == 1
+    link = service.resource_link(result.document.document_id, page.resource_links[0].link_id)
+    assert page.resource_links[0].metadata_keys == ("native_id",)
+    assert link.metadata == {"native_id": None}
+    empty_page = service.resource_links(result.document.document_id, limit=0)
+    assert empty_page.total == 1
+    assert empty_page.resource_links == ()
+    with pytest.raises(ResourceLinkNotFoundError, match="resource link not found"):
+        service.resource_link(result.document.document_id, uuid4())
+
+
+def test_resource_link_repository_queries_are_scoped_and_paged(tmp_path: Path) -> None:
+    result, _, observations = _ingest_native_document(tmp_path)
+    observation = observations.list_observations_for_artifact(result.artifact.artifact_id)[0]
+    total, links = observations.page_resource_links_for_artifact(
+        result.artifact.artifact_id,
+        offset=0,
+        limit=1,
+    )
+
+    assert total == 1
+    assert len(links) == 1
+    assert (
+        observations.get_resource_link_for_artifact(result.artifact.artifact_id, links[0].link_id)
+        == links[0]
+    )
+    assert observations.get_resource_link_for_artifact(uuid4(), links[0].link_id) is None
+    assert observations.list_resource_links(observation.observation_id) == links
+
+
+def test_research_package_service_rejects_negative_resource_pagination(tmp_path: Path) -> None:
+    result, documents, observations = _ingest_native_document(tmp_path)
+    service = ResearchPackageService(
+        documents=documents,
+        work_documents=documents,
+        observations=observations,
+    )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        service.resource_links(result.document.document_id, offset=-1)
+    with pytest.raises(ValueError, match="configured maximum"):
+        service.resource_links(result.document.document_id, limit=101)
+
+
 def test_resources_cli_progressively_expands_native_package_links(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -73,15 +133,13 @@ def test_resources_cli_progressively_expands_native_package_links(
     listing = json.loads(capsys.readouterr().out)
 
     assert listing["artifact_id"] == str(result.artifact.artifact_id)
-    assert len(listing["work_representations"]) == 1
     assert listing["resources"]["total"] == 1
     resource = listing["resources"]["items"][0]
     assert resource["relation"] == "supplement"
     assert resource["metadata_keys"] == ["native_id"]
+    assert "metadata" not in resource
 
-    assert main(
-        ["resources", "show", str(result.document.document_id), resource["link_id"]]
-    ) == 0
+    assert main(["resources", "show", str(result.document.document_id), resource["link_id"]]) == 0
     detail = json.loads(capsys.readouterr().out)
     assert detail["target_uri"] == "supplement/data.csv"
     assert detail["metadata"] == {"native_id": None}

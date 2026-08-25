@@ -23,8 +23,12 @@ from tarkka.application.identity_review import (
     IdentitySnapshotNotFoundError,
 )
 from tarkka.application.research_packages import (
+    MAX_RESOURCE_LINK_OFFSET,
+    MAX_RESOURCE_LINK_PAGE_SIZE,
     ResearchPackageNotFoundError,
     ResearchPackageService,
+    ResourceLinkManifest,
+    ResourceLinkNotFoundError,
 )
 from tarkka.application.verification import (
     CitationContextNotFoundError,
@@ -95,8 +99,6 @@ _MAX_CITATION_OFFSET = 10_000
 _MAX_CITATION_TRAVERSAL_DEPTH = 5
 _MAX_CITATION_TRAVERSAL_WORKS = 100
 _MAX_CITATION_TRAVERSAL_RELATIONS = 500
-_MAX_RESOURCE_PAGE_SIZE = 100
-_MAX_RESOURCE_OFFSET = 10_000
 _MAX_VERIFICATION_PAGE_SIZE = 100
 _MAX_VERIFICATION_OFFSET = 10_000
 
@@ -819,6 +821,18 @@ def _resource_link_summary(link: ResourceLinkObservation) -> dict[str, object]:
     }
 
 
+def _resource_link_manifest_payload(link: ResourceLinkManifest) -> dict[str, object]:
+    return {
+        "link_id": str(link.link_id),
+        "source_observation_id": str(link.observation_id),
+        "relation": link.relation,
+        "target_uri": link.target_uri,
+        "media_type": link.media_type,
+        "label": link.label,
+        "metadata_keys": list(link.metadata_keys),
+    }
+
+
 def _source_observation_summary(observation: SourceObservation) -> dict[str, object]:
     return {
         "observation_id": str(observation.observation_id),
@@ -843,39 +857,33 @@ def _cmd_resources_list(args: argparse.Namespace) -> int:
     if args.offset < 0 or args.limit < 0:
         print("error: resource offset and limit must be non-negative", file=sys.stderr)
         return 2
-    if args.offset > _MAX_RESOURCE_OFFSET or args.limit > _MAX_RESOURCE_PAGE_SIZE:
+    if args.offset > MAX_RESOURCE_LINK_OFFSET or args.limit > MAX_RESOURCE_LINK_PAGE_SIZE:
         print("error: resource pagination exceeds the configured maximum", file=sys.stderr)
         return 2
     if not _document_exists_for_inspection(args.document_id):
         print(f"error: document not found: {args.document_id}", file=sys.stderr)
         return 2
     try:
-        inspection = _research_package_service().inspect(args.document_id)
+        resources = _research_package_service().resource_links(
+            args.document_id,
+            offset=args.offset,
+            limit=args.limit,
+        )
     except (ResearchPackageNotFoundError, OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    resources = inspection.resource_links[args.offset : args.offset + args.limit]
     print(
         json.dumps(
             {
-                "document_id": str(inspection.document_id),
-                "artifact_id": str(inspection.artifact_id),
-                "work_representations": [
-                    {
-                        "link_id": str(link.link_id),
-                        "work_id": str(link.work_id),
-                        "linked_at": link.linked_at.isoformat(),
-                    }
-                    for link in inspection.work_documents
-                ],
-                "source_observations": [
-                    _source_observation_summary(item) for item in inspection.source_observations
-                ],
+                "document_id": str(resources.document_id),
+                "artifact_id": str(resources.artifact_id),
                 "resources": {
                     "offset": args.offset,
                     "limit": args.limit,
-                    "total": len(inspection.resource_links),
-                    "items": [_resource_link_summary(item) for item in resources],
+                    "total": resources.total,
+                    "items": [
+                        _resource_link_manifest_payload(item) for item in resources.resource_links
+                    ],
                 },
             },
             indent=2,
@@ -890,19 +898,20 @@ def _cmd_resources_show(args: argparse.Namespace) -> int:
         print(f"error: document not found: {args.document_id}", file=sys.stderr)
         return 2
     try:
-        inspection = _research_package_service().inspect(args.document_id)
-    except (ResearchPackageNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        resource = _research_package_service().resource_link(
+            args.document_id, args.resource_link_id
+        )
+    except (
+        ResearchPackageNotFoundError,
+        ResourceLinkNotFoundError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    resource = next(
-        (item for item in inspection.resource_links if item.link_id == args.resource_link_id),
-        None,
-    )
-    if resource is None:
-        print(f"error: resource link not found: {args.resource_link_id}", file=sys.stderr)
-        return 2
     payload = _resource_link_summary(resource)
-    payload["document_id"] = str(inspection.document_id)
+    payload["document_id"] = str(args.document_id)
     payload["metadata"] = dict(resource.metadata)
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0

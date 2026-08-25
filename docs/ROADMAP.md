@@ -13,6 +13,8 @@ Milestone numbers in implementation PRs map to the phases below; the phase names
 - Phase 2 — Scholarly discovery and identity: **complete for the local/offline workflow**
 - Phase 3 — Structured research extraction: **substantially complete for the initial local workflow;
   source/document intelligence expands incrementally through additional adapters**
+- Phase 4 — Evidence verification: **substantially complete for the initial local workflow**
+- Phase 5 — Agent-first serving: **foundation in progress**
 
 The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, generalized evidence locators, first-class Figure/Table/Equation source artifacts, evidence-backed claim extraction, the full first-pass research object vocabulary, model-assisted extraction, evaluation fixtures, bounded model requests, and contract-tested local/PostgreSQL Work persistence.
 
@@ -225,10 +227,20 @@ Delivered foundation:
 - confidence, human-review state, concise reasoning summary, and optional citation-context anchor
 - bounded local CLI recording and progressive evidence/context expansion
 - deterministic exact-handle evaluation metrics for verification labels
+- citation-context candidates and exact citation-context expansion for evidence review
+- bounded local citation traversal exposed through the capability index
+- exact source-observed resource-link listing and expansion exposed through the capability index
 
 ## Phase 5 — Agent-first serving
 
 Goal: make Claude, Codex, and custom agents efficient research consumers.
+
+### Delivered foundation
+
+- compact, versioned, transport-neutral capability index
+- staged operation-schema discovery with bounded input metadata
+- implemented-service bindings for discovery, verification recording, citation-aware verification
+  review, local citation traversal, and native resource-link inspection
 
 Deliverables:
 

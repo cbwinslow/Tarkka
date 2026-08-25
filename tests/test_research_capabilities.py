@@ -10,6 +10,7 @@ from tarkka.application.research_capabilities import (
     research_capabilities,
     research_operation_schema,
 )
+from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
 
 
@@ -23,17 +24,22 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.verify.candidates",
         "research.verify.context",
         "research.citations.traverse",
+        "research.resources.list",
+        "research.resources.show",
     ]
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
     )
-    assert capabilities.estimated_tokens < 200
+    # The first-turn index remains deliberately bounded as capability families grow.
+    assert capabilities.estimated_tokens < 250
     assert [(item.service_type, item.method_name) for item in _OPERATION_REGISTRATIONS] == [
         (DiscoveryService, "discover"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),
         (CitationTraversalService, "traverse"),
+        (ResearchPackageService, "resource_links"),
+        (ResearchPackageService, "resource_link"),
     ]
 
 
@@ -43,6 +49,8 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     candidates = research_operation_schema("research.verify.candidates")
     context = research_operation_schema("research.verify.context")
     traverse = research_operation_schema("research.citations.traverse")
+    resources = research_operation_schema("research.resources.list")
+    resource = research_operation_schema("research.resources.show")
 
     assert [field.name for field in discover.inputs] == [
         "text",
@@ -94,10 +102,25 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert context.result_summary == "One exact context and its preserved citation mention."
     assert context.estimated_tokens < 100
     assert [field.name for field in traverse.inputs] == [
-        "work_id", "max_depth", "max_works", "max_relations", "direction", "relation_kinds"
+        "work_id",
+        "max_depth",
+        "max_works",
+        "max_relations",
+        "direction",
+        "relation_kinds",
     ]
     assert traverse.inputs[1].maximum == 5
     assert traverse.inputs[4].allowed_values == ("outbound", "inbound", "both")
+    assert [field.name for field in resources.inputs] == ["document_id", "offset", "limit"]
+    assert resources.inputs[1].minimum == 0
+    assert resources.inputs[2].maximum == 100
+    assert resources.result_summary == (
+        "Source-observed resource-link handles and compact representation provenance."
+    )
+    assert [field.name for field in resource.inputs] == ["document_id", "link_id"]
+    assert resource.result_summary == (
+        "One exact resource link with preserved native metadata; target resolution is separate."
+    )
     with pytest.raises(UnknownResearchOperationError, match="research.expand") as error:
         research_operation_schema("research.expand")
     assert error.value.operation_id == "research.expand"

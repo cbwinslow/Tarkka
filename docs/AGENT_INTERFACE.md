@@ -116,6 +116,9 @@ without eagerly exposing every argument schema. `research_operation_schema` then
 The document tools preserve the same manifest-to-section disclosure ladder as the CLI. They return
 structured `ok`/`error` envelopes, stable error codes, and next-action hints rather than requiring
 clients to parse process stderr. Every initial tool is annotated read-only and idempotent.
+Exact section expansion is capped at the existing 8,000 estimated-token context budget; an
+oversized section returns `content_too_large` and directs the caller back to its compact section
+listing rather than silently truncating source text.
 
 The server is an optional `mcp` extra and uses stdio. It shares the document runtime selection with
 the CLI: `TARKKA_DOCUMENT_BACKEND=json` remains the dependency-free default, while an explicitly

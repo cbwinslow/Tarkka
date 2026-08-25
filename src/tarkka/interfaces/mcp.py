@@ -13,6 +13,7 @@ from uuid import UUID
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
+from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
     DocumentRetrievalService,
@@ -23,6 +24,7 @@ from tarkka.application.research_capabilities import (
     research_capabilities,
     research_operation_schema,
 )
+from tarkka.domain.manifest import estimate_tokens
 from tarkka.domain.models import Section
 from tarkka.interfaces.main import _document_retrieval_service
 
@@ -32,6 +34,7 @@ _READ_ONLY = ToolAnnotations(
     idempotent_hint=True,
     open_world_hint=False,
 )
+_MAX_SECTION_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 
 
 def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPServer:
@@ -82,8 +85,10 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         ),
         annotations=_READ_ONLY,
     )
-    def operation_schema(operation_id: str) -> dict[str, object]:
+    def operation_schema(operation_id: object) -> dict[str, object]:
         """Return an operation descriptor or a stable unknown-operation error."""
+        if not isinstance(operation_id, str):
+            return _error("invalid_argument", "operation_id must be a non-blank string")
         try:
             schema = research_operation_schema(operation_id)
         except UnknownResearchOperationError as exc:
@@ -123,7 +128,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         description="Return compact normalized-document metadata without expanding source text.",
         annotations=_READ_ONLY,
     )
-    def manifest(document_id: str) -> dict[str, object]:
+    def manifest(document_id: object) -> dict[str, object]:
         """Return a document manifest selected by its stable handle."""
         parsed = _uuid_or_error(document_id, kind="document")
         if isinstance(parsed, dict):
@@ -142,7 +147,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         ),
         annotations=_READ_ONLY,
     )
-    def sections(document_id: str, offset: int = 0, limit: int = 20) -> dict[str, object]:
+    def sections(document_id: object, offset: int = 0, limit: int = 20) -> dict[str, object]:
         """List one bounded page in the document manifest-to-section ladder."""
         parsed = _uuid_or_error(document_id, kind="document")
         if isinstance(parsed, dict):
@@ -182,7 +187,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         description="Expand one exact normalized section and its source-preserving passages.",
         annotations=_READ_ONLY,
     )
-    def section(document_id: str, section_id: str) -> dict[str, object]:
+    def section(document_id: object, section_id: object) -> dict[str, object]:
         """Expand a requested section only when it belongs to the requested document."""
         document = _uuid_or_error(document_id, kind="document")
         if isinstance(document, dict):
@@ -198,7 +203,19 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
             return _not_found_error(exc, "document_sections")
         except (OSError, RuntimeError) as exc:
             return _unavailable_error(exc)
-        return {"ok": True, "section": _section_payload(selected)}
+        estimated_tokens = _section_estimated_tokens(selected)
+        if estimated_tokens > _MAX_SECTION_ESTIMATED_TOKENS:
+            return _error(
+                "content_too_large",
+                "section exceeds the configured estimated-token maximum; "
+                "use document_sections to select a smaller source region",
+                next_actions=("document_sections",),
+            )
+        return {
+            "ok": True,
+            "section": _section_payload(selected),
+            "estimated_tokens": estimated_tokens,
+        }
 
     return server
 
@@ -208,8 +225,10 @@ def main() -> None:
     create_server().run(transport="stdio")
 
 
-def _uuid_or_error(value: str, *, kind: str) -> UUID | dict[str, object]:
+def _uuid_or_error(value: object, *, kind: str) -> UUID | dict[str, object]:
     prefix = "doc:" if kind == "document" else f"{kind}:"
+    if not isinstance(value, str):
+        return _error("invalid_argument", f"{kind}_id must be a UUID or {prefix}UUID handle")
     try:
         return UUID(value.removeprefix(prefix))
     except ValueError:
@@ -239,6 +258,10 @@ def _section_payload(section: Section) -> dict[str, object]:
             for passage in section.passages
         ],
     }
+
+
+def _section_estimated_tokens(section: Section) -> int:
+    return estimate_tokens("".join(passage.text for passage in section.passages))
 
 
 def _error(

@@ -119,6 +119,7 @@ def test_mcp_server_preserves_staged_document_disclosure(tmp_path: Path) -> None
         },
     )
     assert detail["section"]["passages"][0]["text"] == "Evidence first."
+    assert detail["estimated_tokens"] > 0
 
 
 def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(
@@ -142,6 +143,13 @@ def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(
     invalid_document = _call(server, "document_manifest", {"document_id": "not-a-document"})
     assert invalid_document["ok"] is False
     assert invalid_document["error"]["code"] == "invalid_argument"
+
+    for malformed_id in (None, 7, {"id": "document"}):
+        malformed_document = _call(server, "document_manifest", {"document_id": malformed_id})
+        assert malformed_document["error"]["code"] == "invalid_argument"
+
+    malformed_operation = _call(server, "research_operation_schema", {"operation_id": None})
+    assert malformed_operation["error"]["code"] == "invalid_argument"
 
     missing_manifest = _call(server, "document_manifest", {"document_id": str(uuid4())})
     assert missing_manifest["error"]["code"] == "not_found"
@@ -175,3 +183,34 @@ def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(
     )
     assert missing_section["error"]["code"] == "not_found"
     assert missing_section["error"]["next_actions"] == ["document_sections"]
+
+    malformed_section = _call(
+        server,
+        "document_section",
+        {"document_id": str(result.document.document_id), "section_id": {"id": "section"}},
+    )
+    assert malformed_section["error"]["code"] == "invalid_argument"
+
+
+def test_mcp_server_refuses_an_unbounded_section_expansion(tmp_path: Path) -> None:
+    source = tmp_path / "long.md"
+    source.write_text("# Long\n" + ("x" * 32_001), encoding="utf-8")
+    documents = JsonResearchRepository(tmp_path / "catalog.json")
+    result = IngestService(
+        artifact_store=LocalArtifactStore(tmp_path / "artifacts"),
+        repository=documents,
+        parsers=(PlainTextParser(),),
+    ).ingest(source)
+    server = create_server(documents=DocumentRetrievalService(documents=documents))
+
+    response = _call(
+        server,
+        "document_section",
+        {
+            "document_id": str(result.document.document_id),
+            "section_id": str(result.document.sections[0].section_id),
+        },
+    )
+
+    assert response["error"]["code"] == "content_too_large"
+    assert response["error"]["next_actions"] == ["document_sections"]

@@ -130,6 +130,8 @@ The initial MCP tools are `research_capabilities`, `research_operation_schema`,
 `document_manifest`, `document_sections`, and `document_section`. They use the same
 `TARKKA_DOCUMENT_BACKEND` selection as the document CLI; context-package saves and other writes
 remain CLI/application-service operations until their audit boundaries are exposed explicitly.
+Exact section expansion is rejected above the same 8,000 estimated-token budget used for document
+context packages, so one MCP call cannot force an unbounded document response.
 
 ## Agent-first design
 

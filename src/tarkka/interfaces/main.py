@@ -16,6 +16,11 @@ from tarkka.application.citation_traversal import (
     CitationTraversalService,
     TraversalDirection,
 )
+from tarkka.application.document_retrieval import (
+    DocumentNotFoundError,
+    DocumentRetrievalService,
+    DocumentSectionNotFoundError,
+)
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.identity_review import (
     IdentityCandidateNotFoundError,
@@ -64,6 +69,7 @@ from tarkka.domain.extraction import (
     TableEvidence,
 )
 from tarkka.domain.identity_candidates import IdentityDecision
+from tarkka.domain.models import Section
 from tarkka.domain.source_observations import ResourceLinkObservation, SourceObservation
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.infrastructure.extraction.model_claims import (
@@ -176,6 +182,13 @@ def _parse_context_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid citation context id: {raw}") from exc
 
 
+def _parse_section_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("section:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid section id: {raw}") from exc
+
+
 def _parse_verification_relation_id(raw: str) -> UUID:
     try:
         return UUID(raw.removeprefix("verification:"))
@@ -209,6 +222,10 @@ def _existing_source_observation_repository() -> JsonSourceObservationRepository
 
 def _verification_repository() -> JsonVerificationRepository:
     return JsonVerificationRepository(_home() / "verifications.json")
+
+
+def _document_retrieval_service() -> DocumentRetrievalService:
+    return DocumentRetrievalService(documents=_document_repository())
 
 
 def _existing_verification_repository() -> JsonVerificationRepository | None:
@@ -299,6 +316,88 @@ def _cmd_capabilities_show(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(_research_operation_schema_payload(schema), indent=2, sort_keys=True))
+    return 0
+
+
+def _section_payload(section: Section) -> dict[str, object]:
+    return {
+        "section_id": str(section.section_id),
+        "document_id": str(section.document_id),
+        "ordinal": section.ordinal,
+        "title": section.title,
+        "level": section.level,
+        "parent_section_id": (
+            str(section.parent_section_id) if section.parent_section_id is not None else None
+        ),
+        "passages": [
+            {
+                "passage_id": str(passage.passage_id),
+                "ordinal": passage.ordinal,
+                "text": passage.text,
+                "char_start": passage.char_start,
+                "char_end": passage.char_end,
+            }
+            for passage in section.passages
+        ],
+    }
+
+
+def _cmd_documents_manifest(args: argparse.Namespace) -> int:
+    try:
+        manifest = _document_retrieval_service().manifest(args.document_id)
+    except DocumentNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(manifest.to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_documents_sections(args: argparse.Namespace) -> int:
+    try:
+        page = _document_retrieval_service().sections(
+            args.document_id, offset=args.offset, limit=args.limit
+        )
+    except (DocumentNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "document_id": str(page.document_id),
+                "total": page.total,
+                "offset": args.offset,
+                "limit": args.limit,
+                "sections": [
+                    {
+                        "section_id": str(section.section_id),
+                        "ordinal": section.ordinal,
+                        "title": section.title,
+                        "level": section.level,
+                        "parent_section_id": (
+                            str(section.parent_section_id)
+                            if section.parent_section_id is not None
+                            else None
+                        ),
+                        "passage_count": section.passage_count,
+                        "estimated_tokens": section.estimated_tokens,
+                    }
+                    for section in page.sections
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_documents_section(args: argparse.Namespace) -> int:
+    try:
+        section = _document_retrieval_service().section(args.document_id, args.section_id)
+    except (DocumentNotFoundError, DocumentSectionNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(_section_payload(section), indent=2, sort_keys=True))
     return 0
 
 
@@ -1376,6 +1475,30 @@ def _capabilities_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _documents_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tarkka documents",
+        description="retrieve normalized documents through a bounded manifest-to-section ladder",
+    )
+    sub = parser.add_subparsers(dest="documents_command", required=True)
+
+    manifest = sub.add_parser("manifest", help="show one compact document manifest")
+    manifest.add_argument("document_id", type=_parse_document_id)
+    manifest.set_defaults(func=_cmd_documents_manifest)
+
+    sections = sub.add_parser("sections", help="list compact normalized section handles")
+    sections.add_argument("document_id", type=_parse_document_id)
+    sections.add_argument("--offset", type=int, default=0)
+    sections.add_argument("--limit", type=int, default=20)
+    sections.set_defaults(func=_cmd_documents_sections)
+
+    section = sub.add_parser("section", help="expand one exact normalized section")
+    section.add_argument("document_id", type=_parse_document_id)
+    section.add_argument("section_id", type=_parse_section_id)
+    section.set_defaults(func=_cmd_documents_section)
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "identity":
@@ -1401,6 +1524,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     if arguments and arguments[0] == "capabilities":
         args = _capabilities_parser().parse_args(arguments[1:])
+        return int(args.func(args))
+    if arguments and arguments[0] == "documents":
+        args = _documents_parser().parse_args(arguments[1:])
         return int(args.func(args))
     if arguments and arguments[0] == "bibliography":
         return bibliography_main(arguments[1:], _home())

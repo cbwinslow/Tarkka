@@ -36,3 +36,17 @@ tarkka capabilities show research.verify.candidates
 Both commands return deterministic JSON. `list` contains only the compact index;
 `show` loads the selected operation's descriptor. Neither command reads research
 documents, selects a provider, or executes an operation.
+
+The current document retrieval ladder is likewise available through shared
+application behavior and the CLI. It intentionally lists compact normalized
+section handles before expanding a single exact section and its passages:
+
+```bash
+tarkka documents manifest <document-id>
+tarkka documents sections <document-id> --limit 20
+tarkka documents section <document-id> <section-id>
+```
+
+The `research.documents.*` operations advertise these three steps. A section
+expansion returns only the requested section's normalized passages; it does not
+silently flatten or retrieve the whole document.

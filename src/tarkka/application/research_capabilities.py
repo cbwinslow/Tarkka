@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.discover import DiscoveryService
+from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
 
@@ -115,6 +116,7 @@ class _OperationRegistration:
     operation: ResearchOperation
     service_type: (
         type[DiscoveryService]
+        | type[DocumentRetrievalService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -176,6 +178,53 @@ _OPERATION_REGISTRATIONS = (
             ResearchField("year_to", "integer", False, "Inclusive publication year upper bound."),
         ),
         "Candidate manifests and provider cursors.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.documents.manifest",
+            "get",
+            "Get compact normalized-document metadata.",
+            6,
+        ),
+        DocumentRetrievalService,
+        "manifest",
+        (ResearchField("document_id", "uuid", True, "Stable source Document identifier."),),
+        "One document manifest with structural and expansion metadata.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.documents.sections",
+            "expand",
+            "List bounded normalized section handles.",
+            8,
+        ),
+        DocumentRetrievalService,
+        "sections",
+        (
+            ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
+            ResearchField(
+                "offset", "integer", False, "Zero-based section offset.", minimum=0, maximum=10000
+            ),
+            ResearchField(
+                "limit", "integer", False, "Maximum sections to return.", minimum=0, maximum=100
+            ),
+        ),
+        "Section handles and token estimates; passage text remains unexpanded.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.documents.section",
+            "expand",
+            "Expand one exact normalized section and its passages.",
+            10,
+        ),
+        DocumentRetrievalService,
+        "section",
+        (
+            ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
+            ResearchField("section_id", "uuid", True, "Stable normalized Section identifier."),
+        ),
+        "One exact section with source-preserving normalized passage handles and text.",
     ),
     _OperationRegistration(
         ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),

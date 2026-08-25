@@ -252,6 +252,8 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
 - implemented-service bindings for discovery, verification recording, citation-aware verification
   review, local citation traversal, and native resource-link inspection
 - dependency-free CLI access to the same two-stage capability discovery contract
+- transport-neutral manifest-to-section document retrieval with bounded section listings and
+  exact source-preserving section expansion
 
 Deliverables:
 

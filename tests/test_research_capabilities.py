@@ -2,6 +2,7 @@ import pytest
 
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.discover import DiscoveryService
+from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_capabilities import (
     _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD,
     _OPERATION_REGISTRATIONS,
@@ -20,6 +21,9 @@ def test_research_capabilities_are_stable_and_compact() -> None:
     assert capabilities.version == "1"
     assert [item.operation_id for item in capabilities.operations] == [
         "research.discover",
+        "research.documents.manifest",
+        "research.documents.sections",
+        "research.documents.section",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
@@ -34,6 +38,9 @@ def test_research_capabilities_are_stable_and_compact() -> None:
     assert capabilities.estimated_tokens < 250
     assert [(item.service_type, item.method_name) for item in _OPERATION_REGISTRATIONS] == [
         (DiscoveryService, "discover"),
+        (DocumentRetrievalService, "manifest"),
+        (DocumentRetrievalService, "sections"),
+        (DocumentRetrievalService, "section"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),
@@ -45,6 +52,9 @@ def test_research_capabilities_are_stable_and_compact() -> None:
 
 def test_research_operation_schema_is_compact_and_only_exposes_implemented_inputs() -> None:
     discover = research_operation_schema("research.discover")
+    document_manifest = research_operation_schema("research.documents.manifest")
+    document_sections = research_operation_schema("research.documents.sections")
+    document_section = research_operation_schema("research.documents.section")
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
     context = research_operation_schema("research.verify.context")
@@ -72,6 +82,20 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert discover.inputs[3].required_when == "mode == only"
     assert discover.inputs[6].property_value_type == "string"
     assert discover.result_summary == "Candidate manifests and provider cursors."
+    assert [field.name for field in document_manifest.inputs] == ["document_id"]
+    assert document_manifest.result_summary == (
+        "One document manifest with structural and expansion metadata."
+    )
+    assert [field.name for field in document_sections.inputs] == ["document_id", "offset", "limit"]
+    assert document_sections.inputs[1].maximum == 10000
+    assert document_sections.inputs[2].maximum == 100
+    assert document_sections.result_summary == (
+        "Section handles and token estimates; passage text remains unexpanded."
+    )
+    assert [field.name for field in document_section.inputs] == ["document_id", "section_id"]
+    assert document_section.result_summary == (
+        "One exact section with source-preserving normalized passage handles and text."
+    )
     assert [field.name for field in verify.inputs] == [
         "claim_id",
         "kind",

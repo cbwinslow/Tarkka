@@ -41,7 +41,15 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
     uses the CLI's runtime factory, so ``TARKKA_DOCUMENT_BACKEND`` selects the
     same JSON or PostgreSQL repository for both interfaces.
     """
-    retrieval = documents or _document_retrieval_service()
+    retrieval = documents
+
+    def retrieval_service() -> DocumentRetrievalService:
+        """Create the configured document backend only when a document tool needs it."""
+        nonlocal retrieval
+        if retrieval is None:
+            retrieval = _document_retrieval_service()
+        return retrieval
+
     server = MCPServer("tarkka")
 
     @server.tool(
@@ -121,7 +129,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         if isinstance(parsed, dict):
             return parsed
         try:
-            return {"ok": True, "manifest": retrieval.manifest(parsed).to_dict()}
+            return {"ok": True, "manifest": retrieval_service().manifest(parsed).to_dict()}
         except DocumentNotFoundError as exc:
             return _not_found_error(exc, "research_capabilities")
         except (OSError, RuntimeError) as exc:
@@ -140,7 +148,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         if isinstance(parsed, dict):
             return parsed
         try:
-            page = retrieval.sections(parsed, offset=offset, limit=limit)
+            page = retrieval_service().sections(parsed, offset=offset, limit=limit)
         except DocumentNotFoundError as exc:
             return _not_found_error(exc, "document_manifest")
         except ValueError as exc:
@@ -183,7 +191,7 @@ def create_server(*, documents: DocumentRetrievalService | None = None) -> MCPSe
         if isinstance(parsed_section, dict):
             return parsed_section
         try:
-            selected = retrieval.section(document, parsed_section)
+            selected = retrieval_service().section(document, parsed_section)
         except DocumentNotFoundError as exc:
             return _not_found_error(exc, "document_manifest")
         except DocumentSectionNotFoundError as exc:

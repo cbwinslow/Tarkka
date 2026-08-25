@@ -3,11 +3,14 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import pytest
+
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
+from tarkka.interfaces import mcp
 from tarkka.interfaces.mcp import create_server
 
 
@@ -44,6 +47,34 @@ def test_mcp_server_registers_only_read_only_initial_operations() -> None:
     ]
     assert all(tool.annotations is not None and tool.annotations.read_only_hint for tool in tools)
     assert all(tool.annotations is not None and tool.annotations.idempotent_hint for tool in tools)
+
+
+def test_mcp_server_defers_default_backend_construction_until_a_document_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def unavailable_backend() -> DocumentRetrievalService:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("document backend is unavailable")
+
+    monkeypatch.setattr(mcp, "_document_retrieval_service", unavailable_backend)
+    server = create_server()
+
+    assert [tool.name for tool in asyncio.run(server.list_tools())] == [
+        "research_capabilities",
+        "research_operation_schema",
+        "document_manifest",
+        "document_sections",
+        "document_section",
+    ]
+    assert _call(server, "research_capabilities", {})["ok"] is True
+    assert calls == 0
+
+    unavailable = _call(server, "document_manifest", {"document_id": str(uuid4())})
+    assert unavailable["error"]["code"] == "backend_unavailable"
+    assert calls == 1
 
 
 def test_mcp_server_preserves_staged_document_disclosure(tmp_path: Path) -> None:

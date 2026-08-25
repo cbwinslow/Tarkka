@@ -60,6 +60,8 @@ Delivered:
   with real-service contract validation
 - PostgreSQL append-only acquisition provenance recorder with real-service contract validation
 - PostgreSQL source-observation/resource-link persistence with real-service contract validation
+- PostgreSQL persistence for parser-preserved bibliography references, inline citation mentions,
+  and local citation contexts; resolution and work-relation traversal remain a subsequent slice
 - plain-text/Markdown parser
 - optional Docling rich-document adapter
 - canonical `Artifact -> Document -> Section -> Passage` normalization

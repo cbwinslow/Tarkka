@@ -22,6 +22,12 @@ from tarkka.application.identity_review import (
     IdentityReviewService,
     IdentitySnapshotNotFoundError,
 )
+from tarkka.application.research_capabilities import (
+    ResearchOperationSchema,
+    UnknownResearchOperationError,
+    research_capabilities,
+    research_operation_schema,
+)
 from tarkka.application.research_packages import (
     MAX_RESOURCE_LINK_OFFSET,
     MAX_RESOURCE_LINK_PAGE_SIZE,
@@ -230,6 +236,69 @@ def _cmd_db_upgrade(_: argparse.Namespace) -> int:
             sort_keys=True,
         )
     )
+    return 0
+
+
+def _research_capabilities_payload() -> dict[str, object]:
+    """Serialize the compact first-stage discovery response for CLI consumers."""
+    capabilities = research_capabilities()
+    return {
+        "version": capabilities.version,
+        "estimated_tokens": capabilities.estimated_tokens,
+        "operations": [
+            {
+                "operation_id": operation.operation_id,
+                "family": operation.family,
+                "summary": operation.summary,
+                "estimated_tokens": operation.estimated_tokens,
+            }
+            for operation in capabilities.operations
+        ],
+    }
+
+
+def _research_operation_schema_payload(schema: ResearchOperationSchema) -> dict[str, object]:
+    """Serialize one second-stage operation descriptor without exposing implementation types."""
+    operation = schema.operation
+    return {
+        "operation": {
+            "operation_id": operation.operation_id,
+            "family": operation.family,
+            "summary": operation.summary,
+            "estimated_tokens": operation.estimated_tokens,
+        },
+        "inputs": [
+            {
+                "name": field.name,
+                "value_type": field.value_type,
+                "required": field.required,
+                "summary": field.summary,
+                "allowed_values": list(field.allowed_values),
+                "item_value_type": field.item_value_type,
+                "property_value_type": field.property_value_type,
+                "minimum": field.minimum,
+                "maximum": field.maximum,
+                "required_when": field.required_when,
+            }
+            for field in schema.inputs
+        ],
+        "result_summary": schema.result_summary,
+        "estimated_tokens": schema.estimated_tokens,
+    }
+
+
+def _cmd_capabilities_list(_: argparse.Namespace) -> int:
+    print(json.dumps(_research_capabilities_payload(), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_capabilities_show(args: argparse.Namespace) -> int:
+    try:
+        schema = research_operation_schema(args.operation_id)
+    except UnknownResearchOperationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(_research_operation_schema_payload(schema), indent=2, sort_keys=True))
     return 0
 
 
@@ -1291,6 +1360,22 @@ def _db_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _capabilities_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tarkka capabilities",
+        description="discover compact, agent-ready research operations before loading a schema",
+    )
+    sub = parser.add_subparsers(dest="capabilities_command", required=True)
+
+    listing = sub.add_parser("list", help="list compact operation handles and token estimates")
+    listing.set_defaults(func=_cmd_capabilities_list)
+
+    show = sub.add_parser("show", help="show one operation's compact input descriptor")
+    show.add_argument("operation_id")
+    show.set_defaults(func=_cmd_capabilities_show)
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "identity":
@@ -1313,6 +1398,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     if arguments and arguments[0] == "db":
         args = _db_parser().parse_args(arguments[1:])
+        return int(args.func(args))
+    if arguments and arguments[0] == "capabilities":
+        args = _capabilities_parser().parse_args(arguments[1:])
         return int(args.func(args))
     if arguments and arguments[0] == "bibliography":
         return bibliography_main(arguments[1:], _home())

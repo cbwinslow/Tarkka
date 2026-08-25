@@ -148,9 +148,11 @@ Telemetry should be opt-in or transparently configurable for the open-source sel
 
 ## Software license
 
-The core is intended to be free/open source, but no license should be selected casually.
+Tarkka's software is licensed under Apache-2.0. This permissive license supports institutional
+and commercial adoption while providing an express patent grant. It applies only to Tarkka's
+software and project-authored documentation, not to ingested research content or external data.
 
-Before choosing:
+When adding a dependency, fixture, or contribution, continue to:
 
 - inspect licenses of mandatory dependencies
 - decide desired commercial reuse posture
@@ -158,7 +160,8 @@ Before choosing:
 - consider contributor expectations
 - consider institutional adoption friction
 
-Likely families to evaluate include Apache-2.0, MIT, MPL-2.0, and AGPL-3.0. This document does not choose one.
+Release automation and public package publication remain deliberate maintainer actions; a license
+selection alone does not authorize publication of artifacts or redistribution of source content.
 
 ## Source-content rights
 

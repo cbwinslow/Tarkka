@@ -4,12 +4,6 @@ These questions are intentionally unresolved. They should be answered with proto
 
 Resolved decisions should be removed from this file and reflected in the appropriate architecture/development document so agents do not repeatedly reopen them.
 
-## Open-source license
-
-- Apache-2.0, MIT, MPL-2.0, AGPL-3.0, or another license?
-- How much do we want hosted commercial modifications to remain open?
-- Which choice best balances institutional adoption and ecosystem contribution?
-
 ## Persistence
 
 - Should the lightweight local profile eventually support SQLite, or would that create too much behavioral divergence from PostgreSQL?

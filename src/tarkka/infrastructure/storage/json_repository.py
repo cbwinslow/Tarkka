@@ -10,6 +10,7 @@ from uuid import UUID
 
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
+from tarkka.domain.source_artifacts import Equation, Figure, Table
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
@@ -236,6 +237,39 @@ def _document_to_dict(document: Document) -> dict[str, Any]:
             }
             for section in document.sections
         ],
+        "figures": [
+            {
+                "figure_id": str(figure.figure_id),
+                "ordinal": figure.ordinal,
+                "page_number": figure.page_number,
+                "label": figure.label,
+                "caption": figure.caption,
+                "figure_type": figure.figure_type,
+            }
+            for figure in document.figures
+        ],
+        "tables": [
+            {
+                "table_id": str(table.table_id),
+                "ordinal": table.ordinal,
+                "page_number": table.page_number,
+                "label": table.label,
+                "caption": table.caption,
+                "row_count": table.row_count,
+                "column_count": table.column_count,
+            }
+            for table in document.tables
+        ],
+        "equations": [
+            {
+                "equation_id": str(equation.equation_id),
+                "ordinal": equation.ordinal,
+                "page_number": equation.page_number,
+                "label": equation.label,
+                "source_text": equation.source_text,
+            }
+            for equation in document.equations
+        ],
     }
 
 
@@ -278,6 +312,42 @@ def _document_from_dict(raw: dict[str, Any]) -> Document:
         parser_name=raw["parser_name"],
         parser_version=raw["parser_version"],
         sections=tuple(sections),
+        figures=tuple(
+            Figure(
+                figure_id=UUID(item["figure_id"]),
+                document_id=document_id,
+                ordinal=int(item["ordinal"]),
+                page_number=item.get("page_number"),
+                label=item.get("label"),
+                caption=item.get("caption"),
+                figure_type=item.get("figure_type", "unknown"),
+            )
+            for item in raw.get("figures", [])
+        ),
+        tables=tuple(
+            Table(
+                table_id=UUID(item["table_id"]),
+                document_id=document_id,
+                ordinal=int(item["ordinal"]),
+                page_number=item.get("page_number"),
+                label=item.get("label"),
+                caption=item.get("caption"),
+                row_count=item.get("row_count"),
+                column_count=item.get("column_count"),
+            )
+            for item in raw.get("tables", [])
+        ),
+        equations=tuple(
+            Equation(
+                equation_id=UUID(item["equation_id"]),
+                document_id=document_id,
+                ordinal=int(item["ordinal"]),
+                page_number=item.get("page_number"),
+                label=item.get("label"),
+                source_text=item.get("source_text"),
+            )
+            for item in raw.get("equations", [])
+        ),
         normalized_at=datetime.fromisoformat(raw["normalized_at"]),
     )
 

@@ -8,6 +8,7 @@ from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.storage import json_repository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+from tarkka.infrastructure.storage.latex_parser import LatexParser
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tests.contracts.research_repository import ResearchRepositoryContract
@@ -57,6 +58,25 @@ def test_json_repository_satisfies_idempotent_save_contract(tmp_path: Path) -> N
         result.document,
         result.manifest,
     )
+
+
+def test_json_repository_preserves_first_class_source_artifacts_on_reload(tmp_path: Path) -> None:
+    source = Path("tests/fixtures/latex/structured_article.tex")
+    repository = JsonResearchRepository(tmp_path / "catalog.json")
+    result = IngestService(
+        artifact_store=LocalArtifactStore(tmp_path / "artifacts"),
+        repository=repository,
+        parsers=(LatexParser(),),
+    ).ingest(source)
+
+    restored = JsonResearchRepository(tmp_path / "catalog.json").get_document(
+        result.document.document_id
+    )
+
+    assert restored is not None
+    assert restored.figures == result.document.figures
+    assert restored.tables == result.document.tables
+    assert restored.equations == result.document.equations
 
 
 def test_json_repository_fsyncs_parent_directory_after_atomic_write(

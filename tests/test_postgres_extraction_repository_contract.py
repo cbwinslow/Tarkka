@@ -175,6 +175,20 @@ def test_postgres_extraction_repository_accepts_reordered_identical_retry(
     )
 
 
+def test_postgres_extraction_repository_expands_exact_evidence_and_extraction(
+    repository: PostgresExtractionRepository,
+) -> None:
+    batch = _batch()
+    repository.save_batch(batch)
+
+    for evidence in batch.evidence:
+        assert repository.get_evidence(evidence.evidence_id) == evidence
+    for extraction in batch.extractions:
+        assert repository.get_extraction(extraction.extraction_id) == extraction
+    assert repository.get_evidence(UUID(int=0)) is None
+    assert repository.get_extraction(UUID(int=0)) is None
+
+
 def test_postgres_extraction_repository_requires_persisted_document(
     tarkka_postgres_settings: PostgresSettings,
 ) -> None:

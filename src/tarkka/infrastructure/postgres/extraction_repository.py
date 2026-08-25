@@ -104,6 +104,14 @@ class PostgresExtractionRepository:
             rows = connection.execute(query, tuple(params)).fetchall()
         return tuple(_evidence_from_row(row) for row in rows)
 
+    def get_evidence(self, evidence_id: UUID) -> EvidenceRecord | None:
+        """Return one stable evidence record for verification and expansion."""
+        with self._connection() as connection:
+            row = connection.execute(
+                _SELECT_EVIDENCE + " WHERE evidence_id = %s", (evidence_id,)
+            ).fetchone()
+        return _evidence_from_row(row) if row is not None else None
+
     def list_extractions(
         self,
         document_id: UUID,
@@ -132,6 +140,17 @@ class PostgresExtractionRepository:
             return tuple(
                 _extraction_from_row(row, evidence_ids[cast(UUID, row[0])]) for row in rows
             )
+
+    def get_extraction(self, extraction_id: UUID) -> ResearchExtraction | None:
+        """Return one stable research object with its ordered evidence links."""
+        with self._connection() as connection:
+            row = connection.execute(
+                _SELECT_EXTRACTION + " WHERE extraction_id = %s", (extraction_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            evidence_ids = _evidence_ids_by_extraction(connection, (extraction_id,))
+        return _extraction_from_row(row, evidence_ids[extraction_id])
 
     @staticmethod
     def _require_document(connection: Any, document_id: UUID) -> None:

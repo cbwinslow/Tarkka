@@ -54,4 +54,5 @@ silently flatten or retrieve the whole document.
 For an agent that has already selected exact sections, `tarkka documents package`
 builds a bounded context package with its manifest, exact section/passage provenance,
 and a deterministic token estimate. It requires one or more distinct `--section`
-handles and never chooses or expands sections implicitly.
+handles, never chooses or expands sections implicitly, and rejects selections above
+the 8,000-token content budget so callers can split them deliberately.

@@ -239,6 +239,11 @@ The server may assemble purpose-specific packages:
 
 A package contains only the objects needed for that task and a manifest explaining omissions and expansion paths.
 
+The initial document-package implementation requires caller-selected, distinct section
+handles and enforces both a section-count limit and an 8,000-token deterministic
+content estimate. Callers must split larger selections into multiple packages rather
+than receiving an unexpectedly large response.
+
 ## Deterministic compression before LLM compression
 
 Prefer cheap structural reduction first:

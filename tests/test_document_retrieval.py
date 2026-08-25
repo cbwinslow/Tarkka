@@ -11,6 +11,13 @@ from tarkka.application.document_retrieval import (
     DocumentSectionNotFoundError,
 )
 from tarkka.application.ingest import IngestResult, IngestService
+from tarkka.application.saved_document_context_packages import (
+    SavedDocumentContextPackageNotFoundError,
+    SavedDocumentContextPackageService,
+)
+from tarkka.infrastructure.storage.json_context_package_repository import (
+    JsonDocumentContextPackageRepository,
+)
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
@@ -109,6 +116,38 @@ def test_document_context_package_rejects_an_oversized_selected_payload(tmp_path
         service.build(result.document.document_id, (result.document.sections[0].section_id,))
 
 
+def test_saved_document_context_package_restores_exact_selection_after_restart(
+    tmp_path: Path,
+) -> None:
+    result, documents = _ingest_document(tmp_path)
+    section_ids = tuple(section.section_id for section in result.document.sections)
+    store_path = tmp_path / "context_packages.json"
+    saved = SavedDocumentContextPackageService(
+        packages=DocumentContextPackageService(
+            documents=DocumentRetrievalService(documents=documents)
+        ),
+        store=JsonDocumentContextPackageRepository(store_path),
+    ).save(result.document.document_id, section_ids)
+    restored = SavedDocumentContextPackageService(
+        packages=DocumentContextPackageService(
+            documents=DocumentRetrievalService(
+                documents=JsonResearchRepository(tmp_path / "catalog.json")
+            )
+        ),
+        store=JsonDocumentContextPackageRepository(store_path),
+    ).get(saved.saved.context_package_id)
+
+    assert restored.saved == saved.saved
+    assert restored.package == saved.package
+    with pytest.raises(SavedDocumentContextPackageNotFoundError, match="not found"):
+        SavedDocumentContextPackageService(
+            packages=DocumentContextPackageService(
+                documents=DocumentRetrievalService(documents=documents)
+            ),
+            store=JsonDocumentContextPackageRepository(store_path),
+        ).get(uuid4())
+
+
 def test_documents_cli_progressively_lists_and_expands_one_section(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -161,3 +200,24 @@ def test_documents_cli_progressively_lists_and_expands_one_section(
         listing["sections"][0]["section_id"]
     ]
     assert package["estimated_tokens"] > 0
+
+    assert (
+        main(
+            [
+                "documents",
+                "package",
+                str(result.document.document_id),
+                "--section",
+                listing["sections"][0]["section_id"],
+                "--save",
+            ]
+        )
+        == 0
+    )
+    saved_package = json.loads(capsys.readouterr().out)
+    assert saved_package["context_package_id"].startswith("context_package:")
+
+    assert main(["documents", "saved-package", saved_package["context_package_id"]]) == 0
+    restored_package = json.loads(capsys.readouterr().out)
+    assert restored_package["context_package_id"] == saved_package["context_package_id"]
+    assert restored_package["sections"] == saved_package["sections"]

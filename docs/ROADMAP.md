@@ -256,6 +256,8 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
   exact source-preserving section expansion
 - bounded, caller-selected document context packages with exact section/passage provenance
   and an explicit 8,000-token content budget
+- locally durable `context_package:<uuid>` handles that persist only exact document/section
+  selections and resolve through the same bounded package service
 
 Deliverables:
 

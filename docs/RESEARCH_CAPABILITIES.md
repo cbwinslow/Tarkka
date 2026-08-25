@@ -56,3 +56,7 @@ builds a bounded context package with its manifest, exact section/passage proven
 and a deterministic token estimate. It requires one or more distinct `--section`
 handles, never chooses or expands sections implicitly, and rejects selections above
 the 8,000-token content budget so callers can split them deliberately.
+
+Pass `--save` to retain that explicit selection as a `context_package:<uuid>` handle;
+`tarkka documents saved-package <context-package-id>` resolves it later through the
+same bounded source-preserving package service.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import Any, cast
 from uuid import UUID
 
@@ -50,13 +51,16 @@ class PostgresCitationContextRepository:
         )
 
     def save_context(self, value: CitationContext) -> None:
-        self._save(
-            "citation_context",
-            value.context_id,
-            _context_params(value),
-            value,
-            self._get_context,
-        )
+        with self._connection() as connection:
+            normalized = self._resolve_context_section(connection, value)
+            self._save_with_connection(
+                connection,
+                "citation_context",
+                normalized.context_id,
+                _context_params(normalized),
+                normalized,
+                self._get_context,
+            )
 
     def _save(
         self,
@@ -67,11 +71,35 @@ class PostgresCitationContextRepository:
         getter: Any,
     ) -> None:
         with self._connection() as connection:
-            cursor = connection.execute(_INSERTS[table], params)
-            if cursor.rowcount == 0:
-                existing = getter(connection, stable_id)
-                if existing != value:
-                    raise PostgresCitationConflictError(f"conflicting {table}: {stable_id}")
+            self._save_with_connection(connection, table, stable_id, params, value, getter)
+
+    @staticmethod
+    def _save_with_connection(
+        connection: Any,
+        table: str,
+        stable_id: UUID,
+        params: tuple[object, ...],
+        value: object,
+        getter: Any,
+    ) -> None:
+        cursor = connection.execute(_INSERTS[table], params)
+        if cursor.rowcount == 0:
+            existing = getter(connection, stable_id)
+            if existing != value:
+                raise PostgresCitationConflictError(f"conflicting {table}: {stable_id}")
+
+    @staticmethod
+    def _resolve_context_section(connection: Any, value: CitationContext) -> CitationContext:
+        if value.section_id is not None or value.passage_id is None:
+            return value
+        row = connection.execute(
+            """SELECT section_id FROM tarkka.passage
+            WHERE passage_id = %s AND document_id = %s""",
+            (value.passage_id, value.document_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"citation context passage not found: {value.passage_id}")
+        return replace(value, section_id=cast(UUID, row[0]))
 
     def list_references(self, document_id: UUID) -> tuple[BibliographicReference, ...]:
         with self._connection() as connection:

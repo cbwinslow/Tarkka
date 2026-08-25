@@ -37,22 +37,36 @@ class _FailOneResourceLink:
     def get_observation(self, observation_id: UUID) -> SourceObservation | None:
         return self.delegate.get_observation(observation_id)
 
-    def list_resource_links(
-        self, observation_id: UUID
-    ) -> tuple[ResourceLinkObservation, ...]:
+    def list_resource_links(self, observation_id: UUID) -> tuple[ResourceLinkObservation, ...]:
         return self.delegate.list_resource_links(observation_id)
+
+
+class _FailCitationWrite:
+    def save_reference(self, _: object) -> None:
+        raise OSError("simulated transient database interruption")
+
+    def save_mention(self, _: object) -> None:
+        raise AssertionError("citation writes stop after the first interruption")
+
+    def save_context(self, _: object) -> None:
+        raise AssertionError("citation writes stop after the first interruption")
 
 
 def _service(
     tmp_path: Path,
     *,
     observations: JsonSourceObservationRepository | _FailOneResourceLink | None = None,
+    citations: JsonCitationRepository | _FailCitationWrite | None = None,
 ) -> IngestService:
     return IngestService(
         artifact_store=LocalArtifactStore(tmp_path / "artifacts"),
         repository=JsonResearchRepository(tmp_path / "catalog.json"),
         parsers=(JatsParser(),),
-        citation_repository=JsonCitationRepository(tmp_path / "citations.json"),
+        citation_repository=(
+            citations
+            if citations is not None
+            else JsonCitationRepository(tmp_path / "citations.json")
+        ),
         source_observation_repository=(
             observations
             if observations is not None
@@ -69,9 +83,7 @@ def test_native_ingest_persists_provenance_citations_and_resources(tmp_path: Pat
     document_id = result.document.document_id
 
     reopened_citations = JsonCitationRepository(tmp_path / "citations.json")
-    reopened_observations = JsonSourceObservationRepository(
-        tmp_path / "source_observations.json"
-    )
+    reopened_observations = JsonSourceObservationRepository(tmp_path / "source_observations.json")
     observation = reopened_observations.get_observation(observation_id)
 
     assert observation is not None
@@ -85,9 +97,7 @@ def test_native_ingest_persists_provenance_citations_and_resources(tmp_path: Pat
     assert [context.text for context in contexts].count(
         "We preserve native structure and cite [1]."
     ) == 1
-    assert [context.text for context in contexts].count(
-        "The model follows [1,2]."
-    ) == 2
+    assert [context.text for context in contexts].count("The model follows [1,2].") == 2
     assert all(context.passage_id is not None for context in contexts)
     assert all(context.section_id is not None for context in contexts)
     assert {context.context_id for context in result.native_parse.contexts} == {
@@ -144,3 +154,10 @@ def test_interrupted_native_persistence_can_resume_by_retry(tmp_path: Path) -> N
     assert len(citations.list_references(result.document.document_id)) == 2
     assert len(citations.list_mentions(result.document.document_id)) == 3
     assert len(citations.list_contexts(result.document.document_id)) == 3
+
+
+def test_transient_native_repository_errors_are_retryable(tmp_path: Path) -> None:
+    service = _service(tmp_path, citations=_FailCitationWrite())
+
+    with pytest.raises(NativePersistenceError, match="retry the same immutable source"):
+        service.ingest(FIXTURE)

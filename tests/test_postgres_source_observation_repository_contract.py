@@ -68,6 +68,7 @@ def _link() -> ResourceLinkObservation:
         relation=ResourceRelation.SUPPLEMENT,
         media_type="text/csv",
         label="Supplement",
+        metadata={"native": {"targets": ["table-1", "figure-2"]}},
     )
 
 

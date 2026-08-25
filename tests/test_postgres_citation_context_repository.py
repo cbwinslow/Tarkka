@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.application.citation_context import build_citation_contexts
 from tarkka.domain.manifest import build_document_manifest
 from tarkka.domain.models import Artifact
 from tarkka.infrastructure.postgres.citation_context_repository import (
@@ -106,3 +107,19 @@ def test_postgres_native_citation_context_persistence_rejects_conflicts(
 
     with pytest.raises(PostgresCitationConflictError, match="bibliographic_reference"):
         repository.save_reference(replace(reference, raw_text="different source-native reference"))
+
+
+def test_postgres_context_persistence_derives_section_from_anchored_passage(
+    repository: PostgresCitationContextRepository, native_parse: NativeDocumentParseResult
+) -> None:
+    for reference in native_parse.references:
+        repository.save_reference(reference)
+    for mention in native_parse.mentions:
+        repository.save_mention(mention)
+    original = build_citation_contexts(native_parse.document, native_parse.mentions)[0]
+    assert original.passage_id is not None
+    assert original.section_id is not None
+
+    repository.save_context(replace(original, section_id=None))
+
+    assert repository.list_contexts(native_parse.document.document_id) == (original,)

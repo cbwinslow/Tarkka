@@ -198,6 +198,27 @@ def test_postgres_native_citation_repository_reads_conflict_targets() -> None:
     assert PostgresCitationContextRepository._get_context(connection, _CONTEXT_ID) == context
 
 
+def test_postgres_native_citation_repository_derives_context_section_from_passage() -> None:
+    passage_id = UUID("00000000-0000-0000-0000-00000000c806")
+    section_id = UUID("00000000-0000-0000-0000-00000000c807")
+    context = replace(_context(), passage_id=passage_id)
+    connection = _Connection([_Cursor(row=(section_id,)), _Cursor()])
+
+    _repository(connection).save_context(context)
+
+    assert connection.calls[0][1] == (passage_id, _DOCUMENT_ID)
+    assert connection.calls[1][1] is not None
+    assert connection.calls[1][1][3] == section_id
+
+
+def test_postgres_native_citation_repository_rejects_missing_context_passage() -> None:
+    context = replace(_context(), passage_id=UUID("00000000-0000-0000-0000-00000000c806"))
+    connection = _Connection([_Cursor(row=None)])
+
+    with pytest.raises(ValueError, match="passage not found"):
+        _repository(connection).save_context(context)
+
+
 def test_postgres_native_citation_repository_rejects_invalid_json_shapes() -> None:
     with pytest.raises(RuntimeError, match="identifiers"):
         _reference_from_row(

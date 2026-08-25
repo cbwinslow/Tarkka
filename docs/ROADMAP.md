@@ -258,6 +258,7 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
   and an explicit 8,000-token content budget
 - locally durable `context_package:<uuid>` handles that persist only exact document/section
   selections and resolve through the same bounded package service
+- PostgreSQL reference persistence for the same immutable context-package handle contract
 
 Deliverables:
 

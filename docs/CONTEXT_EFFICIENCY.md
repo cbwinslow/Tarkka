@@ -249,6 +249,10 @@ ordered section handles, creation time, and original estimate. The returned
 `context_package:<uuid>` can later be resolved without resending the selection or
 duplicating source passages.
 
+The same immutable handle contract has both a dependency-free local store and the
+PostgreSQL reference store. Neither backend stores a second text payload; both retain
+the selected section order and reject cross-document selections.
+
 ## Deterministic compression before LLM compression
 
 Prefer cheap structural reduction first:

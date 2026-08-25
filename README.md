@@ -43,6 +43,11 @@ tarkka verify show <relation-id>
 # Start agent/tool discovery with a small operation index, then load one schema.
 tarkka capabilities list
 tarkka capabilities show research.verify.candidates
+
+# Expand normalized source content progressively, from a manifest to one section.
+tarkka documents manifest <document-id>
+tarkka documents sections <document-id> --limit 20
+tarkka documents section <document-id> <section-id>
 ```
 
 Tarkka stores immutable source artifacts by SHA-256, records acquisition provenance, normalizes

@@ -11,6 +11,9 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
     assert listing["estimated_tokens"] < 250
     assert [item["operation_id"] for item in listing["operations"]] == [
         "research.discover",
+        "research.documents.manifest",
+        "research.documents.sections",
+        "research.documents.section",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",

@@ -1,5 +1,6 @@
 import pytest
 
+from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.research_capabilities import (
     _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD,
@@ -21,6 +22,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
+        "research.citations.traverse",
     ]
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
@@ -31,6 +33,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),
+        (CitationTraversalService, "traverse"),
     ]
 
 
@@ -39,6 +42,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
     context = research_operation_schema("research.verify.context")
+    traverse = research_operation_schema("research.citations.traverse")
 
     assert [field.name for field in discover.inputs] == [
         "text",
@@ -89,6 +93,11 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert [field.name for field in context.inputs] == ["document_id", "context_id"]
     assert context.result_summary == "One exact context and its preserved citation mention."
     assert context.estimated_tokens < 100
+    assert [field.name for field in traverse.inputs] == [
+        "work_id", "max_depth", "max_works", "max_relations", "direction", "relation_kinds"
+    ]
+    assert traverse.inputs[1].maximum == 5
+    assert traverse.inputs[4].allowed_values == ("outbound", "inbound", "both")
     with pytest.raises(UnknownResearchOperationError, match="research.expand") as error:
         research_operation_schema("research.expand")
     assert error.value.operation_id == "research.expand"

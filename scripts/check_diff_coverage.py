@@ -162,7 +162,7 @@ def main() -> int:
     )
     parser.add_argument("--base", required=True, help="Base commit SHA or git ref")
     parser.add_argument("--coverage", type=Path, default=Path("coverage.xml"))
-    parser.add_argument("--minimum", type=float, default=80.0)
+    parser.add_argument("--minimum", type=float, default=100.0)
     args = parser.parse_args()
 
     if not 0 < args.minimum <= 100:

@@ -21,6 +21,7 @@ _checker = _load_checker()
 changed_python_lines = _checker.changed_python_lines
 coverage_hits = _checker.coverage_hits
 diff_coverage = _checker.diff_coverage
+uncovered_lines = _checker.uncovered_lines
 
 
 def test_changed_python_lines_tracks_only_added_tarkka_source_lines() -> None:
@@ -158,3 +159,23 @@ def test_diff_coverage_is_full_when_changed_file_has_no_executable_changed_lines
         {"src/tarkka/a.py": {1}},
         {"src/tarkka/a.py": {2: 1}},
     ) == (0, 0, 100.0)
+
+
+def test_uncovered_lines_reports_only_executable_changed_misses() -> None:
+    changed = {
+        "src/tarkka/a.py": {2, 3, 4},
+        "src/tarkka/b.py": {7, 9},
+    }
+    hits = {"src/tarkka/a.py": {2: 1, 3: 0}}
+
+    assert uncovered_lines(changed, hits) == {
+        "src/tarkka/a.py": (3,),
+        "src/tarkka/b.py": (7, 9),
+    }
+
+
+def test_uncovered_lines_omits_fully_covered_files() -> None:
+    assert uncovered_lines(
+        {"src/tarkka/a.py": {1}},
+        {"src/tarkka/a.py": {1: 1}},
+    ) == {}

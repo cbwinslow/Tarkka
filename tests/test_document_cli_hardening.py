@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -23,11 +24,11 @@ from tarkka.interfaces.main import (
     ],
 )
 def test_document_cli_handle_parsers_reject_malformed_ids(
-    parser: object,
+    parser: Callable[[str], UUID],
     message: str,
 ) -> None:
     with pytest.raises(argparse.ArgumentTypeError, match=message):
-        parser("not-a-uuid")  # type: ignore[operator]
+        parser("not-a-uuid")
 
 
 def test_document_cli_section_payload_preserves_parent_and_passage_offsets() -> None:

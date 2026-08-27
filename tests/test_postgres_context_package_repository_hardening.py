@@ -5,7 +5,10 @@ from uuid import uuid4
 
 import pytest
 
-from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.connection import (
+    PostgresSettings,
+    PostgresTransientOperationError,
+)
 from tarkka.infrastructure.postgres.context_package_repository import (
     PostgresDocumentContextPackageRepository,
 )
@@ -57,3 +60,20 @@ def test_postgres_context_package_preserves_non_driver_connection_errors() -> No
         repository.get(uuid4())
 
     assert raised.value is expected
+
+
+def test_postgres_context_package_translates_driver_connection_errors() -> None:
+    psycopg = pytest.importorskip("psycopg")
+    expected = psycopg.OperationalError("database unavailable")
+
+    def fail_connection(_: PostgresSettings) -> object:
+        raise expected
+
+    repository = PostgresDocumentContextPackageRepository(
+        PostgresSettings("postgresql://unused"), connection_factory=fail_connection
+    )
+
+    with pytest.raises(PostgresTransientOperationError, match="retry may succeed") as raised:
+        repository.get(uuid4())
+
+    assert raised.value.__cause__ is expected

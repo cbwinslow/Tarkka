@@ -134,6 +134,27 @@ def diff_coverage(
     return covered, total, percent
 
 
+def uncovered_lines(
+    changed: dict[str, set[int]],
+    hits: dict[str, dict[int, int]],
+) -> dict[str, tuple[int, ...]]:
+    """Return uncovered executable changed lines for actionable CI diagnostics."""
+    result: dict[str, tuple[int, ...]] = {}
+    for path, changed_lines in changed.items():
+        executable = hits.get(path)
+        if executable is None:
+            missing = tuple(sorted(changed_lines))
+        else:
+            missing = tuple(
+                line_number
+                for line_number in sorted(changed_lines)
+                if line_number in executable and executable[line_number] == 0
+            )
+        if missing:
+            result[path] = missing
+    return result
+
+
 def _verified_base(base: str) -> str:
     """Resolve a caller-provided base to a commit before using it in git diff."""
     completed = subprocess.run(
@@ -181,6 +202,8 @@ def main() -> int:
     covered, total, percent = diff_coverage(changed, hits)
     print(f"Changed-line coverage: {covered}/{total} executable lines ({percent:.1f}%)")
     if percent < args.minimum:
+        for path, lines in uncovered_lines(changed, hits).items():
+            print(f"Uncovered changed lines: {path}: {','.join(str(line) for line in lines)}")
         print(f"Required changed-line coverage: {args.minimum:.1f}%")
         return 1
     return 0

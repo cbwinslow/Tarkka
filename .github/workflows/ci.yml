@@ -83,6 +83,13 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/application/document_context_packages.py,src/tarkka/application/document_retrieval.py,src/tarkka/application/research_capabilities.py,src/tarkka/application/saved_document_context_packages.py,src/tarkka/domain/context_packages.py,src/tarkka/domain/telemetry.py,src/tarkka/infrastructure/postgres/context_package_repository.py,src/tarkka/infrastructure/storage/json_context_package_repository.py,src/tarkka/infrastructure/storage/jsonl_telemetry.py,src/tarkka/interfaces/mcp.py,src/tarkka/ports/context_packages.py,src/tarkka/ports/telemetry.py
           --fail-under=100
+      - name: Enforce full coverage of recent Phase 5 changes
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync python scripts/check_diff_coverage.py
+          --base 7e4f51ddb14a44c1b32a782d3cbdbb7c06a41b01
+          --coverage coverage.xml
+          --minimum 100
       - name: Enforce changed-line coverage
         if: matrix.python-version == '3.13' && github.event_name == 'pull_request'
         run: >-

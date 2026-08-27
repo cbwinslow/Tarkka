@@ -1,11 +1,22 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 
 from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorder
+
+
+class _EventOverrides(TypedDict, total=False):
+    interface: str
+    operation_id: str
+    outcome: str
+    elapsed_ms: int
+    response_bytes: int
+    estimated_tokens: int
+    error_code: str | None
 
 
 def _event(
@@ -64,8 +75,8 @@ def test_jsonl_agent_usage_recorder_persists_only_aggregate_measurements(tmp_pat
     ],
 )
 def test_agent_usage_event_rejects_invalid_measurements_and_outcomes(
-    kwargs: dict[str, object],
+    kwargs: _EventOverrides,
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        _event(**kwargs)  # type: ignore[arg-type]
+        _event(**kwargs)

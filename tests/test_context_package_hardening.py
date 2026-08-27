@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,12 +14,19 @@ from tarkka.application.document_context_packages import (
     MAX_CONTEXT_PACKAGE_SECTIONS,
     DocumentContextPackageService,
 )
+from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.domain.context_packages import SavedDocumentContextPackage
 from tarkka.infrastructure.storage import json_context_package_repository as context_repository
 from tarkka.infrastructure.storage.json_context_package_repository import (
     ContextPackageConflictError,
     JsonDocumentContextPackageRepository,
 )
+from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+
+
+class _SavedPackageOverrides(TypedDict, total=False):
+    section_ids: tuple[UUID, ...]
+    estimated_tokens: int
 
 
 def _saved_package() -> SavedDocumentContextPackage:
@@ -48,8 +57,13 @@ def _catalog_payload(package: SavedDocumentContextPackage) -> dict[str, object]:
     }
 
 
-def test_document_context_package_rejects_more_than_the_configured_section_limit() -> None:
-    service = DocumentContextPackageService(documents=object())  # type: ignore[arg-type]
+def test_document_context_package_rejects_more_than_the_configured_section_limit(
+    tmp_path: Path,
+) -> None:
+    documents = JsonResearchRepository(tmp_path / "catalog.json")
+    service = DocumentContextPackageService(
+        documents=DocumentRetrievalService(documents=documents)
+    )
     section_ids = tuple(uuid4() for _ in range(MAX_CONTEXT_PACKAGE_SECTIONS + 1))
 
     with pytest.raises(ValueError, match="section maximum"):
@@ -65,13 +79,13 @@ def test_document_context_package_rejects_more_than_the_configured_section_limit
     ],
 )
 def test_saved_context_package_rejects_invalid_durable_selections(
-    kwargs: dict[str, object],
+    kwargs: _SavedPackageOverrides,
     message: str,
 ) -> None:
     base = _saved_package()
 
     with pytest.raises(ValueError, match=message):
-        replace(base, **kwargs)  # type: ignore[arg-type]
+        replace(base, **kwargs)
 
 
 def test_json_context_package_repository_rejects_a_directory_path(tmp_path: Path) -> None:
@@ -162,7 +176,7 @@ def test_json_context_package_repository_rejects_non_string_catalog_keys_from_de
 )
 def test_json_context_package_repository_rejects_corrupt_package_entries(
     tmp_path: Path,
-    mutate: object,
+    mutate: Callable[[dict[str, object]], object],
     message: str,
 ) -> None:
     package = _saved_package()
@@ -171,7 +185,7 @@ def test_json_context_package_repository_rejects_corrupt_package_entries(
     assert isinstance(packages, dict)
     payload = packages[str(package.context_package_id)]
     assert isinstance(payload, dict)
-    mutate(payload)  # type: ignore[operator]
+    mutate(payload)
     path = tmp_path / "context-packages.json"
     path.write_text(json.dumps(catalog), encoding="utf-8")
     repository = JsonDocumentContextPackageRepository(path)
@@ -205,4 +219,4 @@ def test_context_package_directory_fsync_is_a_noop_off_posix(
 ) -> None:
     monkeypatch.setattr(context_repository.os, "name", "nt")
 
-    context_repository._fsync_directory(tmp_path)
+    assert context_repository._fsync_directory(tmp_path) is None

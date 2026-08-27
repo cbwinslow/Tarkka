@@ -147,6 +147,8 @@ uv run sqlfluff lint migrations
 uv run pytest -m "not external"
 ```
 
+The MCP interface is an optional runtime extra. CI installs it explicitly with `uv sync --frozen --group dev --extra mcp` so the MCP contract is exercised on every pull request. Base environments without the extra may collect the rest of the deterministic suite; MCP-specific tests skip at module collection rather than turning an unrelated test profile into an import failure.
+
 Do not install project tooling globally or maintain parallel `requirements-dev.txt` files. Development-only tools belong in the `dev` dependency group in `pyproject.toml`; runtime features belong in normal dependencies or explicit optional extras.
 
 ## Default validation
@@ -164,13 +166,22 @@ The default suite must remain deterministic and network-free after dependency in
 
 ## Coverage
 
-Coverage is a diagnostic, not a substitute for meaningful assertions.
+Coverage is a quality gate and diagnostic, not a substitute for meaningful assertions. A line or branch counts only when the test protects observable behavior, an invariant, a failure mode, or a contract that matters.
 
-CI records branch coverage, reports missing lines, and retains `coverage.xml` as a workflow artifact for later inspection. Tarkka initially measures coverage without enforcing an arbitrary repository-wide percentage. Once a stable baseline is known, thresholds can be introduced per critical subsystem rather than rewarding low-value tests merely to increase a global number.
+As of 2026-08-27, Tarkka's historical repository-wide branch-coverage baseline is approximately 86%. That legacy baseline is explicit coverage debt; it is not permission for new uncovered code and must not be hidden with exclusions or low-value assertions.
 
-Changed code should move toward a diff-coverage gate so new behavior is held to a stronger standard without encouraging low-value repository-wide coverage padding.
+CI enforces a ratchet with two complementary rules:
 
-High-risk contracts should aim for behavior coverage even when total repository coverage is lower.
+1. every added or modified executable source line in a pull request must have **100% changed-line coverage**;
+2. critical subsystems can be promoted to **100% branch coverage** as a whole, after which the subsystem gate prevents regression.
+
+The Phase 5 agent-serving surface is the first subsystem promoted under this policy. Its capability discovery, bounded document retrieval, saved context-package domain/application/persistence paths, MCP interface, telemetry, and related ports are enforced at 100% branch coverage in CI.
+
+Repository-wide 100% branch coverage remains the target. Raise the baseline deliberately by closing one coherent subsystem at a time, prioritizing security boundaries, durable state, interfaces, and complex control flow. Do not weaken an existing subsystem gate to make unrelated work pass.
+
+CI reports missing lines and retains `coverage.xml` for inspection. When a coverage gate fails, add the smallest behavior-focused tests that exercise the missing contract or branch. If a branch is genuinely unreachable or represents dead code, prefer simplifying/removing the production branch rather than excluding it solely to inflate the score.
+
+Coverage alone is insufficient. Mutation testing, property tests, failure injection, contract suites, security regression tests, and review remain independent signals of test quality.
 
 ## Failure localization
 
@@ -283,6 +294,8 @@ Before merging behavior changes, verify the relevant items below:
 - security and provenance impact considered;
 - deterministic IDs or ordering tested when required;
 - replaceable adapter behavior covered by a reusable contract where appropriate;
-- regression test added for every bug fixed.
+- regression test added for every bug fixed;
+- changed executable lines are 100% covered;
+- any subsystem already ratcheted to 100% branch coverage remains at 100%.
 
 See issue #60 for the completed testing-framework foundation and focused follow-up issues for remaining improvements.

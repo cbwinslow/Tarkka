@@ -6,9 +6,9 @@ import pytest
 
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.research_capabilities import (
-    _OperationRegistration,
     ResearchField,
     ResearchOperation,
+    _OperationRegistration,
 )
 
 

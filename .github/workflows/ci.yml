@@ -79,10 +79,26 @@ jobs:
           --cov-report=term-missing --cov-report=xml
       - name: Enforce Phase 5 agent-serving coverage
         if: matrix.python-version == '3.13'
-        run: >-
-          uv run --no-sync coverage report
-          --include=src/tarkka/application/document_context_packages.py,src/tarkka/application/document_retrieval.py,src/tarkka/application/research_capabilities.py,src/tarkka/application/saved_document_context_packages.py,src/tarkka/domain/context_packages.py,src/tarkka/domain/telemetry.py,src/tarkka/infrastructure/postgres/context_package_repository.py,src/tarkka/infrastructure/storage/json_context_package_repository.py,src/tarkka/infrastructure/storage/jsonl_telemetry.py,src/tarkka/interfaces/mcp.py,src/tarkka/ports/context_packages.py,src/tarkka/ports/telemetry.py
-          --fail-under=100
+        shell: bash
+        run: |
+          include_patterns=(
+            src/tarkka/application/document_context_packages.py
+            src/tarkka/application/document_retrieval.py
+            src/tarkka/application/research_capabilities.py
+            src/tarkka/application/saved_document_context_packages.py
+            src/tarkka/domain/context_packages.py
+            src/tarkka/domain/telemetry.py
+            src/tarkka/infrastructure/postgres/context_package_repository.py
+            src/tarkka/infrastructure/storage/json_context_package_repository.py
+            src/tarkka/infrastructure/storage/jsonl_telemetry.py
+            src/tarkka/interfaces/mcp.py
+            src/tarkka/ports/context_packages.py
+            src/tarkka/ports/telemetry.py
+          )
+          include_csv="$(IFS=,; echo "${include_patterns[*]}")"
+          uv run --no-sync coverage report \
+            --include="${include_csv}" \
+            --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         if: matrix.python-version == '3.13'
         run: >-

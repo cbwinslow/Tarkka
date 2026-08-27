@@ -32,7 +32,7 @@ jobs:
       - name: Verify lockfile
         run: uv lock --check
       - name: Sync development environment
-        run: uv sync --frozen --group dev
+        run: uv sync --frozen --group dev --extra mcp
       - name: Run security regression corpus
         run: >-
           uv run --no-sync pytest

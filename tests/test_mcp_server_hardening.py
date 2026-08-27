@@ -67,7 +67,9 @@ def test_mcp_document_tools_translate_backend_failures_without_leaking_exception
     assert section["error"]["code"] == "backend_unavailable"
 
 
-def test_mcp_document_section_reports_a_missing_document_before_section_lookup(tmp_path: Path) -> None:
+def test_mcp_document_section_reports_a_missing_document_before_section_lookup(
+    tmp_path: Path,
+) -> None:
     documents = JsonResearchRepository(tmp_path / "catalog.json")
     server = create_server(documents=DocumentRetrievalService(documents=documents))
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -19,7 +19,12 @@ from tarkka.interfaces import mcp
 from tarkka.interfaces.mcp import create_server
 
 
-def _call(server: Any, tool_name: str, arguments: dict[str, object]) -> dict[str, Any]:
+def _call_structured(
+    server: Any,
+    tool_name: str,
+    arguments: dict[str, object],
+) -> dict[str, Any]:
+    """Call a tool whose domain errors are represented as structured MCP content."""
     result = asyncio.run(server.call_tool(tool_name, arguments))
     assert result.is_error is False
     assert isinstance(result.structured_content, dict)
@@ -51,14 +56,15 @@ class _FailingTelemetry:
 
 
 def test_mcp_document_tools_translate_backend_failures_without_leaking_exceptions() -> None:
-    server = create_server(documents=_UnavailableDocuments())  # type: ignore[arg-type]
+    unavailable_documents = cast(DocumentRetrievalService, _UnavailableDocuments())
+    server = create_server(documents=unavailable_documents)
 
-    sections = _call(
+    sections = _call_structured(
         server,
         "document_sections",
         {"document_id": str(uuid4()), "offset": 0, "limit": 1},
     )
-    section = _call(
+    section = _call_structured(
         server,
         "document_section",
         {"document_id": str(uuid4()), "section_id": str(uuid4())},
@@ -74,7 +80,7 @@ def test_mcp_document_section_reports_a_missing_document_before_section_lookup(
     documents = JsonResearchRepository(tmp_path / "catalog.json")
     server = create_server(documents=DocumentRetrievalService(documents=documents))
 
-    response = _call(
+    response = _call_structured(
         server,
         "document_section",
         {"document_id": str(uuid4()), "section_id": str(uuid4())},
@@ -168,7 +174,7 @@ def test_mcp_telemetry_failure_never_changes_tool_response(
     server = create_server(telemetry=_FailingTelemetry())
 
     with caplog.at_level(logging.DEBUG, logger=mcp.__name__):
-        response = _call(server, "research_capabilities", {})
+        response = _call_structured(server, "research_capabilities", {})
 
     assert response["ok"] is True
     assert "MCP telemetry recorder failed" in caplog.text

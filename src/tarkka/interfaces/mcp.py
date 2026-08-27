@@ -357,6 +357,6 @@ def _record_response(
     )
     try:
         telemetry.record(event)
-    except OSError:
-        # Telemetry is explicitly opt-in and must not turn a read operation into a failure.
+    except Exception:
+        # Telemetry is explicitly opt-in and must never turn a research operation into a failure.
         return

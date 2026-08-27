@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -161,12 +162,17 @@ def test_mcp_main_runs_stdio_with_environment_telemetry(
     assert isinstance(observed["telemetry"], JsonlAgentUsageRecorder)
 
 
-def test_mcp_telemetry_failure_never_changes_tool_response() -> None:
+def test_mcp_telemetry_failure_never_changes_tool_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     server = create_server(telemetry=_FailingTelemetry())
 
-    response = _call(server, "research_capabilities", {})
+    with caplog.at_level(logging.DEBUG, logger=mcp.__name__):
+        response = _call(server, "research_capabilities", {})
 
     assert response["ok"] is True
+    assert "MCP telemetry recorder failed" in caplog.text
+    assert "telemetry sink failed" in caplog.text
 
 
 def test_mcp_response_measurement_handles_disabled_and_non_integer_estimates() -> None:

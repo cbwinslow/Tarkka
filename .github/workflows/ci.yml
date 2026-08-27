@@ -77,13 +77,19 @@ jobs:
           --junitxml=test-results.xml
           --cov=tarkka --cov-branch
           --cov-report=term-missing --cov-report=xml
+      - name: Enforce Phase 5 agent-serving coverage
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/application/document_context_packages.py,src/tarkka/application/document_retrieval.py,src/tarkka/application/saved_document_context_packages.py,src/tarkka/domain/context_packages.py,src/tarkka/domain/telemetry.py,src/tarkka/infrastructure/postgres/context_package_repository.py,src/tarkka/infrastructure/storage/json_context_package_repository.py,src/tarkka/infrastructure/storage/jsonl_telemetry.py,src/tarkka/interfaces/mcp.py,src/tarkka/ports/context_packages.py,src/tarkka/ports/telemetry.py
+          --fail-under=100
       - name: Enforce changed-line coverage
         if: matrix.python-version == '3.13' && github.event_name == 'pull_request'
         run: >-
           uv run --no-sync python scripts/check_diff_coverage.py
           --base origin/main
           --coverage coverage.xml
-          --minimum 80
+          --minimum 100
       - name: Retain test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -88,7 +88,7 @@ def test_capability_manifest_rejects_blank_collection_members() -> None:
             adapter_kind=AdapterKind.PARSER,
             version="1",
             capabilities=frozenset({Capability.PARSE}),
-            media_types=cast(frozenset[str], frozenset({cast(Any, 1)})),
+            media_types=frozenset({" "}),
         )
     with pytest.raises(ValueError, match="identifier schemes"):
         CapabilityManifest(
@@ -97,4 +97,15 @@ def test_capability_manifest_rejects_blank_collection_members() -> None:
             version="1",
             capabilities=frozenset({Capability.PARSE}),
             identifier_schemes=frozenset({" "}),
+        )
+
+
+def test_capability_manifest_rejects_non_string_media_type_members() -> None:
+    with pytest.raises(ValueError, match="media types"):
+        CapabilityManifest(
+            adapter_name="adapter",
+            adapter_kind=AdapterKind.PARSER,
+            version="1",
+            capabilities=frozenset({Capability.PARSE}),
+            media_types=cast(frozenset[str], frozenset({cast(Any, 1)})),
         )

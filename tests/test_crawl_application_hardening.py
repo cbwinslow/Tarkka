@@ -154,6 +154,33 @@ def _http_result(status_code: int) -> HttpPolicyFetchResult:
     )
 
 
+def _acquisition_result(checkpoint: TraversalCheckpoint) -> HttpAcquisitionResult:
+    body = b"article"
+    digest = hashlib.sha256(body).hexdigest()
+    artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{digest}")
+    artifact = Artifact(
+        artifact_id=artifact_id,
+        sha256=digest,
+        size_bytes=len(body),
+        media_type="text/html",
+        storage_key=PurePosixPath("sha256", digest[:2], digest),
+        source_uri=_TARGET,
+        acquired_at=_NOW,
+    )
+    snapshot = HttpResponseSnapshot(
+        requested_uri=_TARGET,
+        final_uri=_TARGET,
+        status_code=200,
+        observed_at=_NOW,
+    )
+    return HttpAcquisitionResult(
+        checkpoint=checkpoint,
+        artifact=artifact,
+        observation=snapshot.to_source_observation(native_artifact_id=artifact_id),
+        response=snapshot,
+    )
+
+
 class _Cache:
     def __init__(self, entry: RobotsCacheEntry | None = None) -> None:
         self.entry = entry
@@ -400,9 +427,27 @@ def test_recursive_result_rejects_invalid_component_types() -> None:
         RecursiveCrawlResult(gate=gate, robots_refresh=cast(RobotsRefreshResult, object()))
 
 
+def test_recursive_result_rejects_acquisition_from_non_ready_gate() -> None:
+    ready = _ready_gate()
+    skipped = RecursiveCrawlGateResult(
+        status=RecursiveCrawlGateStatus.SKIPPED,
+        checkpoint=ready.checkpoint,
+        target_id=ready.target_id,
+    )
+
+    with pytest.raises(ValueError, match="only a ready recursive crawl gate"):
+        RecursiveCrawlResult(
+            gate=skipped,
+            acquisition=_acquisition_result(ready.checkpoint),
+        )
+
+
 def test_recursive_refreshed_entry_must_match_target_authority() -> None:
     checkpoint, target_id = _queued_checkpoint()
-    gate = RecursiveCrawlPolicyGate(robots_cache=_Cache(), checkpoint_repository=_FailingCheckpoints())
+    gate = RecursiveCrawlPolicyGate(
+        robots_cache=_Cache(),
+        checkpoint_repository=_FailingCheckpoints(),
+    )
 
     with pytest.raises(ValueError, match="does not belong"):
         gate.evaluate_refreshed_entry(
@@ -417,9 +462,15 @@ def test_recursive_refreshed_entry_must_match_target_authority() -> None:
 
 def test_recursive_policy_persistence_failure_is_stable_runtime_error() -> None:
     checkpoint, target_id = _queued_checkpoint()
-    gate = RecursiveCrawlPolicyGate(robots_cache=_Cache(), checkpoint_repository=_FailingCheckpoints())
+    gate = RecursiveCrawlPolicyGate(
+        robots_cache=_Cache(),
+        checkpoint_repository=_FailingCheckpoints(),
+    )
 
-    with pytest.raises(RuntimeError, match="unable to persist recursive crawl policy decision") as exc:
+    with pytest.raises(
+        RuntimeError,
+        match="unable to persist recursive crawl policy decision",
+    ) as exc:
         gate.evaluate(
             checkpoint,
             target_id,
@@ -434,7 +485,10 @@ def test_recursive_policy_persistence_failure_is_stable_runtime_error() -> None:
 
 def test_recursive_gate_validates_checkpoint_target_and_rights_boundaries() -> None:
     checkpoint, target_id = _queued_checkpoint()
-    gate = RecursiveCrawlPolicyGate(robots_cache=_Cache(), checkpoint_repository=_FailingCheckpoints())
+    gate = RecursiveCrawlPolicyGate(
+        robots_cache=_Cache(),
+        checkpoint_repository=_FailingCheckpoints(),
+    )
 
     with pytest.raises(ValueError, match="checkpoint must be a TraversalCheckpoint"):
         gate.evaluate(

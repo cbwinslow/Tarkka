@@ -179,6 +179,14 @@ jobs:
           uv run --no-sync coverage report \
             --include="${include_csv}" \
             --fail-under=100
+      - name: Enforce HTTP transport coverage
+        # The resolver/transport boundary completed under #189 is permanently
+        # protected so later acquisition work cannot reopen SSRF/TLS contract debt.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/ports/http_transport.py,src/tarkka/infrastructure/web/pinned_http_transport.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

@@ -108,9 +108,6 @@ class UrllibJsonTransport:
             self._sleep(min(delay, remaining))
             attempt += 1
 
-        assert last_error is not None
-        raise last_error
-
 
 def _raise_total_timeout(target: str, cause: Exception | None) -> None:
     raise TimeoutError(f"scholarly API request exceeded total timeout: {target}") from cause

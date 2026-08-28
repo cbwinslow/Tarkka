@@ -39,13 +39,12 @@ class HttpTransportResponse:
             except TypeError as exc:
                 raise ValueError("transport header values must be string sequences") from exc
             if not normalized_values or any(
-                not isinstance(value, str)
-                or not value
-                or "\r" in value
-                or "\n" in value
+                not isinstance(value, str) or "\r" in value or "\n" in value
                 for value in normalized_values
             ):
-                raise ValueError("transport header values must be non-empty single-line strings")
+                raise ValueError(
+                    "transport header values must contain one or more single-line strings"
+                )
             normalized_name = name.strip().lower()
             if normalized_name in normalized_headers:
                 raise ValueError("transport headers must not repeat after case normalization")

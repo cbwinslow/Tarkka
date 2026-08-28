@@ -254,33 +254,9 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/infrastructure/storage/search_snapshot_log.py
           --fail-under=100
-      - name: Enforce JSON policy finalization coverage
-        # Atomic policy-finalization journal validation, corruption handling, and
-        # cross-platform durability behavior completed under #190 are protected.
-        if: matrix.python-version == '3.13'
-        run: >-
-          uv run --no-sync coverage report
-          --include=src/tarkka/infrastructure/storage/json_policy_fetch_finalization_repository.py
-          --fail-under=100
-      - name: Enforce JSON traversal checkpoint coverage
-        # Resumable traversal checkpoint input validation, read-failure context,
-        # and cross-platform durability behavior completed under #190 are protected.
-        if: matrix.python-version == '3.13'
-        run: >-
-          uv run --no-sync coverage report
-          --include=src/tarkka/infrastructure/storage/json_traversal_checkpoint_repository.py
-          --fail-under=100
-      - name: Enforce JSON research repository coverage
-        # Offline catalog/link integrity, additive-schema validation, and local
-        # durability behavior completed under #190 are permanently protected.
-        if: matrix.python-version == '3.13'
-        run: >-
-          uv run --no-sync coverage report
-          --include=src/tarkka/infrastructure/storage/json_repository.py
-          --fail-under=100
       - name: Enforce local JSON persistence ratchets
-        # New #190 JSON adapters are declared in one manifest so this workflow
-        # stays stable as historical persistence coverage is completed.
+        # Completed #190 JSON adapters are declared in one manifest so this
+        # workflow stays stable as historical persistence coverage is completed.
         if: matrix.python-version == '3.13'
         shell: bash
         run: |

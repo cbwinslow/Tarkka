@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
-from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
+from urllib.parse import SplitResult, parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from tarkka.domain.media_types import normalize_media_type
@@ -264,33 +264,56 @@ def _is_sensitive_query_key(key: str) -> bool:
     return any(fragment in compact for fragment in _SENSITIVE_KEY_FRAGMENTS)
 
 
+def _sanitize_untrusted_nested_parts(parsed: SplitResult) -> str:
+    """Drop an untrusted authority while preserving only sanitized resource components."""
+    return urlunsplit(
+        (
+            "",
+            "",
+            parsed.path,
+            _sanitize_parameter_string(parsed.query),
+            _sanitize_fragment(parsed.fragment),
+        )
+    )
+
+
 def _sanitize_nested_uri(value: str) -> str | None:
     try:
         parsed = urlsplit(value)
-        port = parsed.port
     except ValueError:
         return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return _sanitize_untrusted_nested_parts(parsed)
 
     if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
-        return normalize_http_uri(value, field_name="nested HTTP URI")
+        try:
+            return normalize_http_uri(value, field_name="nested HTTP URI")
+        except ValueError:
+            return _sanitize_untrusted_nested_parts(parsed)
 
+    has_userinfo = parsed.username is not None or parsed.password is not None
     is_relative_uri = not parsed.scheme and (
         bool(parsed.netloc)
         or parsed.path.startswith(("/", "./", "../"))
         or bool(parsed.query)
         or bool(parsed.fragment)
     )
-    if not is_relative_uri or not (parsed.query or "=" in parsed.fragment):
+    if not is_relative_uri or not (parsed.query or "=" in parsed.fragment or has_userinfo):
         return None
 
     netloc = ""
-    if parsed.netloc:
-        if parsed.hostname is None or parsed.username is not None or parsed.password is not None:
-            return None
-        host = _normalize_host(parsed.hostname)
+    if parsed.netloc and parsed.hostname is not None:
+        try:
+            host = _normalize_host(parsed.hostname)
+        except ValueError:
+            return _sanitize_untrusted_nested_parts(parsed)
         if ":" in host:
             host = f"[{host}]"
         netloc = host if port is None else f"{host}:{port}"
+    # A malformed network-path authority is dropped rather than copied into durable
+    # provenance. Its path/query/fragment are still sanitized below.
 
     return urlunsplit(
         (

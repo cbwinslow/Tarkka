@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 from hypothesis import given
@@ -72,6 +72,35 @@ def test_nested_url_credentials_are_redacted_for_arbitrary_url_parameters(
     nested_uri = outer_query[outer_key][0]
     nested_query = parse_qs(urlsplit(nested_uri).query, keep_blank_values=True)
     assert urlsplit(nested_uri).hostname == "idp.example"
+    assert nested_query[secret_key] == ["[REDACTED]"]
+
+
+@given(
+    outer_key=st.sampled_from(("next", "redirect_uri", "return_to", "target", "continue")),
+    secret_key=st.sampled_from(_SECRET_KEYS),
+    username=st.text(alphabet=_ALNUM, min_size=1, max_size=16),
+    password=st.text(alphabet=_ALNUM, min_size=1, max_size=16),
+    secret=st.text(alphabet=_ALNUM, min_size=4, max_size=32),
+)
+def test_scheme_relative_nested_credentials_never_survive_durable_normalization(
+    outer_key: str,
+    secret_key: str,
+    username: str,
+    password: str,
+    secret: str,
+) -> None:
+    nested = f"//{username}:{password}@idp.example/callback?{secret_key}={secret}"
+    uri = f"https://example.org/login?{urlencode({outer_key: nested})}"
+
+    normalized = normalize_durable_http_uri(uri)
+
+    outer_query = parse_qs(urlsplit(normalized).query, keep_blank_values=True)
+    nested_uri = outer_query[outer_key][0]
+    nested_parts = urlsplit(nested_uri)
+    nested_query = parse_qs(nested_parts.query, keep_blank_values=True)
+    assert nested_parts.hostname == "idp.example"
+    assert nested_parts.username is None
+    assert nested_parts.password is None
     assert nested_query[secret_key] == ["[REDACTED]"]
 
 

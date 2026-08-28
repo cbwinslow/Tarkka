@@ -1,0 +1,45 @@
+name: Parser Coverage Ratchets
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: parser-coverage-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Parser coverage (Python 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Sync development environment
+        run: uv sync --frozen --group dev --extra mcp
+      - name: Run deterministic branch-coverage suite
+        run: >-
+          uv run --no-sync pytest -m "not external"
+          --cov=tarkka --cov=scripts --cov-branch
+          --cov-report=term-missing
+      - name: Enforce completed parser ratchets
+        shell: bash
+        run: |
+          while IFS= read -r module || [[ -n "$module" ]]; do
+            case "$module" in
+              ""|\#*) continue ;;
+            esac
+            uv run --no-sync coverage report \
+              --include="$module" \
+              --fail-under=100
+          done < .github/coverage/parser-ratchets.txt

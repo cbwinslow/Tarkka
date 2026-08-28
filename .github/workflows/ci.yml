@@ -198,6 +198,14 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/infrastructure/postgres/acquisition_recorder.py,src/tarkka/infrastructure/postgres/connection.py,src/tarkka/infrastructure/postgres/migrations.py
           --fail-under=100
+      - name: Enforce PostgreSQL repository contract coverage
+        # High-coverage citation-context, Work, and verification repositories
+        # completed under #190 are permanently protected against regression.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/infrastructure/postgres/citation_context_repository.py,src/tarkka/infrastructure/postgres/work_repository.py,src/tarkka/infrastructure/postgres/verification_repository.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

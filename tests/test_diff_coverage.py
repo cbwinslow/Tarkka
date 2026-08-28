@@ -115,6 +115,7 @@ def test_coverage_path_normalization_supports_package_source_and_scripts() -> No
         == "src/tarkka/b.py"
     )
     assert _checker._normalize_coverage_path("scripts/check.py") == "scripts/check.py"
+    assert _checker._normalize_coverage_path("check.py") == "scripts/check.py"
     assert (
         _checker._normalize_coverage_path("C:\\work\\Tarkka\\scripts\\check.py")
         == "scripts/check.py"
@@ -122,6 +123,7 @@ def test_coverage_path_normalization_supports_package_source_and_scripts() -> No
     assert _checker._normalize_coverage_path("tests/test_a.py") is None
     assert _checker._normalize_coverage_path("src/../../scripts/escape.py") is None
     assert _checker._normalize_coverage_path("src/other.py") is None
+    assert _checker._normalize_coverage_path("README") is None
 
 
 def test_coverage_hits_normalizes_tracked_paths_and_ignores_invalid_entries(tmp_path: Path) -> None:
@@ -138,7 +140,7 @@ def test_coverage_hits_normalizes_tracked_paths_and_ignores_invalid_entries(tmp_
     <class filename="/home/runner/work/Tarkka/Tarkka/src/tarkka/b.py"><lines>
       <line number="5" hits="1"/>
     </lines></class>
-    <class filename="scripts/check.py"><lines>
+    <class filename="check.py"><lines>
       <line number="7" hits="2"/>
     </lines></class>
     <class filename="tests/test_a.py"><lines><line number="1" hits="1"/></lines></class>
@@ -298,7 +300,7 @@ def test_main_reports_uncovered_lines_and_threshold(
 ) -> None:
     coverage = tmp_path / "coverage.xml"
     coverage.write_text(
-        """<coverage><class filename="scripts/tool.py"><lines>
+        """<coverage><class filename="tool.py"><lines>
 <line number="1" hits="0"/><line number="2" hits="1"/>
 </lines></class></coverage>""",
         encoding="utf-8",
@@ -330,7 +332,7 @@ def test_main_accepts_fully_covered_changes_with_default_threshold(
 ) -> None:
     coverage = tmp_path / "coverage.xml"
     coverage.write_text(
-        """<coverage><class filename="scripts/tool.py"><lines>
+        """<coverage><class filename="tool.py"><lines>
 <line number="1" hits="1"/>
 </lines></class></coverage>""",
         encoding="utf-8",

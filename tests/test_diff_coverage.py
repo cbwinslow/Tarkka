@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import runpy
+import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -24,7 +27,11 @@ diff_coverage = _checker.diff_coverage
 uncovered_lines = _checker.uncovered_lines
 
 
-def test_changed_python_lines_tracks_only_added_tarkka_source_lines() -> None:
+def _set_argv(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["check_diff_coverage.py", *args])
+
+
+def test_changed_python_lines_tracks_tarkka_and_repository_scripts() -> None:
     diff = """diff --git a/src/tarkka/a.py b/src/tarkka/a.py
 --- a/src/tarkka/a.py
 +++ b/src/tarkka/a.py
@@ -34,6 +41,11 @@ def test_changed_python_lines_tracks_only_added_tarkka_source_lines() -> None:
 +added
 @@ -9,0 +11,1 @@
 +tail
+diff --git a/scripts/tool.py b/scripts/tool.py
+--- a/scripts/tool.py
++++ b/scripts/tool.py
+@@ -1,0 +1,1 @@
++print('covered')
 diff --git a/tests/test_a.py b/tests/test_a.py
 --- a/tests/test_a.py
 +++ b/tests/test_a.py
@@ -41,7 +53,10 @@ diff --git a/tests/test_a.py b/tests/test_a.py
 +ignored
 """
 
-    assert changed_python_lines(diff) == {"src/tarkka/a.py": {2, 3, 11}}
+    assert changed_python_lines(diff) == {
+        "src/tarkka/a.py": {2, 3, 11},
+        "scripts/tool.py": {1},
+    }
 
 
 def test_changed_python_lines_tracks_package_root_modules() -> None:
@@ -74,8 +89,9 @@ diff --git a/docs/readme.md b/docs/readme.md
 diff --git a/src/tarkka/b.py b/src/tarkka/b.py
 --- a/src/tarkka/b.py
 +++ b/src/tarkka/b.py
-@@ -4,0 +4,1 @@
+@@ -4,0 +4,2 @@
 +also_kept
+ context
 """
 
     assert changed_python_lines(diff) == {
@@ -84,7 +100,31 @@ diff --git a/src/tarkka/b.py b/src/tarkka/b.py
     }
 
 
-def test_coverage_hits_normalizes_coverage_py_source_paths(tmp_path: Path) -> None:
+def test_collapse_parts_handles_noise_parent_segments_and_escape_attempts() -> None:
+    assert _checker._collapse_parts(("", ".", "/", "src", "tarkka", "..", "tarkka")) == (
+        "src",
+        "tarkka",
+    )
+    assert _checker._collapse_parts(("..", "scripts")) is None
+
+
+def test_coverage_path_normalization_supports_package_source_and_scripts() -> None:
+    assert _checker._normalize_coverage_path("tarkka/a.py") == "src/tarkka/a.py"
+    assert (
+        _checker._normalize_coverage_path("/home/runner/work/Tarkka/Tarkka/src/tarkka/b.py")
+        == "src/tarkka/b.py"
+    )
+    assert _checker._normalize_coverage_path("scripts/check.py") == "scripts/check.py"
+    assert (
+        _checker._normalize_coverage_path("C:\\work\\Tarkka\\scripts\\check.py")
+        == "scripts/check.py"
+    )
+    assert _checker._normalize_coverage_path("tests/test_a.py") is None
+    assert _checker._normalize_coverage_path("src/../../scripts/escape.py") is None
+    assert _checker._normalize_coverage_path("src/other.py") is None
+
+
+def test_coverage_hits_normalizes_tracked_paths_and_ignores_invalid_entries(tmp_path: Path) -> None:
     coverage = tmp_path / "coverage.xml"
     coverage.write_text(
         """<?xml version="1.0" ?>
@@ -93,10 +133,16 @@ def test_coverage_hits_normalizes_coverage_py_source_paths(tmp_path: Path) -> No
     <class filename="tarkka/a.py"><lines>
       <line number="2" hits="1"/>
       <line number="3" hits="0"/>
+      <line number="4"/>
     </lines></class>
     <class filename="/home/runner/work/Tarkka/Tarkka/src/tarkka/b.py"><lines>
       <line number="5" hits="1"/>
     </lines></class>
+    <class filename="scripts/check.py"><lines>
+      <line number="7" hits="2"/>
+    </lines></class>
+    <class filename="tests/test_a.py"><lines><line number="1" hits="1"/></lines></class>
+    <class><lines><line number="9" hits="1"/></lines></class>
   </classes></package></packages>
 </coverage>
 """,
@@ -106,6 +152,7 @@ def test_coverage_hits_normalizes_coverage_py_source_paths(tmp_path: Path) -> No
     assert coverage_hits(coverage) == {
         "src/tarkka/a.py": {2: 1, 3: 0},
         "src/tarkka/b.py": {5: 1},
+        "scripts/check.py": {7: 2},
     }
 
 
@@ -151,7 +198,7 @@ def test_diff_coverage_ignores_non_executable_changes_and_counts_hits() -> None:
 
 
 def test_diff_coverage_fails_closed_when_changed_file_missing_from_coverage() -> None:
-    assert diff_coverage({"src/tarkka/a.py": {1}}, {}) == (0, 1, 0.0)
+    assert diff_coverage({"scripts/tool.py": {1}}, {}) == (0, 1, 0.0)
 
 
 def test_diff_coverage_is_full_when_changed_file_has_no_executable_changed_lines() -> None:
@@ -164,13 +211,13 @@ def test_diff_coverage_is_full_when_changed_file_has_no_executable_changed_lines
 def test_uncovered_lines_reports_only_executable_changed_misses() -> None:
     changed = {
         "src/tarkka/a.py": {2, 3, 4},
-        "src/tarkka/b.py": {7, 9},
+        "scripts/b.py": {7, 9},
     }
     hits = {"src/tarkka/a.py": {2: 1, 3: 0}}
 
     assert uncovered_lines(changed, hits) == {
         "src/tarkka/a.py": (3,),
-        "src/tarkka/b.py": (7, 9),
+        "scripts/b.py": (7, 9),
     }
 
 
@@ -179,3 +226,154 @@ def test_uncovered_lines_omits_fully_covered_files() -> None:
         {"src/tarkka/a.py": {1}},
         {"src/tarkka/a.py": {1: 1}},
     ) == {}
+
+
+def test_git_diff_verifies_base_and_scopes_git_to_source_and_scripts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        assert check and capture_output and text
+        calls.append(command)
+        stdout = "abc123\n" if command[1] == "rev-parse" else "diff-output"
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(_checker.subprocess, "run", fake_run)
+
+    assert _checker.git_diff("origin/main") == "diff-output"
+    assert calls == [
+        ["git", "rev-parse", "--verify", "origin/main^{commit}"],
+        [
+            "git",
+            "diff",
+            "--unified=0",
+            "abc123...HEAD",
+            "--",
+            "src/tarkka",
+            "scripts",
+        ],
+    ]
+
+
+def test_main_reports_coverage_input_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_argv(monkeypatch, "--base", "HEAD", "--coverage", str(tmp_path / "missing.xml"))
+
+    assert _checker.main() == 2
+    assert "coverage report does not exist" in capsys.readouterr().out
+
+
+def test_main_reports_git_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    coverage = tmp_path / "coverage.xml"
+    coverage.write_text("<coverage/>", encoding="utf-8")
+    _set_argv(monkeypatch, "--base", "missing", "--coverage", str(coverage))
+
+    def fail_git(_: str) -> str:
+        raise subprocess.CalledProcessError(128, ["git", "rev-parse"])
+
+    monkeypatch.setattr(_checker, "git_diff", fail_git)
+
+    assert _checker.main() == 2
+    assert "Changed-line coverage git error" in capsys.readouterr().out
+
+
+def test_main_reports_uncovered_lines_and_threshold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    coverage = tmp_path / "coverage.xml"
+    coverage.write_text(
+        """<coverage><class filename="scripts/tool.py"><lines>
+<line number="1" hits="0"/><line number="2" hits="1"/>
+</lines></class></coverage>""",
+        encoding="utf-8",
+    )
+    _set_argv(monkeypatch, "--base", "HEAD", "--coverage", str(coverage), "--minimum", "100")
+    monkeypatch.setattr(
+        _checker,
+        "git_diff",
+        lambda _: """diff --git a/scripts/tool.py b/scripts/tool.py
+--- a/scripts/tool.py
++++ b/scripts/tool.py
+@@ -0,0 +1,2 @@
++first
++second
+""",
+    )
+
+    assert _checker.main() == 1
+    output = capsys.readouterr().out
+    assert "Changed-line coverage: 1/2 executable lines (50.0%)" in output
+    assert "Uncovered changed lines: scripts/tool.py: 1" in output
+    assert "Required changed-line coverage: 100.0%" in output
+
+
+def test_main_accepts_fully_covered_changes_with_default_threshold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    coverage = tmp_path / "coverage.xml"
+    coverage.write_text(
+        """<coverage><class filename="scripts/tool.py"><lines>
+<line number="1" hits="1"/>
+</lines></class></coverage>""",
+        encoding="utf-8",
+    )
+    _set_argv(monkeypatch, "--base", "HEAD", "--coverage", str(coverage))
+    monkeypatch.setattr(
+        _checker,
+        "git_diff",
+        lambda _: """diff --git a/scripts/tool.py b/scripts/tool.py
+--- a/scripts/tool.py
++++ b/scripts/tool.py
+@@ -0,0 +1,1 @@
++covered
+""",
+    )
+
+    assert _checker.main() == 0
+    assert "100.0%" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("minimum", ["0", "101"])
+def test_main_rejects_out_of_range_minimum(
+    minimum: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_argv(monkeypatch, "--base", "HEAD", "--minimum", minimum)
+
+    with pytest.raises(SystemExit) as raised:
+        _checker.main()
+
+    assert raised.value.code == 2
+
+
+def test_script_entrypoint_executes_successfully_in_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = Path(__file__).parents[1] / "scripts" / "check_diff_coverage.py"
+    coverage = tmp_path / "coverage.xml"
+    coverage.write_text("<coverage/>", encoding="utf-8")
+    _set_argv(monkeypatch, "--base", "HEAD", "--coverage", str(coverage))
+
+    with pytest.raises(SystemExit) as raised:
+        runpy.run_path(str(script), run_name="__main__")
+
+    assert raised.value.code == 0

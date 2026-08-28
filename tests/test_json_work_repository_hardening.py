@@ -15,7 +15,7 @@ from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepositor
 _OBSERVED_AT = datetime(2026, 8, 28, tzinfo=UTC)
 
 
-def test_nested_transaction_is_rejected_without_corrupting_outer_transaction(tmp_path: Path) -> None:
+def test_nested_transaction_is_rejected_and_outer_state_is_cleared(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
 
     with (

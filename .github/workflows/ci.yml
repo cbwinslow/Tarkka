@@ -183,12 +183,12 @@ jobs:
             --include="${include_csv}" \
             --fail-under=100
       - name: Enforce HTTP transport coverage
-        # The general and full-text resolver/transport boundaries completed under
-        # #189 are protected so later acquisition work cannot reopen SSRF/TLS debt.
+        # The full-text resource contract plus general/full-text resolver/transport
+        # boundaries completed under #189 are protected against SSRF/path/TLS debt.
         if: matrix.python-version == '3.13'
         run: >-
           uv run --no-sync coverage report
-          --include=src/tarkka/ports/http_transport.py,src/tarkka/infrastructure/web/pinned_http_transport.py,src/tarkka/infrastructure/full_text/http.py
+          --include=src/tarkka/ports/full_text.py,src/tarkka/ports/http_transport.py,src/tarkka/infrastructure/web/pinned_http_transport.py,src/tarkka/infrastructure/full_text/http.py
           --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both

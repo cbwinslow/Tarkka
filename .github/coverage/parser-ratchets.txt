@@ -1,0 +1,5 @@
+# Parser and normalization adapters that must remain at 100% statement + branch coverage.
+# Add one repository-relative source path only after exact deterministic coverage reaches 100%.
+src/tarkka/infrastructure/storage/latex_parser.py
+src/tarkka/infrastructure/storage/markdown_normalizer.py
+src/tarkka/infrastructure/storage/docling_parser.py

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from uuid import uuid4
+
+import pytest
 
 from tarkka.domain.models import Artifact
 from tarkka.domain.source_observations import Capability, ObservationBasis
+from tarkka.infrastructure.storage import docling_parser
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
 
 
@@ -140,3 +144,62 @@ def test_docling_ids_are_stable_for_same_artifact(tmp_path: Path) -> None:
     assert first.figures[0].figure_id == second.figures[0].figure_id
     assert first.tables[0].table_id == second.tables[0].table_id
     assert first.equations[0].equation_id == second.equations[0].equation_id
+
+
+def test_docling_default_constructor_builds_converter_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    converter = object()
+    module = SimpleNamespace(DocumentConverter=lambda: converter)
+    monkeypatch.setattr(docling_parser, "import_module", lambda _name: module)
+    monkeypatch.setattr(docling_parser, "version", lambda _name: "9.9.9")
+
+    parser = DoclingParser()
+
+    assert parser._converter is converter
+    assert parser.version == "9.9.9"
+
+
+def test_docling_default_constructor_reports_missing_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing(_name: str) -> object:
+        raise ImportError("synthetic missing docling")
+
+    monkeypatch.setattr(docling_parser, "import_module", missing)
+
+    with pytest.raises(RuntimeError, match="Docling is not installed") as exc_info:
+        DoclingParser()
+
+    assert isinstance(exc_info.value.__cause__, ImportError)
+
+
+def test_docling_availability_and_extension_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(docling_parser, "import_module", lambda _name: object())
+    assert DoclingParser.is_available() is True
+
+    artifact = Artifact(
+        artifact_id=uuid4(),
+        sha256="b" * 64,
+        size_bytes=1,
+        media_type="application/octet-stream",
+        storage_key=PurePosixPath("bb/docling-extension"),
+        original_name="paper.docx",
+    )
+    assert DoclingParser(converter=_FakeConverter()).supports(artifact) is True
+
+
+def test_docling_helpers_handle_missing_and_non_string_values() -> None:
+    document_id = uuid4()
+    artifact_id = uuid4()
+    blank_formula = SimpleNamespace(label="formula", text="   ", prov=())
+
+    assert docling_parser._docling_equations(
+        SimpleNamespace(texts=(blank_formula,)),
+        document_id=document_id,
+        artifact_id=artifact_id,
+    ) == ()
+    assert docling_parser._page_number(SimpleNamespace(prov=())) is None
+    assert docling_parser._optional_text(123) == "123"

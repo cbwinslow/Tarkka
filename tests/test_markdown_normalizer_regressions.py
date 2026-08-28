@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from tarkka.domain.models import Artifact
+from tarkka.infrastructure.storage import markdown_normalizer
 from tarkka.infrastructure.storage.markdown_normalizer import document_from_markdown
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
@@ -133,3 +134,31 @@ def test_markdown_normalization_is_stable_for_explicit_document_id() -> None:
         passage.passage_id for section in second.sections for passage in section.passages
     ]
     assert first_passage_ids == second_passage_ids
+
+
+def test_empty_markdown_keeps_one_empty_document_section() -> None:
+    document = _normalize("")
+
+    assert len(document.sections) == 1
+    assert document.sections[0].title == "notes.md"
+    assert document.sections[0].passages == ()
+
+
+def test_markdown_heading_at_eof_is_preserved_as_empty_section() -> None:
+    document = _normalize("# First\nBody.\n# Empty\n")
+
+    assert [section.title for section in document.sections] == ["First", "Empty"]
+    assert [passage.text for passage in document.sections[0].passages] == ["Body."]
+    assert document.sections[1].passages == ()
+
+
+def test_markdown_rejects_indented_or_short_fence_markers() -> None:
+    assert markdown_normalizer._opening_fence("    ```python\n") is None
+    assert markdown_normalizer._opening_fence("``\n") is None
+    assert markdown_normalizer._closes_fence("    ```\n", ("`", 3)) is False
+
+
+def test_markdown_rejects_non_headings_and_invalid_atx_depth() -> None:
+    assert markdown_normalizer._atx_heading("plain text\n") is None
+    assert markdown_normalizer._atx_heading("####### too deep\n") is None
+    assert markdown_normalizer._atx_heading("#    \n") is None

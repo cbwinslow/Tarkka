@@ -129,6 +129,14 @@ def test_coverage_path_normalization_supports_package_source_and_scripts() -> No
         _checker._normalize_coverage_path("/cache/src/project/scripts/tool.py")
         == "scripts/tool.py"
     )
+    assert (
+        _checker._normalize_coverage_path("src/tarkka/scripts/module.py")
+        == "src/tarkka/scripts/module.py"
+    )
+    assert (
+        _checker._normalize_coverage_path("/cache/scripts/project/src/tarkka/scripts/module.py")
+        == "src/tarkka/scripts/module.py"
+    )
     assert _checker._normalize_coverage_path("tests/test_a.py") is None
     assert _checker._normalize_coverage_path("src/../../scripts/escape.py") is None
     assert _checker._normalize_coverage_path("src/other.py") is None

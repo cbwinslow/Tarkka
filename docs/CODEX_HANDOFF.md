@@ -1,10 +1,10 @@
 # AI Handoff — Tarkka
 
-**Snapshot timestamp:** 2026-08-28 UTC  
-**Repository:** `cbwinslow/Tarkka`  
-**Default branch:** `main`  
-**Active branch:** `test/phase5-coverage-hardening`  
-**Active PR:** #184 — `test: harden Phase 5 coverage and scheduled security CI`  
+**Snapshot timestamp:** 2026-08-28 UTC
+**Repository:** `cbwinslow/Tarkka`
+**Default branch:** `main`
+**Active branch:** `test/phase5-coverage-hardening`
+**Active PR:** #184 — `test: harden Phase 5 coverage and scheduled security CI`
 **Canonical follow-up:** #185 — `test: ratchet historical branch coverage from 86% to 100%`
 
 > This is the current execution snapshot for any coding agent, despite the historical filename.

@@ -6,11 +6,16 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
 
-_SOURCE_PREFIX = "src/tarkka/"
+_SOURCE_PREFIXES = ("src/tarkka/", "scripts/")
+_GIT_PATHS = ("src/tarkka", "scripts")
+
+
+def _is_tracked_python_path(path: str) -> bool:
+    return path.endswith(".py") and path.startswith(_SOURCE_PREFIXES)
 
 
 def changed_python_lines(diff: str) -> dict[str, set[int]]:
-    """Return added/modified line numbers by Python source path from a unified diff."""
+    """Return added/modified line numbers by tracked Python source path from a unified diff."""
     result: dict[str, set[int]] = defaultdict(set)
     path: str | None = None
     new_line = 0
@@ -25,8 +30,7 @@ def changed_python_lines(diff: str) -> dict[str, set[int]]:
             continue
         if raw_line.startswith("+++ b/"):
             candidate = raw_line[6:]
-            is_source_python = candidate.startswith(_SOURCE_PREFIX) and candidate.endswith(".py")
-            path = candidate if is_source_python else None
+            path = candidate if _is_tracked_python_path(candidate) else None
             continue
         if raw_line.startswith("@@"):
             new_spec = raw_line.split(" ")[2]
@@ -61,27 +65,31 @@ def _collapse_parts(parts: tuple[str, ...]) -> tuple[str, ...] | None:
 
 
 def _normalize_coverage_path(filename: str) -> str | None:
-    """Normalize coverage.py filenames to repository-relative Tarkka source paths."""
+    """Normalize coverage.py filenames to tracked repository-relative Python paths."""
     parts = PurePosixPath(filename.replace("\\", "/")).parts
-    try:
-        src_index = parts.index("src")
-        candidate_parts = parts[src_index:]
-    except ValueError:
-        if not parts or parts[0] != "tarkka":
-            return None
+    if parts and parts[0] == "tarkka":
         candidate_parts = ("src", *parts)
+    else:
+        candidate_parts: tuple[str, ...] | None = None
+        for root in ("src", "scripts"):
+            try:
+                root_index = parts.index(root)
+            except ValueError:
+                continue
+            candidate_parts = parts[root_index:]
+            break
+        if candidate_parts is None:
+            return None
 
     collapsed = _collapse_parts(candidate_parts)
     if collapsed is None:
         return None
     value = str(PurePosixPath(*collapsed))
-    if not value.startswith(_SOURCE_PREFIX) or not value.endswith(".py"):
-        return None
-    return value
+    return value if _is_tracked_python_path(value) else None
 
 
 def coverage_hits(coverage_xml: Path) -> dict[str, dict[int, int]]:
-    """Return executable line hit counts by normalized source path."""
+    """Return executable line hit counts by normalized tracked source path."""
     if not coverage_xml.is_file():
         raise ValueError(f"coverage report does not exist: {coverage_xml}")
     try:
@@ -169,7 +177,14 @@ def _verified_base(base: str) -> str:
 def git_diff(base: str) -> str:
     verified_base = _verified_base(base)
     completed = subprocess.run(
-        ["git", "diff", "--unified=0", f"{verified_base}...HEAD", "--", "src/tarkka"],
+        [
+            "git",
+            "diff",
+            "--unified=0",
+            f"{verified_base}...HEAD",
+            "--",
+            *_GIT_PATHS,
+        ],
         check=True,
         capture_output=True,
         text=True,

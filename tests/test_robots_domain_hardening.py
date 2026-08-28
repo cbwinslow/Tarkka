@@ -221,6 +221,9 @@ Allow: /public
 """
     )
 
+    assert len(rules.groups) == 1
+    assert rules.groups[0].agents == ("*",)
+    assert [(rule.allow, rule.pattern) for rule in rules.groups[0].rules] == [(True, "/public")]
     assert rules.can_fetch("https://example.org/ignored", "TarkkaBot") is True
     assert rules.can_fetch(_TARGET, "TarkkaBot") is True
     assert rules.crawl_delay("TarkkaBot") is None
@@ -267,11 +270,15 @@ def test_robots_rules_choose_strictest_delay_and_handle_empty_groups() -> None:
     rules = RobotsRules.parse(
         """User-agent: TarkkaBot
 Crawl-delay: 1
+Allow: /
 User-agent: TarkkaBot
 Crawl-delay: 3
+Allow: /
 User-agent: EmptyBot
 """
     )
 
     assert rules.crawl_delay("TarkkaBot") == 3.0
+    assert rules.groups[-1].agents == ("emptybot",)
+    assert rules.groups[-1].rules == ()
     assert rules.can_fetch(_TARGET, "EmptyBot") is True

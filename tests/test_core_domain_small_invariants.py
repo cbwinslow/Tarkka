@@ -40,7 +40,7 @@ def test_capability_manifest_supports_requires_every_requested_capability() -> N
     assert manifest.supports(Capability.PARSE, Capability.TABLES) is False
 
 
-@pytest.mark.parametrize("value", ["text plain", "text/pla in", "text/@plain"])
+@pytest.mark.parametrize("value", ["te xt/plain", "text/pla in", "text/@plain"])
 def test_normalize_media_type_rejects_invalid_tokens(value: str) -> None:
     with pytest.raises(ValueError, match="valid type/subtype"):
         normalize_media_type(value)

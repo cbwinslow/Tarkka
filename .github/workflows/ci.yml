@@ -81,7 +81,7 @@ jobs:
         run: >-
           uv run --no-sync pytest -m "not external"
           --junitxml=test-results.xml
-          --cov=tarkka --cov-branch
+          --cov=tarkka --cov=scripts --cov-branch
           --cov-report=term-missing --cov-report=xml
       - name: Enforce Phase 5 agent-serving coverage
         if: matrix.python-version == '3.13'
@@ -107,6 +107,12 @@ jobs:
           uv run --no-sync coverage report \
             --include="${include_csv}" \
             --fail-under=100
+      - name: Enforce coverage tooling coverage
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=scripts/check_diff_coverage.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

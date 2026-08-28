@@ -144,6 +144,14 @@ def test_empty_markdown_keeps_one_empty_document_section() -> None:
     assert document.sections[0].passages == ()
 
 
+def test_markdown_heading_at_eof_is_preserved_as_empty_section() -> None:
+    document = _normalize("# First\nBody.\n# Empty\n")
+
+    assert [section.title for section in document.sections] == ["First", "Empty"]
+    assert [passage.text for passage in document.sections[0].passages] == ["Body."]
+    assert document.sections[1].passages == ()
+
+
 def test_markdown_rejects_indented_or_short_fence_markers() -> None:
     assert markdown_normalizer._opening_fence("    ```python\n") is None
     assert markdown_normalizer._opening_fence("``\n") is None

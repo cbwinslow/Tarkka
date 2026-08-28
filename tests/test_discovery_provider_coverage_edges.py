@@ -44,8 +44,12 @@ def test_semantic_scholar_accepts_valid_numeric_cursor() -> None:
 
 
 def test_retry_delay_falls_back_without_retry_after() -> None:
-    now = lambda: datetime(2026, 1, 1, tzinfo=UTC)
-    jitter = lambda low, high: high
+    def now() -> datetime:
+        return datetime(2026, 1, 1, tzinfo=UTC)
+
+    def jitter(low: float, high: float) -> float:
+        del low
+        return high
 
     assert http._retry_delay(1, None, 0.5, now=now, jitter=jitter) == 1.0
     assert http._retry_delay(1, Message(), 0.5, now=now, jitter=jitter) == 1.0

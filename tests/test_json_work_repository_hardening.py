@@ -18,10 +18,12 @@ _OBSERVED_AT = datetime(2026, 8, 28, tzinfo=UTC)
 def test_nested_transaction_is_rejected_without_corrupting_outer_transaction(tmp_path: Path) -> None:
     repository = JsonWorkRepository(tmp_path / "works.json")
 
-    with repository.transaction():
-        with pytest.raises(RuntimeError, match="nested Work repository transactions"):
-            with repository.transaction():
-                pytest.fail("nested transaction body must not run")
+    with (
+        repository.transaction(),
+        pytest.raises(RuntimeError, match="nested Work repository transactions"),
+        repository.transaction(),
+    ):
+        pytest.fail("nested transaction body must not run")
 
     assert repository._transaction_data is None
 

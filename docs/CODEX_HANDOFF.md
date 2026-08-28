@@ -3,9 +3,9 @@
 **Snapshot timestamp:** 2026-08-28 UTC
 **Repository:** `cbwinslow/Tarkka`
 **Default branch:** `main`
-**Active branch:** `test/security-full-text-http-coverage`
-**Active PR:** #200 — `test: ratchet full-text HTTP coverage to 100%`
-**Active issue:** #189 — security/network acquisition coverage
+**Active branch:** `test/durable-persistence-coverage-ratchet`
+**Active PR:** #201 — `test: ratchet PostgreSQL persistence foundation coverage`
+**Active issue:** #190 — durable persistence adapter coverage
 **Parent program:** #185 — historical branch coverage to 100%
 **Product roadmap:** #198 — auditable/replayable research differentiation
 
@@ -15,143 +15,168 @@
 
 ## Current objective
 
-Finish and merge PR #200 with expected-head protection after validating this final handoff-only head
-and completing the last reviewer sweep. PR #200 completes the selected #189 security/network coverage
-scope. After merge, close #189 and continue directly into #190 durable persistence adapters.
+Finish and merge PR #201 as the first small #190 persistence slice. The PostgreSQL connection,
+migration, and acquisition-provenance foundation has reached 100% statement + branch coverage on the
+latest validated source head. A permanent CI ratchet has been added; validate the new exact head,
+review every bot comment, finalize the PR record, and merge with expected-head protection. Then start
+the next coherent #190 repository slice from the exact merge SHA rather than growing #201 further.
 
 No user action is required for routine PR merging.
 
-## Merged #189 work before #200
+## Completed program baseline
 
-- PR #194 merged as `2c5f797272a3ac23be91c618bb524410be0bb653`.
-- PR #195 merged as `8ef51a637dffbb01bf6b5c5c23bc3ee26346488f`.
-- PR #196 merged as `9771cd4405248eae6df45978d8b1664e6a5d085c`.
-- PR #197 merged as `7eca7c077e474b0b63580d10522d2393eaa88e4a`.
-- PR #199 merged as `7ddd684d0127a17db85005d37fcc94c4f45b1385`.
+- #187 — interface/runtime: completed / merged / permanently ratcheted.
+- #188 — core domain invariants: completed / merged / permanently ratcheted.
+- #189 — security/network acquisition: completed and closed.
+- PR #200 merged as `bec2c3a2f7ab105ce50aac2157a243d9a375ab22`.
 
-Inherited permanent 100% gates before #200 included:
+Permanent #189 protections now include:
 
 - security/robots domain: **641 statements + 234 branches = 100%**;
-- security application after #199: **693 statements + 232 branches = 100%**;
-- HTTP resolver/transport boundary after #197: **193 statements + 66 branches = 100%**;
-- Phase 5 agent-serving, coverage tooling, interface/runtime, and #188 core-domain invariants.
+- security application: **735 statements + 238 branches = 100%**;
+- full-text/HTTP boundary: **363 statements + 136 branches = 100%**.
 
-## #200 latest fully validated result
+The final #200 validated source state had **1,545 passed / 36 deselected** and cumulative Phase-5
+changed executable coverage **657/657 = 100%**.
 
-Latest fully validated head before this handoff commit:
-`7fc0429924e0be8708969e548b2142fd2de1eea5`.
+## #201 selected persistence foundation
+
+PR #201 deliberately starts #190 with a small PostgreSQL foundation rather than mixing in the larger
+repositories:
+
+- `src/tarkka/infrastructure/postgres/connection.py` — baseline 88%;
+- `src/tarkka/infrastructure/postgres/migrations.py` — baseline 93%;
+- `src/tarkka/infrastructure/postgres/acquisition_recorder.py` — baseline 93%.
+
+These modules define optional dependency behavior, retry/error taxonomy, migration durability/locking,
+and append-only acquisition provenance used by the larger persistence adapters.
+
+## Latest fully validated #201 source result
+
+Latest fully validated source head before the CI-ratchet/handoff commits:
+`0c99d0d76fc0c38183ab39a512e5958ce1c1f507`.
 
 Exact Python 3.13 result:
 
-- **1,545 passed / 36 deselected**;
-- repository aggregate: **12,273 statements / 690 misses; 3,854 branches / 511 partials = 92%**;
-- `application/full_text.py`: **42 statements + 6 branches = 100%**;
-- `infrastructure/full_text/http.py`: **136 statements + 58 branches = 100%**;
-- `ports/full_text.py`: **34 statements + 12 branches = 100%**;
-- application + HTTP adapter pair: **178 statements + 64 branches = 100%**;
-- complete full-text resource/application/HTTP contract: **212 statements + 76 branches = 100%**;
-- expanded security application permanent gate: **735 statements + 238 branches = 100%**;
-- expanded full-text/HTTP boundary permanent gate: **363 statements + 136 branches = 100%**;
-- cumulative Phase 5 executable changed lines: **657/657 = 100%**;
-- current PR changed executable source lines: **1/1 = 100%**.
+- **1,562 passed / 36 deselected**;
+- repository aggregate: **12,273 statements / 680 misses; 3,854 branches / 504 partials = 92%**;
+- `postgres/acquisition_recorder.py`: **44 statements + 10 branches = 100%**;
+- `postgres/connection.py`: **42 statements + 8 branches = 100%**;
+- `postgres/migrations.py`: **82 statements + 22 branches = 100%**;
+- selected PostgreSQL persistence foundation: **168 statements + 40 branches = 100%**;
+- cumulative Phase-5 executable changed lines: **657/657 = 100%**;
+- PR changed executable source lines at this test-only source head: **0/0 = 100%**.
 
-The same exact head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, Package,
-Dependency Review, and PR Agent.
+That exact head passed Python 3.11, Python 3.12, Python 3.13, Ruff, strict mypy, SQLFluff, zizmor,
+Dependency Review, and the dedicated `PostgreSQL repositories` contract workflow. PR Agent was still
+finishing at the last source-head snapshot.
 
-## #200 behavior and test hardening
+Commit `bcdd26bc1ff31cfcd3798c463227c1af07e67c5e` adds the permanent
+`Enforce PostgreSQL persistence foundation coverage` CI gate for all three modules. This handoff
+commit is newer still, so revalidate the exact live head before merge.
 
-`tests/test_full_text_application_hardening.py` covers:
+## #201 behavior and failure contracts
 
-- constructor rejection when no full-text resolver is configured;
-- unknown Work rejection before resolver/fetch activity;
-- deterministic `FullTextNotFoundError` when all resolvers miss.
+### PostgreSQL connection boundary
 
-`tests/test_full_text_http_hardening.py` covers the bounded full-text adapter without live network I/O:
+`tests/test_postgres_connection_hardening.py` now covers:
 
-- constructor timeout/max-byte/user-agent validation;
-- exact hostname, public resolved address, byte cap, and decreasing deadline propagation;
-- stale/partial destination cleanup on failure;
-- explicit transport size-limit signaling;
-- redirect Location validation, same-origin enforcement, port changes, and redirect count limits;
-- non-success HTTP status and empty-success-body failures;
-- deadline exhaustion before and after DNS;
-- exhausted byte caps and private/disallowed resolved addresses;
-- malformed/hostless URI helpers;
-- duplicate/blank/whitespace/control/percent-encoded-control/unsafe-scheme/invalid-authority redirects;
-- Content-Type and Content-Length cardinality, parsing, mismatch, and oversize contracts.
+- trimmed `TARKKA_DATABASE_URL` settings loading;
+- clear optional-dependency failure when psycopg is unavailable;
+- exact DSN pass-through on successful connection;
+- transient `OperationalError` / `InterfaceError` translation;
+- permanent driver-error translation;
+- preservation of original exceptions as causes;
+- translation behavior when psycopg itself is unavailable;
+- unrelated application exceptions remaining untranslated;
+- malformed driver error-class attributes not being mistaken for retryable errors.
 
-`tests/test_full_text_resource_security.py` was added in direct response to reviewer feedback and
-explicitly protects the invariant relied upon by the application simplification:
+### Migration durability / locking
 
-- blank provider/source/media-type/filename rejection;
-- POSIX traversal and absolute path rejection;
-- Windows traversal and absolute path rejection;
-- NUL-byte filename rejection;
-- valid single-component filename acceptance;
-- immutable copied metadata.
+`tests/test_postgres_migrations.py` now covers:
 
-## Production simplification justified by invariant
+- numeric ordering, immutable checksums, invalid names, duplicate versions, and empty catalogs;
+- both packaged-wheel migration discovery and editable-source fallback;
+- append-only application and checksum recording;
+- exact matching-history skips;
+- changed/unknown history rejection;
+- advisory-lock failure translation;
+- connection cleanup when lock acquisition fails;
+- no advisory unlock attempt when the lock was never acquired.
 
-`FullTextResource.__post_init__` and `_is_safe_filename()` are the authoritative filename safety
-contract. They reject blank filenames, `.`/`..`, NUL bytes, POSIX traversal/absolute paths, and Windows
-traversal/absolute paths by requiring both `PurePosixPath(filename).name == filename` and
-`PureWindowsPath(filename).name == filename`.
+The first CI oracle showed the packaged-wheel `return bundled` path as the sole remaining line; a
+focused packaged-directory test closed that real packaging branch instead of using an exclusion.
 
-The acquisition orchestrator's second `path.parent != root` escape check was therefore unreachable
-through a valid `FullTextResource`. It was removed rather than reached by constructing invalid frozen
-objects. Reviewer feedback correctly noted that this architectural dependency needed explicit tests;
-`ports/full_text.py` is now itself at 100% statement + branch coverage and permanently ratcheted.
+### Acquisition provenance recording
 
-## Permanent CI ratchets added by #200
+`tests/test_postgres_acquisition_recorder_unit.py` now covers:
 
-`Enforce security application coverage` now includes `src/tarkka/application/full_text.py`, producing
-**735 statements + 238 branches = 100%**.
+- mapping and JSON-string metadata round-trip;
+- rejection of non-object decoded metadata;
+- append-only insert behavior;
+- exact-retry idempotency;
+- conflicting retry rejection;
+- missing-artifact rejection;
+- translated driver failure with original cause;
+- untranslated application failure preservation;
+- connection cleanup on both failure classes.
 
-`Enforce HTTP transport coverage` now protects:
+## Permanent CI ratchet
 
-- `src/tarkka/ports/full_text.py`;
-- `src/tarkka/ports/http_transport.py`;
-- `src/tarkka/infrastructure/full_text/http.py`;
-- `src/tarkka/infrastructure/web/pinned_http_transport.py`.
+`Enforce PostgreSQL persistence foundation coverage` now includes:
 
-That gate is **363 statements + 136 branches = 100%**.
+- `src/tarkka/infrastructure/postgres/acquisition_recorder.py`;
+- `src/tarkka/infrastructure/postgres/connection.py`;
+- `src/tarkka/infrastructure/postgres/migrations.py`.
 
-## Review-bot disposition
+Expected validated total after the CI-ratchet commit: **168 statements + 40 branches = 100%**.
+Do not merge until the exact live head confirms this step passes.
 
-- Codex inline finding requesting permanent full-text coverage gates was valid, already applied on
-  later commits, explicitly replied to, and resolved.
-- The PR Reviewer Guide's path-traversal concern was valid as a test-visibility concern. The production
-  invariant was verified in `FullTextResource`, and explicit security tests were added rather than
-  merely dismissing the warning.
-- The same reviewer guide's earlier ticket-compliance warnings about missing coverage results, CI
-  ratchets, and handoff updates are now stale: all three are present and validated on `7fc0429...`.
-- Qodo is paused because its subscription is inactive.
-- CodeRabbit was rate-limited and did not emit an actionable code finding at the last sweep.
+## Review state
 
-Re-run the live reviewer sweep after this final documentation commit and disposition any newly emitted
-substantive feedback before merging.
+At the initial #201 review sweep there were no inline review threads. Continue the `AGENTS.md` review
+contract after the CI-ratchet and handoff commits: read every new inline thread, review submission,
+and top-level bot comment; apply valid findings, explicitly reply to substantive comments, document
+well-founded declines, and resolve only after the disposition is complete.
+
+Do not dismiss generic or stale review state until the underlying finding has been checked against the
+latest code. Qodo may remain paused due subscription status; informational rate-limit/billing messages
+are noise rather than code findings.
 
 ## Exact next actions
 
-1. Read live PR #200 head SHA after this handoff commit.
-2. Confirm Python 3.11/3.12/3.13, Quality, Package, Dependency Review, and PR Agent on that exact head.
-3. Re-list every inline review thread, review submission, and top-level bot comment; apply valid new
-   findings and explicitly document declines/noise.
-4. Rewrite PR #200 body into the canonical final audit record using exact-head validation results.
-5. Add final readiness comments to #200 and #189 and a progress update to #185.
-6. If an automated reviewer leaves a stale `CHANGES_REQUESTED` state after all findings are fixed,
-   dismiss only that stale review with explicit evidence.
-7. Merge #200 using `expected_head_sha` protection and confirm the resulting `main` merge SHA.
-8. Close #189 as completed and record its permanent-gate totals.
-9. Create the first #190 branch from the exact #200 merge and begin durable persistence adapter
-   coverage without waiting for user action.
+1. Read live PR #201 head SHA after this handoff commit.
+2. Confirm CI, Python 3.11/3.12/3.13, Quality, Dependency Review, PR Agent, and dedicated PostgreSQL
+   repository contracts on that exact head.
+3. In Python 3.13 logs, confirm `Enforce PostgreSQL persistence foundation coverage` passes at
+   **168 statements + 40 branches = 100%**.
+4. Re-list every inline review thread, review submission, and top-level bot comment; disposition all
+   substantive feedback.
+5. Mark #201 ready for review, rewrite the PR body into the canonical final audit record, and add a
+   final readiness/progress comment.
+6. If a stale automated `CHANGES_REQUESTED` review alone blocks merge after its findings are fully
+   resolved, dismiss only that stale review with explicit evidence.
+7. Merge #201 using `expected_head_sha` protection and record the resulting `main` SHA on #190/#185.
+8. Start the next small #190 branch from that exact merge SHA.
+
+## Next #190 candidate slices
+
+Prefer frequent mergeable slices. Good next candidates from the latest coverage oracle are:
+
+- high-coverage PostgreSQL repository contracts: `citation_context_repository.py` (96%),
+  `work_repository.py` (93%), and `verification_repository.py` (90%);
+- then lower-coverage PostgreSQL repositories: research (85%), source observation (80%), extraction
+  (78%);
+- JSON persistence can follow in coherent parity/atomic-write groups;
+- `storage/locking.py` remains a distinct failure-injection target and should not be casually bundled
+  into a repository PR merely to raise aggregate coverage.
 
 ## Program / repository hygiene
 
 - #187 — interface/runtime: completed / merged
 - #188 — core domain invariants: completed / merged
-- #189 — security/network acquisition: active only until #200 merges
-- #190 — durable persistence adapters: queued next
+- #189 — security/network acquisition: completed / closed
+- #190 — durable persistence adapters: active via #201
 - #191 — parser/provider/extraction adapters: queued
 - #198 — product differentiation roadmap: active planning track
 

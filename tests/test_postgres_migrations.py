@@ -5,7 +5,8 @@ from typing import Any
 
 import pytest
 
-from tarkka.infrastructure.postgres.connection import PostgresSettings
+import tarkka.infrastructure.postgres.migrations as migrations_module
+from tarkka.infrastructure.postgres.connection import PostgresOperationError, PostgresSettings
 from tarkka.infrastructure.postgres.migrations import (
     MigrationCatalogError,
     MigrationHistoryError,
@@ -41,6 +42,26 @@ class _Connection:
         self.closed = True
 
 
+class _LockFailureConnection(_Connection):
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+    def execute(self, sql: str, params: tuple[Any, ...] | None = None, **_: Any) -> _Cursor:
+        self.calls.append((sql, params))
+        if sql.startswith("SELECT pg_advisory_lock"):
+            raise self.error
+        return _Cursor()
+
+
+class _PackageFiles:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def joinpath(self, name: str) -> Path:
+        return self.root / name
+
+
 def test_discovers_committed_migrations_in_numeric_order() -> None:
     migrations = discover_migrations(Path("migrations"))
     versions = [item.version for item in migrations]
@@ -61,6 +82,32 @@ def test_default_migration_directory_contains_the_committed_history() -> None:
     assert default_migrations_directory().joinpath("0001_core.sql").is_file()
 
 
+def test_default_migration_directory_prefers_packaged_sql(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    package_root = tmp_path / "package"
+    bundled = package_root / "migrations"
+    bundled.mkdir(parents=True)
+    (bundled / "0001_packaged.sql").write_text("SELECT 1;", encoding="utf-8")
+    monkeypatch.setattr(migrations_module, "files", lambda _: _PackageFiles(package_root))
+
+    assert default_migrations_directory() == bundled
+
+
+def test_default_migration_directory_falls_back_for_editable_source_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    package_root = tmp_path / "package"
+    package_root.mkdir()
+    fake_module = tmp_path / "a" / "b" / "c" / "d" / "migrations.py"
+    monkeypatch.setattr(migrations_module, "files", lambda _: _PackageFiles(package_root))
+    monkeypatch.setattr(migrations_module, "__file__", str(fake_module))
+
+    assert default_migrations_directory() == tmp_path / "migrations"
+
+
 def test_rejects_invalid_or_duplicate_migration_names(tmp_path: Path) -> None:
     (tmp_path / "not-a-migration.sql").write_text("SELECT 1;", encoding="utf-8")
     with pytest.raises(MigrationCatalogError, match="invalid migration filename"):
@@ -70,6 +117,11 @@ def test_rejects_invalid_or_duplicate_migration_names(tmp_path: Path) -> None:
     (tmp_path / "0001_one.sql").write_text("SELECT 1;", encoding="utf-8")
     (tmp_path / "0001_two.sql").write_text("SELECT 2;", encoding="utf-8")
     with pytest.raises(MigrationCatalogError, match="duplicate migration version"):
+        discover_migrations(tmp_path)
+
+
+def test_rejects_empty_migration_catalog(tmp_path: Path) -> None:
+    with pytest.raises(MigrationCatalogError, match="no PostgreSQL migrations found"):
         discover_migrations(tmp_path)
 
 
@@ -133,6 +185,31 @@ def test_upgrade_skips_a_matching_recorded_migration(tmp_path: Path) -> None:
 
     assert result.applied == ()
     assert result.skipped == (migration,)
+
+
+def test_upgrade_translates_lock_failure_and_closes_without_unlocking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "0001_first.sql").write_text("SELECT 1;", encoding="utf-8")
+    original = RuntimeError("driver disconnected")
+    connection = _LockFailureConnection(original)
+    translated = PostgresOperationError("translated")
+    monkeypatch.setattr(migrations_module, "translate_driver_error", lambda exc: translated)
+
+    with pytest.raises(PostgresOperationError, match="translated") as raised:
+        upgrade(
+            PostgresSettings("postgresql://unused"),
+            directory=tmp_path,
+            connection_factory=lambda _: connection,
+        )
+
+    assert raised.value is translated
+    assert raised.value.__cause__ is original
+    assert connection.autocommit
+    assert connection.closed
+    assert len(connection.calls) == 1
+    assert connection.calls[0][0].startswith("SELECT pg_advisory_lock")
 
 
 def test_db_upgrade_cli_reports_missing_database_configuration(

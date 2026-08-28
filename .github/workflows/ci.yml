@@ -230,6 +230,14 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/infrastructure/postgres/extraction_repository.py
           --fail-under=100
+      - name: Enforce local storage locking coverage
+        # Local process-lock timeout, stale-lock recovery, and cleanup behavior
+        # completed under #190 is permanently protected against regression.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/infrastructure/storage/locking.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

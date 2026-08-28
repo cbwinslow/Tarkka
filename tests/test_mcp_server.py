@@ -5,6 +5,8 @@ from uuid import uuid4
 
 import pytest
 
+pytest.importorskip("mcp", reason="MCP tests require the optional 'mcp' extra")
+
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.domain.telemetry import AgentUsageEvent

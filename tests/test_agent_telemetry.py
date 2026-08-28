@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 
@@ -8,15 +9,34 @@ from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorder
 
 
-def _event(*, outcome: str = "success", error_code: str | None = None) -> AgentUsageEvent:
+class _EventOverrides(TypedDict, total=False):
+    interface: str
+    operation_id: str
+    outcome: str
+    elapsed_ms: int
+    response_bytes: int
+    estimated_tokens: int
+    error_code: str | None
+
+
+def _event(
+    *,
+    interface: str = "mcp",
+    operation_id: str = "document_manifest",
+    outcome: str = "success",
+    elapsed_ms: int = 12,
+    response_bytes: int = 345,
+    estimated_tokens: int = 42,
+    error_code: str | None = None,
+) -> AgentUsageEvent:
     return AgentUsageEvent(
         occurred_at=datetime(2026, 8, 25, tzinfo=UTC),
-        interface="mcp",
-        operation_id="document_manifest",
+        interface=interface,
+        operation_id=operation_id,
         outcome=outcome,
-        elapsed_ms=12,
-        response_bytes=345,
-        estimated_tokens=42,
+        elapsed_ms=elapsed_ms,
+        response_bytes=response_bytes,
+        estimated_tokens=estimated_tokens,
         error_code=error_code,
     )
 
@@ -41,17 +61,22 @@ def test_jsonl_agent_usage_recorder_persists_only_aggregate_measurements(tmp_pat
 
 
 @pytest.mark.parametrize(
-    ("outcome", "error_code", "message"),
+    ("kwargs", "message"),
     [
-        ("other", None, "outcome"),
-        ("success", "not_found", "successful"),
-        ("error", None, "require"),
+        ({"interface": " "}, "non-blank"),
+        ({"operation_id": "\t"}, "non-blank"),
+        ({"outcome": "other"}, "outcome"),
+        ({"elapsed_ms": -1}, "non-negative"),
+        ({"response_bytes": -1}, "non-negative"),
+        ({"estimated_tokens": -1}, "non-negative"),
+        ({"outcome": "success", "error_code": "not_found"}, "successful"),
+        ({"outcome": "error", "error_code": None}, "require"),
+        ({"outcome": "error", "error_code": "  "}, "require"),
     ],
 )
-def test_agent_usage_event_rejects_inconsistent_outcomes(
-    outcome: str,
-    error_code: str | None,
+def test_agent_usage_event_rejects_invalid_measurements_and_outcomes(
+    kwargs: _EventOverrides,
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        _event(outcome=outcome, error_code=error_code)
+        _event(**kwargs)

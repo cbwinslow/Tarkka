@@ -9,6 +9,7 @@ domain-facing API or enable state-changing operations.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -38,6 +39,7 @@ from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorde
 from tarkka.interfaces.main import _document_retrieval_service
 from tarkka.ports.telemetry import AgentUsageRecorder
 
+_LOGGER = logging.getLogger(__name__)
 _READ_ONLY = ToolAnnotations(
     read_only_hint=True,
     destructive_hint=False,
@@ -71,6 +73,7 @@ def create_server(
         operation_id: str,
     ) -> Callable[[Callable[..., dict[str, object]]], Callable[..., dict[str, object]]]:
         """Measure a tool response without making optional telemetry part of its outcome."""
+
         def decorator(
             handler: Callable[..., dict[str, object]],
         ) -> Callable[..., dict[str, object]]:
@@ -357,6 +360,7 @@ def _record_response(
     )
     try:
         telemetry.record(event)
-    except OSError:
-        # Telemetry is explicitly opt-in and must not turn a read operation into a failure.
-        return
+    except Exception:
+        # This boundary is intentionally broad: telemetry is optional observability and must never
+        # change the success/failure semantics of the research operation it observes.
+        _LOGGER.debug("MCP telemetry recorder failed", exc_info=True)

@@ -12,6 +12,12 @@ concurrency:
 permissions:
   contents: read
 
+# Immutable pre-Phase-5 anchor for the cumulative coverage ratchet. Keep this a
+# commit SHA rather than a movable ref so the protected historical range cannot
+# be weakened accidentally; advance it only as an explicit coverage-policy change.
+env:
+  PHASE5_COVERAGE_BASE: 7e4f51ddb14a44c1b32a782d3cbdbb7c06a41b01
+
 jobs:
   quality:
     name: Quality
@@ -75,15 +81,54 @@ jobs:
         run: >-
           uv run --no-sync pytest -m "not external"
           --junitxml=test-results.xml
-          --cov=tarkka --cov-branch
+          --cov=tarkka --cov=scripts --cov-branch
           --cov-report=term-missing --cov-report=xml
+      - name: Enforce Phase 5 agent-serving coverage
+        if: matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          # coverage.py runs from the checked-out repository root, so these are
+          # intentionally repository-relative source-file patterns.
+          include_patterns=(
+            src/tarkka/application/document_context_packages.py
+            src/tarkka/application/document_retrieval.py
+            src/tarkka/application/research_capabilities.py
+            src/tarkka/application/saved_document_context_packages.py
+            src/tarkka/domain/context_packages.py
+            src/tarkka/domain/telemetry.py
+            src/tarkka/infrastructure/postgres/context_package_repository.py
+            src/tarkka/infrastructure/storage/json_context_package_repository.py
+            src/tarkka/infrastructure/storage/jsonl_telemetry.py
+            src/tarkka/interfaces/mcp.py
+            src/tarkka/ports/context_packages.py
+            src/tarkka/ports/telemetry.py
+          )
+          include_csv="$(IFS=,; echo "${include_patterns[*]}")"
+          uv run --no-sync coverage report \
+            --include="${include_csv}" \
+            --fail-under=100
+      - name: Enforce coverage tooling coverage
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=scripts/check_diff_coverage.py
+          --fail-under=100
+      - name: Enforce full coverage of recent Phase 5 changes
+        # This is a permanent cumulative ratchet, so it intentionally runs both
+        # on pull requests and on pushes to main.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync python scripts/check_diff_coverage.py
+          --base "$PHASE5_COVERAGE_BASE"
+          --coverage coverage.xml
+          --minimum 100
       - name: Enforce changed-line coverage
         if: matrix.python-version == '3.13' && github.event_name == 'pull_request'
         run: >-
           uv run --no-sync python scripts/check_diff_coverage.py
           --base origin/main
           --coverage coverage.xml
-          --minimum 80
+          --minimum 100
       - name: Retain test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

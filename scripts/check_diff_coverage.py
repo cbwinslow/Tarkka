@@ -6,11 +6,16 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
 
-_SOURCE_PREFIX = "src/tarkka/"
+_SOURCE_PREFIXES = ("src/tarkka/", "scripts/")
+_GIT_PATHS = ("src/tarkka", "scripts")
+
+
+def _is_tracked_python_path(path: str) -> bool:
+    return path.endswith(".py") and path.startswith(_SOURCE_PREFIXES)
 
 
 def changed_python_lines(diff: str) -> dict[str, set[int]]:
-    """Return added/modified line numbers by Python source path from a unified diff."""
+    """Return added/modified line numbers by tracked Python source path from a unified diff."""
     result: dict[str, set[int]] = defaultdict(set)
     path: str | None = None
     new_line = 0
@@ -25,8 +30,7 @@ def changed_python_lines(diff: str) -> dict[str, set[int]]:
             continue
         if raw_line.startswith("+++ b/"):
             candidate = raw_line[6:]
-            is_source_python = candidate.startswith(_SOURCE_PREFIX) and candidate.endswith(".py")
-            path = candidate if is_source_python else None
+            path = candidate if _is_tracked_python_path(candidate) else None
             continue
         if raw_line.startswith("@@"):
             new_spec = raw_line.split(" ")[2]
@@ -61,27 +65,51 @@ def _collapse_parts(parts: tuple[str, ...]) -> tuple[str, ...] | None:
 
 
 def _normalize_coverage_path(filename: str) -> str | None:
-    """Normalize coverage.py filenames to repository-relative Tarkka source paths."""
-    parts = PurePosixPath(filename.replace("\\", "/")).parts
-    try:
-        src_index = parts.index("src")
-        candidate_parts = parts[src_index:]
-    except ValueError:
-        if not parts or parts[0] != "tarkka":
-            return None
-        candidate_parts = ("src", *parts)
+    """Normalize coverage.py filenames to tracked repository-relative Python paths.
 
-    collapsed = _collapse_parts(candidate_parts)
-    if collapsed is None:
+    ``coverage.py`` can report package files below ``tarkka/`` and files from
+    ``--cov=scripts`` either below ``scripts/`` or as a bare filename relative
+    to that source root. Parent traversal is collapsed across the entire path
+    before any repository suffix is selected, so an escaping path cannot be
+    reinterpreted as a valid later suffix.
+
+    For absolute/noisy paths, the rightmost ``src/tarkka`` root owns everything
+    below it, including any nested directory named ``scripts``. Only when no
+    package root exists do we select the rightmost repository-level ``scripts``
+    suffix. A bare Python filename maps to ``scripts/``; this cannot create
+    root-level changed-line false positives because git diff independently
+    defines the eligible changes under ``src/tarkka`` and ``scripts`` before
+    coverage data is joined.
+    """
+    raw_parts = PurePosixPath(filename.replace("\\", "/")).parts
+    parts = _collapse_parts(raw_parts)
+    if parts is None:
         return None
-    value = str(PurePosixPath(*collapsed))
-    if not value.startswith(_SOURCE_PREFIX) or not value.endswith(".py"):
-        return None
-    return value
+
+    if parts and parts[0] == "tarkka":
+        candidate_parts = ("src", *parts)
+    elif len(parts) == 1 and parts[0].endswith(".py"):
+        candidate_parts = ("scripts", *parts)
+    else:
+        package_roots = [
+            index
+            for index in range(len(parts) - 1)
+            if parts[index : index + 2] == ("src", "tarkka")
+        ]
+        if package_roots:
+            candidate_parts = parts[max(package_roots) :]
+        else:
+            script_roots = [index for index, part in enumerate(parts) if part == "scripts"]
+            if not script_roots:
+                return None
+            candidate_parts = parts[max(script_roots) :]
+
+    value = str(PurePosixPath(*candidate_parts))
+    return value if _is_tracked_python_path(value) else None
 
 
 def coverage_hits(coverage_xml: Path) -> dict[str, dict[int, int]]:
-    """Return executable line hit counts by normalized source path."""
+    """Return executable line hit counts by normalized tracked source path."""
     if not coverage_xml.is_file():
         raise ValueError(f"coverage report does not exist: {coverage_xml}")
     try:
@@ -134,6 +162,27 @@ def diff_coverage(
     return covered, total, percent
 
 
+def uncovered_lines(
+    changed: dict[str, set[int]],
+    hits: dict[str, dict[int, int]],
+) -> dict[str, tuple[int, ...]]:
+    """Return uncovered executable changed lines for actionable CI diagnostics."""
+    result: dict[str, tuple[int, ...]] = {}
+    for path, changed_lines in changed.items():
+        executable = hits.get(path)
+        if executable is None:
+            missing = tuple(sorted(changed_lines))
+        else:
+            missing = tuple(
+                line_number
+                for line_number in sorted(changed_lines)
+                if line_number in executable and executable[line_number] == 0
+            )
+        if missing:
+            result[path] = missing
+    return result
+
+
 def _verified_base(base: str) -> str:
     """Resolve a caller-provided base to a commit before using it in git diff."""
     completed = subprocess.run(
@@ -148,7 +197,14 @@ def _verified_base(base: str) -> str:
 def git_diff(base: str) -> str:
     verified_base = _verified_base(base)
     completed = subprocess.run(
-        ["git", "diff", "--unified=0", f"{verified_base}...HEAD", "--", "src/tarkka"],
+        [
+            "git",
+            "diff",
+            "--unified=0",
+            f"{verified_base}...HEAD",
+            "--",
+            *_GIT_PATHS,
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -162,7 +218,7 @@ def main() -> int:
     )
     parser.add_argument("--base", required=True, help="Base commit SHA or git ref")
     parser.add_argument("--coverage", type=Path, default=Path("coverage.xml"))
-    parser.add_argument("--minimum", type=float, default=80.0)
+    parser.add_argument("--minimum", type=float, default=100.0)
     args = parser.parse_args()
 
     if not 0 < args.minimum <= 100:
@@ -181,6 +237,8 @@ def main() -> int:
     covered, total, percent = diff_coverage(changed, hits)
     print(f"Changed-line coverage: {covered}/{total} executable lines ({percent:.1f}%)")
     if percent < args.minimum:
+        for path, lines in uncovered_lines(changed, hits).items():
+            print(f"Uncovered changed lines: {path}: {','.join(str(line) for line in lines)}")
         print(f"Required changed-line coverage: {args.minimum:.1f}%")
         return 1
     return 0

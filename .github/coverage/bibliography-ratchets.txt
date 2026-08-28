@@ -1,0 +1,9 @@
+# Bibliography interchange modules that must remain at 100% statement + branch coverage.
+# Add one repository-relative source path only after deterministic coverage reaches 100%.
+src/tarkka/infrastructure/bibliography_bibtex.py
+src/tarkka/infrastructure/bibliography_bibtex_adapter.py
+src/tarkka/infrastructure/bibliography_common.py
+src/tarkka/infrastructure/bibliography_csl_json.py
+src/tarkka/infrastructure/bibliography_doi.py
+src/tarkka/infrastructure/bibliography_interchange.py
+src/tarkka/infrastructure/bibliography_ris.py

@@ -62,8 +62,6 @@ def _ris_blocks(text: str) -> list[dict[str, list[str]]]:
                 previous_tag = "TY"
                 continue
             if current is None:
-                if not line.strip():
-                    continue
                 raise BibliographyParseError(
                     f"RIS line {line_number} appears outside a TY/ER record"
                 )

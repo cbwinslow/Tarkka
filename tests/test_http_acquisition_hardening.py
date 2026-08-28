@@ -155,7 +155,7 @@ def test_request_once_rejects_empty_resolution(tmp_path: Path) -> None:
     checkpoint, target_id = _checkpoint()
     policy = _policy()
     active = checkpoint.start(target_id, policy)
-    service = _service(tmp_path, resolver=_Resolver(()))
+    service = _service(tmp_path, resolver=_Resolver(()), clock=lambda: 0.0)
 
     with pytest.raises(ValueError, match="returned no addresses"):
         service._request_once(active, policy, "https://example.org/start", started_at=0.0)

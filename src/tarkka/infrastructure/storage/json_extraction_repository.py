@@ -308,32 +308,32 @@ def _base_kwargs(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _extraction_from_dict(raw: dict[str, Any]) -> ResearchExtraction:
-    kind = ResearchObjectKind(raw["kind"])
+    kind = raw["kind"]
     base = _base_kwargs(raw)
-    if kind is ResearchObjectKind.CLAIM:
+    if kind == ResearchObjectKind.CLAIM.value:
         return Claim(**base, text=raw["text"], claim_type=raw["claim_type"])
-    if kind is ResearchObjectKind.HYPOTHESIS:
+    if kind == ResearchObjectKind.HYPOTHESIS.value:
         return Hypothesis(**base, text=raw["text"])
-    if kind is ResearchObjectKind.METHOD:
+    if kind == ResearchObjectKind.METHOD.value:
         return Method(**base, name=raw["name"], description=raw.get("description"))
-    if kind is ResearchObjectKind.DATASET:
+    if kind == ResearchObjectKind.DATASET.value:
         return Dataset(**base, name=raw["name"], description=raw.get("description"))
-    if kind is ResearchObjectKind.VARIABLE:
+    if kind == ResearchObjectKind.VARIABLE.value:
         return Variable(**base, name=raw["name"], role=raw.get("role"))
-    if kind is ResearchObjectKind.MODEL:
+    if kind == ResearchObjectKind.MODEL.value:
         return Model(**base, name=raw["name"], family=raw.get("family"))
-    if kind is ResearchObjectKind.METRIC:
+    if kind == ResearchObjectKind.METRIC.value:
         return Metric(
             **base,
             name=raw["name"],
             value_text=raw.get("value_text"),
             unit=raw.get("unit"),
         )
-    if kind is ResearchObjectKind.RESULT:
+    if kind == ResearchObjectKind.RESULT.value:
         return Result(**base, text=raw["text"], direction=raw.get("direction"))
-    if kind is ResearchObjectKind.LIMITATION:
+    if kind == ResearchObjectKind.LIMITATION.value:
         return Limitation(**base, text=raw["text"])
-    raise ValueError(f"unsupported extraction kind: {kind}")
+    raise ValueError(f"unsupported extraction kind: {kind!r}")
 
 
 def _batch_to_dict(batch: ExtractionBatch) -> dict[str, Any]:

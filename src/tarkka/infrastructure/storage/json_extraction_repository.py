@@ -309,6 +309,8 @@ def _base_kwargs(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _extraction_from_dict(raw: dict[str, Any]) -> ResearchExtraction:
     kind = raw["kind"]
+    if not isinstance(kind, str):
+        raise TypeError("extraction kind must be a string")
     base = _base_kwargs(raw)
     if kind == ResearchObjectKind.CLAIM.value:
         return Claim(**base, text=raw["text"], claim_type=raw["claim_type"])

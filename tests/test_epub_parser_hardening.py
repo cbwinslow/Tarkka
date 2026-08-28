@@ -188,16 +188,20 @@ def test_archive_validation_rejects_encryption_sizes_and_total_limit(
 def test_mimetype_validation_rejects_non_ascii_and_wrong_value(tmp_path: Path) -> None:
     non_ascii = tmp_path / "non-ascii.epub"
     _write_epub(non_ascii, mimetype=b"\xff")
-    with zipfile.ZipFile(non_ascii) as archive:
-        with pytest.raises(EpubParseError, match="mimetype must be ASCII") as raised:
-            epub_parser._validate_mimetype(archive)
+    with (
+        zipfile.ZipFile(non_ascii) as archive,
+        pytest.raises(EpubParseError, match="mimetype must be ASCII") as raised,
+    ):
+        epub_parser._validate_mimetype(archive)
     assert isinstance(raised.value.__cause__, UnicodeDecodeError)
 
     wrong = tmp_path / "wrong.epub"
     _write_epub(wrong, mimetype="application/zip")
-    with zipfile.ZipFile(wrong) as archive:
-        with pytest.raises(EpubParseError, match="invalid EPUB mimetype value"):
-            epub_parser._validate_mimetype(archive)
+    with (
+        zipfile.ZipFile(wrong) as archive,
+        pytest.raises(EpubParseError, match="invalid EPUB mimetype value"),
+    ):
+        epub_parser._validate_mimetype(archive)
 
 
 def test_member_reader_rejects_missing_declared_and_actual_oversize() -> None:
@@ -361,6 +365,8 @@ def test_package_metadata_and_identifier_fallbacks() -> None:
 
 
 def test_member_and_resource_target_resolution_boundaries() -> None:
+    with pytest.raises(EpubParseError, match="unsafe EPUB member path"):
+        epub_parser._validate_member_name("/absolute")
     with pytest.raises(EpubParseError, match="must be package-relative"):
         epub_parser._resolve_member_path(PurePosixPath("OPS"), "https://example.test/x")
     with pytest.raises(EpubParseError, match="has no path"):
@@ -401,6 +407,7 @@ def test_epub_encoding_detection_and_decode_failures() -> None:
         )
         == "cp1252"
     )
+    assert epub_parser._declared_encoding(b"<p>x</p>", "text/html") == "utf-8"
     assert epub_parser._declared_encoding(b"plain", "application/xhtml+xml") == "utf-8"
 
     with pytest.raises(EpubParseError, match="unsupported EPUB text encoding"):

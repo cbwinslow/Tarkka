@@ -43,7 +43,8 @@ class HttpTransportResponse:
                 for value in normalized_values
             ):
                 raise ValueError(
-                    "transport header values must contain one or more single-line strings"
+                    "transport header values must be non-empty sequences of single-line strings; "
+                    "empty field values are permitted"
                 )
             normalized_name = name.strip().lower()
             if normalized_name in normalized_headers:

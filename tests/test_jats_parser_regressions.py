@@ -200,6 +200,18 @@ def test_jats_fallbacks_for_sparse_equations_references_and_links(tmp_path: Path
     assert result.observation.metadata["article_ids"] == {}
 
 
+def test_jats_ignores_empty_abstract_and_empty_sectionless_blocks(tmp_path: Path) -> None:
+    result = _parse(
+        tmp_path,
+        """<article>
+<front><article-meta><abstract><title>Empty abstract</title></abstract></article-meta></front>
+<body><list><list-item/></list><p/></body>
+</article>""",
+    )
+
+    assert result.document.sections == ()
+
+
 def test_jats_namespace_helpers_tolerate_comments_and_missing_nodes() -> None:
     root = ET.Element("{urn:test}article")
     comment = ET.Comment("comment")

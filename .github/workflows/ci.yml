@@ -262,6 +262,14 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/infrastructure/storage/json_policy_fetch_finalization_repository.py
           --fail-under=100
+      - name: Enforce JSON traversal checkpoint coverage
+        # Resumable traversal checkpoint input validation, read-failure context,
+        # and cross-platform durability behavior completed under #190 are protected.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/infrastructure/storage/json_traversal_checkpoint_repository.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

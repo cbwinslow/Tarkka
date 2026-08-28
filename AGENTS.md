@@ -4,19 +4,13 @@
 
 Tarkka is a domain-agnostic research infrastructure platform with an implemented local ingestion kernel and scholarly-discovery layer. Coding agents must preserve the architectural contracts and evidence/provenance guarantees before optimizing for implementation speed.
 
-This file is the shared repository instruction source for Codex, Claude, and other coding agents. Tool-specific instruction files should extend it only when they have genuinely tool-specific behavior; do not duplicate these rules into parallel files.
+This file is the shared repository instruction source for Codex, Claude, ChatGPT, and other coding agents. Tool-specific instruction files should extend it only when they have genuinely tool-specific behavior; do not duplicate these rules into parallel files.
 
 ## Operational precedence
 
-Platform and system safety requirements always apply. Within those bounds, an
-explicit active user request takes precedence over a repository default such as
-delegation or reviewer selection. Do not silently substitute a different model,
-provider, paid tier, or external service when a requested option is unavailable.
+Platform and system safety requirements always apply. Within those bounds, an explicit active user request takes precedence over a repository default such as delegation or reviewer selection. Do not silently substitute a different model, provider, paid tier, or external service when a requested option is unavailable.
 
-Delegation is opt-in for the active task. Before enabling a delegated coding
-agent or changing an automated reviewer, verify the configured model, cost
-policy, and permission boundary. Treat external review services as advisory
-unless a repository ruleset explicitly makes a deterministic check required.
+Delegation is opt-in for the active task. Before enabling a delegated coding agent or changing an automated reviewer, verify the configured model, cost policy, and permission boundary. Treat external review services as advisory unless a repository ruleset explicitly makes a deterministic check required.
 
 ## Read progressively
 
@@ -28,14 +22,12 @@ When starting fresh, begin with:
 2. `docs/PROJECT_CHARTER.md`
 3. the one architecture document relevant to the task
 
-When **resuming existing substantial work**, read `docs/CODEX_HANDOFF.md` immediately after this file,
-then open the issue/PR identified there before loading broader documentation.
+When **resuming existing substantial work**, begin with this file, then read the canonical GitHub issue, the current pull request body, the latest review/progress discussion, and the exact live head/check state before loading broader documentation.
 
 Load additional docs only when the task touches them:
 
 | Task | Read |
 |---|---|
-| resume current agent work / execution snapshot | `docs/CODEX_HANDOFF.md` |
 | current implementation sequence/status | `docs/ROADMAP.md`, latest `docs/MILESTONE_*.md` |
 | core/domain design | `docs/CANONICAL_DATA_MODEL.md` |
 | service/module boundaries | `docs/ARCHITECTURE.md` |
@@ -144,9 +136,9 @@ After each meaningful push, and again before declaring a PR ready:
 
 A green CI run does **not** substitute for review triage, and a reviewer suggestion does **not** override current architecture or a stronger tested contract merely because it was automated.
 
-## Task record and AI handoff contract
+## Task record and continuity contract
 
-For substantial work, the canonical task record is the relevant GitHub issue plus its pull request. `docs/CODEX_HANDOFF.md` is the single repository-local **current execution snapshot** used for cross-session/agent baton passes; replace stale status there instead of appending an unbounded journal or creating parallel handoff files.
+For substantial work, the canonical execution record is GitHub: the relevant issue, its pull request, commits, review threads, and workflow results. Do **not** maintain a parallel repository-local handoff/status markdown file whose main purpose is to duplicate live GitHub state.
 
 At the start of a substantial task, establish or recover:
 
@@ -155,26 +147,34 @@ At the start of a substantial task, establish or recover:
 - current head SHA and relevant baseline metrics;
 - known blockers, open review threads, and required checks.
 
-During the task, keep the PR/issue record current after each meaningful batch. A concise progress/handoff entry should include:
+During the task, keep the PR/issue record current after each meaningful batch. A concise progress entry should include whichever of the following materially helps another contributor understand the current state:
 
-- UTC timestamp (GitHub's comment timestamp is sufficient if the entry itself is unambiguous);
-- branch and head SHA;
 - what changed and why;
 - important files/contracts affected;
 - tests/checks run and their result;
 - reviewer findings applied/declined and why;
 - remaining risks, blockers, and the exact next work item.
 
-Before stopping or handing work to another agent:
+Git commit timestamps, PR comments, workflow runs, and review discussions already provide chronology; do not duplicate that history into a second permanent journal.
+
+Before stopping, switching agents, or moving work into a successor PR:
 
 1. Refresh CI status and automated-review threads for the latest head.
-2. Update the PR body if its stated validation/head/coverage numbers are stale.
-3. Refresh `docs/CODEX_HANDOFF.md` with the current branch/head, CI/review state, decisions, and exact next action. Keep it concise; history belongs in Git/PR/issues.
-4. Add a final handoff comment to the PR or canonical issue with the exact current head SHA, completed work, unresolved items, and next recommended action.
-5. Leave no substantive review thread unresolved without a documented disposition.
-6. If work continues in another PR, link the successor issue/PR explicitly.
+2. Update the PR body when its validation, scope, checklist, or coverage numbers are stale.
+3. Add a concise progress comment to the PR or canonical issue when the next action is not obvious from the PR body/check state.
+4. Leave no substantive review thread unresolved without a documented disposition.
+5. If work continues in another PR, link the successor issue/PR explicitly.
 
-An incoming agent should read, in order: this `AGENTS.md`, `docs/CODEX_HANDOFF.md`, the canonical issue, the current PR body, and the latest handoff/progress comment before making new changes. This is the baton-pass contract across Codex, Claude, ChatGPT, and other coding agents.
+An incoming coding agent should recover state in this order:
+
+1. `AGENTS.md`;
+2. canonical GitHub issue;
+3. current PR body and exact head SHA;
+4. latest review threads and substantive progress comments;
+5. exact-head workflow/check results;
+6. only then the task-specific architecture/testing documents needed for the next change.
+
+This keeps repository documentation focused on durable architecture and operating rules while GitHub remains the source of truth for transient execution state.
 
 ## Implementation style
 
@@ -245,6 +245,6 @@ Do not reopen decisions listed as resolved merely because an older planning docu
 
 ## Progress reporting
 
-For substantial work, maintain the canonical issue/PR task record and the concise current snapshot in `docs/CODEX_HANDOFF.md` as defined above. Keep both decision-oriented rather than duplicating commit history.
+For substantial work, maintain the canonical GitHub issue/PR task record. Keep durable repository docs about architecture, contracts, policy, and reproducible developer workflows—not transient execution status.
 
-Do not create additional permanent project-management or handoff files for every temporary task unless the repository explicitly adopts a new convention.
+Do not create additional permanent project-management or handoff files for temporary work unless the repository explicitly adopts a new durable convention.

@@ -124,14 +124,52 @@ def test_http_uri_normalization_rejects_blank_or_non_string_values(value: object
         normalize_http_uri(cast(str, value))
 
 
-def test_malformed_nested_uri_is_preserved_without_crashing_normalization() -> None:
-    nested = "https://example.org:bad/resource"
+def test_malformed_nested_port_drops_authority_and_redacts_query_secret() -> None:
+    nested = "https://user:pass@example.org:bad/resource?token=secret&view=full"
     query = urlencode({"next": nested})
 
     normalized = normalize_durable_http_uri(f"https://example.org/login?{query}")
     outer = parse_qs(urlsplit(normalized).query, keep_blank_values=True)
+    sanitized_nested = outer["next"][0]
+    parsed_nested = urlsplit(sanitized_nested)
+    nested_query = parse_qs(parsed_nested.query, keep_blank_values=True)
 
-    assert outer["next"] == [nested]
+    assert parsed_nested.netloc == ""
+    assert parsed_nested.path == "/resource"
+    assert nested_query["token"] == ["[REDACTED]"]
+    assert nested_query["view"] == ["full"]
+    assert "user:pass" not in sanitized_nested
+    assert "secret" not in sanitized_nested
+
+
+def test_malformed_absolute_nested_hostname_drops_authority_and_redacts_secret() -> None:
+    invalid_host = "\ud800.example"
+    outer_uri = (
+        f"https://example.org/login?next=https://{invalid_host}/callback%3Ftoken%3Dsecret"
+    )
+
+    normalized = normalize_durable_http_uri(outer_uri)
+    outer = parse_qs(urlsplit(normalized).query, keep_blank_values=True)
+    sanitized_nested = outer["next"][0]
+    parsed_nested = urlsplit(sanitized_nested)
+
+    assert parsed_nested.netloc == ""
+    assert parsed_nested.path == "/callback"
+    assert parse_qs(parsed_nested.query)["token"] == ["[REDACTED]"]
+
+
+def test_malformed_scheme_relative_hostname_drops_authority_and_redacts_secret() -> None:
+    invalid_host = "\ud800.example"
+    outer_uri = f"https://example.org/login?next=//{invalid_host}/callback%3Ftoken%3Dsecret"
+
+    normalized = normalize_durable_http_uri(outer_uri)
+    outer = parse_qs(urlsplit(normalized).query, keep_blank_values=True)
+    sanitized_nested = outer["next"][0]
+    parsed_nested = urlsplit(sanitized_nested)
+
+    assert parsed_nested.netloc == ""
+    assert parsed_nested.path == "/callback"
+    assert parse_qs(parsed_nested.query)["token"] == ["[REDACTED]"]
 
 
 def test_malformed_scheme_relative_authority_is_dropped_but_query_is_sanitized() -> None:

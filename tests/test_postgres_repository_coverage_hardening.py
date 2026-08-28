@@ -270,12 +270,33 @@ def test_work_transaction_translates_query_failure_on_active_connection(
 
     monkeypatch.setattr(work_module, "translate_driver_error", _translate)
 
-    with pytest.raises(PostgresOperationError, match="translated") as raised:
-        with repository.transaction():
-            repository.save_work(_work())
+    with (
+        pytest.raises(PostgresOperationError, match="translated") as raised,
+        repository.transaction(),
+    ):
+        repository.save_work(_work())
 
     assert raised.value is translated
     assert raised.value.__cause__ is original
+    assert connection.closed
+    assert repository._transaction_connection.get() is None
+
+
+def test_work_transaction_preserves_untranslated_query_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = RuntimeError("application query failure")
+    connection = _FailingConnection(original)
+    repository = PostgresWorkRepository(_SETTINGS, connection_factory=lambda _: connection)
+    monkeypatch.setattr(work_module, "translate_driver_error", lambda exc: None)
+
+    with (
+        pytest.raises(RuntimeError, match="application query failure") as raised,
+        repository.transaction(),
+    ):
+        repository.save_work(_work())
+
+    assert raised.value is original
     assert connection.closed
     assert repository._transaction_connection.get() is None
 

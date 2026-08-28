@@ -247,6 +247,7 @@ def test_nested_metadata_is_thawed_to_jsonb_values() -> None:
 
     params = connection.calls[0][1]
     assert params is not None
+    assert isinstance(params[7], str)
     assert json.loads(params[7]) == {
         "empty": None,
         "flags": [True, False],

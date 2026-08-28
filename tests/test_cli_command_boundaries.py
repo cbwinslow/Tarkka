@@ -12,7 +12,7 @@ from tarkka.application.work_selection import (
     SnapshotNotFoundError,
     SnapshotRecordConflictError,
 )
-from tarkka.domain.discovery import ResearchIntent, ResearchQuery
+from tarkka.domain.discovery import ProviderMode, ResearchIntent, ResearchQuery
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Work
 from tarkka.infrastructure.storage.search_snapshot_log import SnapshotDataError
@@ -62,6 +62,15 @@ def test_cmd_discover_serializes_successful_results(
             assert snapshot_recorder is not None
 
         def discover(self, query: ResearchQuery) -> SimpleNamespace:
+            assert query.text == "coverage"
+            assert query.limit == 5
+            assert query.cursors == {"crossref": "cursor"}
+            assert query.mode is ProviderMode.ONLY
+            assert query.providers == ("crossref",)
+            assert query.intent is ResearchIntent.BROAD
+            assert query.require_open_access is True
+            assert query.year_from == 2020
+            assert query.year_to == 2026
             record = SimpleNamespace(
                 provider="crossref",
                 provider_id="work-1",
@@ -275,6 +284,14 @@ def test_cmd_work_acquire_serializes_result_and_translates_failure(
     artifact_id = uuid4()
     document_id = uuid4()
     link_id = uuid4()
+    store = object()
+    document_repository = object()
+    acquisitions = object()
+    work_repository = object()
+    ingest = object()
+    arxiv_resolver = object()
+    source_resolver = object()
+    fetcher = object()
 
     class _Service:
         failure = False
@@ -294,10 +311,34 @@ def test_cmd_work_acquire_serializes_result_and_translates_failure(
             )
 
     service = _Service()
-    monkeypatch.setattr(cli, "_runtime", lambda: (object(), object(), object()))
-    monkeypatch.setattr(cli, "_work_repository", lambda: object())
-    monkeypatch.setattr(cli, "_ingest_service", lambda *args: object())
-    monkeypatch.setattr(cli, "FullTextAcquisitionService", lambda **kwargs: service)
+
+    def build_ingest(
+        configured_store: object,
+        configured_repository: object,
+        configured_acquisitions: object,
+    ) -> object:
+        assert configured_store is store
+        assert configured_repository is document_repository
+        assert configured_acquisitions is acquisitions
+        return ingest
+
+    def build_service(**kwargs: object) -> _Service:
+        assert kwargs == {
+            "repository": work_repository,
+            "resolvers": (arxiv_resolver, source_resolver),
+            "fetcher": fetcher,
+            "ingest": ingest,
+            "work_documents": document_repository,
+        }
+        return service
+
+    monkeypatch.setattr(cli, "_runtime", lambda: (store, document_repository, acquisitions))
+    monkeypatch.setattr(cli, "_work_repository", lambda: work_repository)
+    monkeypatch.setattr(cli, "_ingest_service", build_ingest)
+    monkeypatch.setattr(cli, "ArxivFullTextResolver", lambda: arxiv_resolver)
+    monkeypatch.setattr(cli, "SourceRecordFullTextResolver", lambda: source_resolver)
+    monkeypatch.setattr(cli, "UrllibBinaryFetcher", lambda: fetcher)
+    monkeypatch.setattr(cli, "FullTextAcquisitionService", build_service)
 
     assert cli._cmd_work_acquire(_args(work_id=work_id)) == 0
     payload = json.loads(capsys.readouterr().out)

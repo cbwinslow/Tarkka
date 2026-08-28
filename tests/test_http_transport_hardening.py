@@ -52,6 +52,15 @@ def test_http_transport_response_normalizes_headers_and_freezes_mapping() -> Non
         cast(dict[str, tuple[str, ...]], response.headers)["other"] = ("value",)
 
 
+def test_http_transport_response_preserves_empty_field_value() -> None:
+    response = HttpTransportResponse(
+        status_code=302,
+        headers={"Location": ("",)},
+    )
+
+    assert response.headers["location"] == ("",)
+
+
 @pytest.mark.parametrize("status_code", [True, "200"])
 def test_http_transport_response_rejects_non_integer_status(status_code: object) -> None:
     with pytest.raises(ValueError, match="status_code must be an integer"):
@@ -92,12 +101,12 @@ def test_http_transport_response_rejects_non_sequence_header_values(values: obje
 
 @pytest.mark.parametrize(
     "values",
-    [(), (1,), ("",), ("line\nbreak",), ("line\rbreak",)],
+    [(), (1,), ("line\nbreak",), ("line\rbreak",)],
 )
 def test_http_transport_response_rejects_invalid_normalized_header_values(
     values: object,
 ) -> None:
-    with pytest.raises(ValueError, match="non-empty single-line strings"):
+    with pytest.raises(ValueError, match="one or more single-line strings"):
         HttpTransportResponse(
             status_code=200,
             headers=cast(Mapping[str, tuple[str, ...]], {"x-test": values}),

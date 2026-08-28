@@ -1,13 +1,28 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
+from tarkka.domain.crawl_access import RobotsFetchOutcome, RobotsFetchResult
 from tarkka.domain.robots_rules import RobotsRules
 
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.regression]
 
+_ROBOTS = "https://example.org/robots.txt"
 _TARGET = "https://example.org/public/report.html"
 _TOKEN = "TarkkaBot"
+
+
+@pytest.mark.parametrize("content", [b"User-agent: *", 1])
+def test_successful_robots_fetch_result_requires_text_content(content: object) -> None:
+    with pytest.raises(ValueError, match="content must be text"):
+        RobotsFetchResult(
+            robots_uri=_ROBOTS,
+            outcome=RobotsFetchOutcome.SUCCESS,
+            content=cast(str, content),
+            status_code=200,
+        )
 
 
 def test_empty_or_malformed_robots_content_produces_no_groups() -> None:

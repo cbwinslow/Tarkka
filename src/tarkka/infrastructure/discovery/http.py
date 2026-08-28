@@ -69,7 +69,7 @@ class UrllibJsonTransport:
         last_error: Exception | None = None
 
         attempt = 0
-        while attempt <= self.max_retries:
+        while True:
             remaining = deadline - self._monotonic()
             if remaining <= 0:
                 _raise_total_timeout(target, last_error)

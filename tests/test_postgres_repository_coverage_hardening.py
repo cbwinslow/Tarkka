@@ -99,7 +99,7 @@ def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> type[Exception]:
         pass
 
     driver = ModuleType("psycopg")
-    setattr(driver, "Error", DriverError)
+    driver.Error = DriverError
     monkeypatch.setitem(sys.modules, "psycopg", driver)
     return DriverError
 

@@ -54,11 +54,18 @@ def test_open_existing_rejects_directory_path(tmp_path: Path) -> None:
         JsonVerificationRepository.open_existing(path)
 
 
-def test_list_relations_rejects_negative_pagination(tmp_path: Path) -> None:
+def test_list_relations_rejects_negative_offset(tmp_path: Path) -> None:
     repository = JsonVerificationRepository(tmp_path / "verifications.json")
 
     with pytest.raises(ValueError, match="offset and limit must be non-negative"):
         repository.list_relations(uuid4(), offset=-1)
+
+
+def test_list_relations_rejects_negative_limit(tmp_path: Path) -> None:
+    repository = JsonVerificationRepository(tmp_path / "verifications.json")
+
+    with pytest.raises(ValueError, match="offset and limit must be non-negative"):
+        repository.list_relations(uuid4(), limit=-1)
 
 
 def test_public_read_rejects_invalid_json_with_catalog_context(tmp_path: Path) -> None:

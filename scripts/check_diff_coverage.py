@@ -67,11 +67,12 @@ def _collapse_parts(parts: tuple[str, ...]) -> tuple[str, ...] | None:
 def _normalize_coverage_path(filename: str) -> str | None:
     """Normalize coverage.py filenames to tracked repository-relative Python paths.
 
-    ``coverage.py`` can report files from ``--cov=scripts`` either as
-    ``scripts/name.py`` or as a bare ``name.py`` relative to that configured
-    source root. Bare Python filenames therefore map to ``scripts/``; Tarkka
-    package files remain distinguishable because coverage reports them below
-    the ``tarkka/`` package path.
+    ``coverage.py`` can report package files below ``tarkka/`` and files from
+    ``--cov=scripts`` either below ``scripts/`` or as a bare filename relative
+    to that source root. For absolute/noisy paths, the rightmost recognized
+    repository suffix wins. A bare Python filename maps to ``scripts/``; this
+    cannot create root-level false positives because git diff is independently
+    scoped to ``src/tarkka`` and ``scripts`` before coverage data is joined.
     """
     parts = PurePosixPath(filename.replace("\\", "/")).parts
     if parts and parts[0] == "tarkka":
@@ -80,13 +81,13 @@ def _normalize_coverage_path(filename: str) -> str | None:
         candidate_parts = ("scripts", *parts)
     else:
         candidate_parts: tuple[str, ...] | None = None
-        for root in ("src", "scripts"):
-            try:
-                root_index = parts.index(root)
-            except ValueError:
-                continue
-            candidate_parts = parts[root_index:]
-            break
+        for index in range(len(parts) - 1, -1, -1):
+            if parts[index] == "scripts":
+                candidate_parts = parts[index:]
+                break
+            if parts[index : index + 2] == ("src", "tarkka"):
+                candidate_parts = parts[index:]
+                break
         if candidate_parts is None:
             return None
 

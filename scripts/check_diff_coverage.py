@@ -69,12 +69,19 @@ def _normalize_coverage_path(filename: str) -> str | None:
 
     ``coverage.py`` can report package files below ``tarkka/`` and files from
     ``--cov=scripts`` either below ``scripts/`` or as a bare filename relative
-    to that source root. For absolute/noisy paths, the rightmost recognized
-    repository suffix wins. A bare Python filename maps to ``scripts/``; this
-    cannot create root-level false positives because git diff is independently
-    scoped to ``src/tarkka`` and ``scripts`` before coverage data is joined.
+    to that source root. Parent traversal is collapsed across the entire path
+    before any repository suffix is selected, so an escaping path cannot be
+    reinterpreted as a valid later suffix. For absolute/noisy paths, the
+    rightmost recognized repository suffix wins. A bare Python filename maps
+    to ``scripts/``; this cannot create root-level false positives because git
+    diff is independently scoped to ``src/tarkka`` and ``scripts`` before
+    coverage data is joined.
     """
-    parts = PurePosixPath(filename.replace("\\", "/")).parts
+    raw_parts = PurePosixPath(filename.replace("\\", "/")).parts
+    parts = _collapse_parts(raw_parts)
+    if parts is None:
+        return None
+
     if parts and parts[0] == "tarkka":
         candidate_parts = ("src", *parts)
     elif len(parts) == 1 and parts[0].endswith(".py"):
@@ -91,10 +98,7 @@ def _normalize_coverage_path(filename: str) -> str | None:
         if candidate_parts is None:
             return None
 
-    collapsed = _collapse_parts(candidate_parts)
-    if collapsed is None:
-        return None
-    value = str(PurePosixPath(*collapsed))
+    value = str(PurePosixPath(*candidate_parts))
     return value if _is_tracked_python_path(value) else None
 
 

@@ -62,6 +62,8 @@ class RobotsFetchResult:
         if self.outcome is RobotsFetchOutcome.SUCCESS:
             if self.content is None:
                 raise ValueError("successful robots result must include content")
+            if not isinstance(self.content, str):
+                raise ValueError("successful robots result content must be text")
             if status_code is not None and not 200 <= status_code <= 299:
                 raise ValueError("successful robots result must use a 2xx status code")
             return

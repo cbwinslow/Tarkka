@@ -30,12 +30,51 @@ class _FakeResponse:
         return chunk[:amount]
 
 
+class _FakeHttpResponse(_FakeResponse):
+    status = 200
+
+    def getheaders(self) -> list[tuple[str, str]]:
+        return [("Content-Type", "text/plain")]
+
+
 class _FakeSocket:
     def __init__(self) -> None:
         self.timeouts: list[float] = []
 
     def settimeout(self, timeout: float) -> None:
         self.timeouts.append(timeout)
+
+
+class _FakeHTTPSConnection:
+    instances: list[_FakeHTTPSConnection] = []
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        resolved_address: str,
+        timeout: float,
+        context: object,
+    ) -> None:
+        self.host = host
+        self.port = port
+        self.resolved_address = resolved_address
+        self.timeout = timeout
+        self.context = context
+        self.sock = None
+        self.request_args: tuple[str, str, dict[str, str]] | None = None
+        self.closed = False
+        self.instances.append(self)
+
+    def request(self, method: str, target: str, *, headers: dict[str, str]) -> None:
+        self.request_args = (method, target, headers)
+
+    def getresponse(self) -> _FakeHttpResponse:
+        return _FakeHttpResponse([b"ok", b""])
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_http_transport_response_normalizes_headers_and_freezes_mapping() -> None:
@@ -241,6 +280,32 @@ def test_pinned_transport_rejects_invalid_idna_hostname() -> None:
             resolved_address="203.0.113.10",
             max_response_bytes=10,
         )
+
+
+def test_pinned_transport_constructs_https_connection_without_dns_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeHTTPSConnection.instances.clear()
+    monkeypatch.setattr(pinned, "_PinnedHTTPSConnection", _FakeHTTPSConnection)
+
+    response = PinnedHttpTransport(timeout_seconds=5.0).request(
+        uri="https://example.org/secure?q=1",
+        resolved_address="203.0.113.10",
+        max_response_bytes=10,
+        timeout_seconds=2.0,
+    )
+
+    assert response.status_code == 200
+    assert response.body == b"ok"
+    assert response.headers == {"content-type": ("text/plain",)}
+    connection = _FakeHTTPSConnection.instances[-1]
+    assert connection.host == "example.org"
+    assert connection.port == 443
+    assert connection.resolved_address == "203.0.113.10"
+    assert connection.timeout == 2.0
+    assert connection.request_args is not None
+    assert connection.request_args[:2] == ("GET", "/secure?q=1")
+    assert connection.closed is True
 
 
 def test_request_target_handles_root_and_query() -> None:

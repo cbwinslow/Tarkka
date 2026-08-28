@@ -3,110 +3,135 @@
 **Snapshot timestamp:** 2026-08-28 UTC
 **Repository:** `cbwinslow/Tarkka`
 **Default branch:** `main`
-**Active branch:** `test/security-http-transport-coverage`
-**Active PR:** #197 — `test: harden HTTP transport and resolver coverage`
+**Active branch:** `test/security-http-acquisition-coverage`
+**Active PR:** #199 — `test: harden HTTP acquisition and policy-fetch coverage`
 **Active issue:** #189 — security/network acquisition coverage
 **Parent program:** #185 — historical branch coverage to 100%
+**Product roadmap:** #198 — auditable/replayable research differentiation
 
-> `AGENTS.md` is authoritative. GitHub issues, pull requests, reviews, workflow runs, and commits are
-> the historical audit trail. Always verify the live PR head because this handoff commit advances it.
+> `AGENTS.md` is authoritative. GitHub issues, pull requests, review threads, workflow runs, and
+> commits are the historical audit trail. Always re-read the live PR head because this handoff update
+> advances it.
 
 ## Current objective
 
-Merge PR #197 after one final documentation-inclusive required-check/review sweep, then continue #189
-from the resulting `main` with a fresh HTTP acquisition/policy-fetch application PR. No user action is
-currently required.
+Finish and merge PR #199 using expected-head protection after the documentation-inclusive exact-head
+CI/review sweep. Then evaluate whether #189 is complete or has one final coherent security/network
+slice before moving the historical coverage program to #190 durable persistence adapters.
+
+No user action is required for routine PR merging.
 
 ## Merged #189 baseline
 
 - PR #194 merged as `2c5f797272a3ac23be91c618bb524410be0bb653`.
 - PR #195 merged as `8ef51a637dffbb01bf6b5c5c23bc3ee26346488f`.
 - PR #196 merged as `9771cd4405248eae6df45978d8b1664e6a5d085c`.
-- Six completed security/robots domain modules are permanently protected at
-  **641 statements + 234 branches = 100%**.
-- Three completed crawl application modules are permanently protected at
-  **305 statements + 120 branches = 100%**.
+- PR #197 merged as `7eca7c077e474b0b63580d10522d2393eaa88e4a`.
+- Security/robots domain gate: **641 statements + 234 branches = 100%**.
+- Crawl application gate before #199: **305 statements + 120 branches = 100%**.
+- HTTP transport/resolver gate: **193 statements + 66 branches = 100%**.
 
 Inherited permanent 100% gates also protect Phase 5 agent-serving, coverage tooling,
 interface/runtime, and the completed #188 core-domain invariant set.
 
-## #197 validated source result
+## #199 latest fully validated source result
 
-Validated source/test head immediately before the CI-ratchet and handoff commits:
-`a0c69b15581d288d28cc6e0b66203f0625b7d60f`.
+Latest fully validated head before the CI-ratchet/handoff commits:
+`c5e9d5ce491673dba2b7211cc9e3821857fd22dc`.
 
 Python 3.13 result:
 
-- **1,428 passed / 36 deselected**;
-- repository aggregate: **12,281 statements / 771 misses; 3,862 branches / 573 partials = 91%**;
-- `ports/http_transport.py`: **41 statements + 20 branches = 100%**;
-- `infrastructure/web/pinned_http_transport.py`: **152 + 46 = 100%**;
-- completed transport/resolver slice: **193 statements + 66 branches = 100%**;
-- cumulative Phase 5 executable changed lines: **652/652 = 100%**;
-- current PR executable changed source lines: **12/12 = 100%**.
+- **1,487 passed / 36 deselected**;
+- repository aggregate: **12,276 statements / 720 misses; 3,856 branches / 534 partials = 92%**;
+- `application/http_acquisition.py`: **248 statements + 82 branches = 100%**;
+- `application/http_policy_fetch.py`: **140 statements + 30 branches = 100%**;
+- completed acquisition/policy-fetch pair: **388 statements + 112 branches = 100%**;
+- cumulative Phase 5 executable changed lines: **656/656 = 100%**;
+- current PR changed executable source lines on that head: **4/4 = 100%**.
 
-The same source head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, and every
-inherited coverage ratchet. A new `Enforce HTTP transport coverage` CI gate now permanently protects
-the completed pair at 100%.
+The same head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, Package,
+Dependency Review, and PR Agent.
 
-## Boundary defects and cleanup in #197
+Commit `04279960055d14f4df6717f449b0f9a42b8941d3` extends the permanent
+`Enforce security application coverage` gate to include `http_acquisition.py` and
+`http_policy_fetch.py`. This handoff commit is newer still, so revalidate the exact live head before
+merging.
 
-Coverage-driven contract testing found and fixed a real exception-boundary defect:
+## #199 behavior and test hardening
 
-- invalid IDNA origin hostnames could leak a raw Unicode codec exception;
-- `PinnedHttpTransport.request()` now translates that failure to Tarkka's stable HTTP URI `ValueError`
-  boundary with the codec error chained as the cause.
+The coverage pass added deterministic, network-free regression coverage for:
 
-The pass also clarified an important HTTP contract: an empty field value is valid transport data and
-must be preserved so the application layer can reject an unusable empty redirect `Location`. The
-transport therefore preserves `("",)` while rejecting empty value sequences, non-string values, and
-CR/LF injection.
+- request URI/durable-target and policy validation before network I/O;
+- resolver and transport exception translation with durable failed checkpoints;
+- exact hostname, resolved-address, byte-cap, and elapsed-time timeout propagation;
+- independent DNS resolution and pinned-address routing across an absolute cross-host redirect;
+- response overflow and already-exhausted byte budgets;
+- redirect `Location` cardinality, whitespace, control-character, authority, and scheme validation;
+- redirect pacing plus post-sleep elapsed-budget enforcement;
+- invalid/backwards clocks and unbounded elapsed policies;
+- finalization recovery, concurrent durable-state changes, missing outputs, retry-state persistence
+  failure, wrong observation/artifact lineage, and completion-write interruption;
+- artifact-store identity violations and policy-fetch journal/recovery failures.
 
-Coverage analysis removed two unreachable defensive states instead of excluding them:
+The tests intentionally use injected resolver/transport/repository/clock boundaries and perform no
+live network access.
 
-- the resolver result queue now represents exactly one successful address tuple or one exception,
-  eliminating an impossible `(None, None)` result;
-- `_read_limited()` no longer checks a sentinel that is mathematically positive under its loop
-  invariant.
+## Production simplifications justified by invariants
 
-A deterministic fake HTTPS connection now covers pinned HTTPS construction and request routing without
-DNS or socket I/O. Timed hostname resolution success is covered explicitly, including canonical unique
-IPv4/IPv6 output.
+Coverage analysis removed duplicate impossible-state checks rather than manufacturing invalid domain
+objects to reach them:
+
+- `PolicyFetchFinalization.__post_init__` recomputes the artifact-derived observation and rejects an
+  inconsistent `observation_id`, so `_recover_policy_result()` does not duplicate that identity check.
+- `TraversalTarget.__post_init__` requires both finalization identifiers for every `FINALIZING`
+  target, so recovery safely narrows those fields after checking the durable status.
+- `ResourceAcquisitionPolicy.allows_uri()` rejects missing hostnames before `_request_once()` reaches
+  its normalized hostname cast, so a second hostname-`None` check was unreachable.
+
+These decisions were explicitly re-verified after the persistent reviewer guide raised them as
+possible regressions.
+
+## Review-bot disposition
+
+All inline review threads observed through head `c5e9d5c` were addressed/resolved. Useful feedback was
+applied, including:
+
+- hostname-aware resolver assertions and an explicit cross-host redirect regression;
+- transport argument capture for security/budget contracts;
+- deterministic resolver/transport exception injection;
+- post-sleep elapsed-budget validation;
+- typed test factories without broad `arg-type` suppressions;
+- finalization-abandonment and redirect-validation edge cases;
+- deterministic zero-clock injection for direct helper tests.
+
+Qodo remains paused because its subscription is inactive. CodeRabbit's generic test-docstring
+coverage warning is not a Tarkka repository policy and should not be satisfied with low-value test
+helper docstrings. Re-run the live review sweep after the final documentation/CI commits and disposition
+any new substantive findings before merge.
 
 ## Exact next actions
 
-1. Read the live #197 head SHA; this handoff commit is newer than the validated source head.
-2. Confirm required `main` ruleset checks on that exact head: `Quality`, Python 3.11, 3.12, and 3.13.
-3. Confirm `Enforce HTTP transport coverage` reports **193 statements + 66 branches = 100%**.
-4. Confirm inherited #189 domain/application gates remain **641 + 234** and **305 + 120**, both 100%.
-5. Re-list inline review threads and submitted reviews; fix or disposition every meaningful late finding.
-6. Update PR #197 / issue #189 with final exact-head readiness and merge using expected-head SHA
-   protection.
-7. Keep #189 open and create the next branch from the #197 merge SHA.
-
-## Next #189 merge boundary
-
-Target the HTTP acquisition/policy-fetch application services next:
-
-- `application/http_acquisition.py`: **251 statements + 86 branches, currently 82%**;
-- `application/http_policy_fetch.py`: **142 statements + 32 branches, currently 84%**.
-
-Current coverage debt is concentrated in constructor/argument validation, traversal-budget and pacing
-boundaries, redirect/finalization paths, resolver/transport failure translation, response-overflow and
-artifact/finalization recovery. Prefer deterministic fake resolver/transport/repository tests and
-failure injection; no live network access in the default suite. Ratchet the completed pair to 100%
-before considering #189 complete or moving to #190.
+1. Read live PR #199 head SHA (newer than `0427996` because of this handoff commit).
+2. Confirm Python 3.11/3.12/3.13, Quality, Package, Dependency Review, and PR Agent are green on that
+   exact head.
+3. Confirm the expanded `Enforce security application coverage` step passes at 100% and therefore
+   permanently protects the acquisition/policy-fetch pair.
+4. Re-list all inline review threads and top-level bot feedback; reply/resolve every substantive new
+   finding.
+5. Refresh PR #199 body with final coverage/check results and the invariant-based review decisions.
+6. Add a final #199/#189 progress comment and merge #199 with `expected_head_sha` protection.
+7. Read `main` after merge, update #189 status, and continue directly into the next coherent coverage
+   slice without waiting for user action.
 
 ## Program / repository hygiene
 
 - #187 — interface/runtime: completed / merged
 - #188 — core domain invariants: completed / merged
-- #189 — security/network acquisition: active
+- #189 — security/network acquisition: active, #199 at finalization stage
 - #190 — durable persistence adapters: queued
 - #191 — parser/provider/extraction adapters: queued
+- #198 — product differentiation roadmap: active planning track
 
-Issue #192 tracks native repository settings. Live state remains `delete_branch_on_merge=false`,
-`allow_auto_merge=false`, and `allow_update_branch=false`. The connector does not expose repository
-setting or branch-delete mutations, so continue using short-lived disposable branches and do not add a
-redundant cleanup workflow; enable native merged-branch deletion through #192 when repository settings
-access is available.
+Issue #192 tracks native repository settings. Continue using short-lived disposable branches and
+expected-head merge protection. Do not add redundant branch-cleanup automation while native settings
+are the appropriate long-term solution.

@@ -246,6 +246,14 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/infrastructure/storage/local_artifacts.py
           --fail-under=100
+      - name: Enforce search snapshot log coverage
+        # Search snapshot serialization, corruption handling, legacy defaults, and
+        # durable read failure semantics completed under #190 are protected.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/infrastructure/storage/search_snapshot_log.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

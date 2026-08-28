@@ -82,6 +82,19 @@ def test_default_migration_directory_contains_the_committed_history() -> None:
     assert default_migrations_directory().joinpath("0001_core.sql").is_file()
 
 
+def test_default_migration_directory_prefers_packaged_sql(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    package_root = tmp_path / "package"
+    bundled = package_root / "migrations"
+    bundled.mkdir(parents=True)
+    (bundled / "0001_packaged.sql").write_text("SELECT 1;", encoding="utf-8")
+    monkeypatch.setattr(migrations_module, "files", lambda _: _PackageFiles(package_root))
+
+    assert default_migrations_directory() == bundled
+
+
 def test_default_migration_directory_falls_back_for_editable_source_tree(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -206,8 +206,10 @@ def test_upgrade_translates_lock_failure_and_closes_without_unlocking(
 
     assert raised.value is translated
     assert raised.value.__cause__ is original
+    assert connection.autocommit
     assert connection.closed
-    assert not any(sql.startswith("SELECT pg_advisory_unlock") for sql, _ in connection.calls)
+    assert len(connection.calls) == 1
+    assert connection.calls[0][0].startswith("SELECT pg_advisory_lock")
 
 
 def test_db_upgrade_cli_reports_missing_database_configuration(

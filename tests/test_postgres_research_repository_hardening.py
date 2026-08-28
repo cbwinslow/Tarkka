@@ -123,32 +123,38 @@ def _document_row(document: Document) -> tuple[Any, ...]:
     )
 
 
-def _repository(connection: _Connection) -> PostgresResearchRepository:
-    return PostgresResearchRepository(_SETTINGS, connection_factory=lambda _: connection)
+def _document_read_cursors(document: Document | None) -> list[_Cursor]:
+    if document is None:
+        return [_Cursor(row=None)]
+    return [
+        _Cursor(row=_document_row(document)),
+        _Cursor(rows=[]),
+        _Cursor(rows=[]),
+        _Cursor(rows=[]),
+        _Cursor(rows=[]),
+        _Cursor(rows=[]),
+    ]
 
 
-def _patch_document_reads(
-    monkeypatch: pytest.MonkeyPatch,
+def _retry_connection(
     *,
     artifact: Artifact,
     document: Document | None,
     manifest: ResourceManifest | None,
-) -> None:
-    monkeypatch.setattr(
-        PostgresResearchRepository,
-        "_get_artifact",
-        staticmethod(lambda *_: artifact),
+) -> _Connection:
+    manifest_row = None if manifest is None else (manifest.to_dict(),)
+    return _Connection(
+        [
+            _Cursor(row=_artifact_row(artifact)),
+            _Cursor(rowcount=0),
+            *_document_read_cursors(document),
+            _Cursor(row=manifest_row),
+        ]
     )
-    monkeypatch.setattr(
-        PostgresResearchRepository,
-        "_get_document",
-        staticmethod(lambda *_: document),
-    )
-    monkeypatch.setattr(
-        PostgresResearchRepository,
-        "_get_manifest",
-        staticmethod(lambda *_: manifest),
-    )
+
+
+def _repository(connection: _Connection) -> PostgresResearchRepository:
+    return PostgresResearchRepository(_SETTINGS, connection_factory=lambda _: connection)
 
 
 def test_artifact_conflict_requires_existing_matching_content() -> None:
@@ -185,66 +191,74 @@ def test_document_write_rejects_missing_artifact_before_insert() -> None:
     assert len(connection.calls) == 1
 
 
-def test_document_retry_rejects_missing_existing_document(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_document_retry_rejects_missing_existing_document() -> None:
     artifact = _artifact()
     document = _document()
     manifest = build_document_manifest(document, artifact)
-    _patch_document_reads(monkeypatch, artifact=artifact, document=None, manifest=manifest)
+    connection = _retry_connection(
+        artifact=artifact,
+        document=None,
+        manifest=manifest,
+    )
 
     with pytest.raises(ValueError, match="conflicting document"):
-        _repository(_Connection([_Cursor(rowcount=0)])).save_document(document, manifest)
+        _repository(connection).save_document(document, manifest)
+
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
 
 
-def test_document_retry_rejects_changed_document_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_document_retry_rejects_changed_document_identity() -> None:
     artifact = _artifact()
     document = _document()
     manifest = build_document_manifest(document, artifact)
-    _patch_document_reads(
-        monkeypatch,
+    connection = _retry_connection(
         artifact=artifact,
         document=replace(document, title="Changed"),
         manifest=manifest,
     )
 
     with pytest.raises(ValueError, match="conflicting document"):
-        _repository(_Connection([_Cursor(rowcount=0)])).save_document(document, manifest)
+        _repository(connection).save_document(document, manifest)
+
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
 
 
-def test_document_retry_rejects_changed_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_document_retry_rejects_changed_manifest() -> None:
     artifact = _artifact()
     document = _document()
     manifest = build_document_manifest(document, artifact)
-    _patch_document_reads(
-        monkeypatch,
+    connection = _retry_connection(
         artifact=artifact,
         document=document,
         manifest=replace(manifest, title="Changed manifest"),
     )
 
     with pytest.raises(ValueError, match="conflicting document"):
-        _repository(_Connection([_Cursor(rowcount=0)])).save_document(document, manifest)
+        _repository(connection).save_document(document, manifest)
+
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
 
 
-def test_document_retry_accepts_exact_existing_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_document_retry_accepts_exact_existing_graph() -> None:
     artifact = _artifact()
     document = _document()
     manifest = build_document_manifest(document, artifact)
-    _patch_document_reads(
-        monkeypatch,
+    connection = _retry_connection(
         artifact=artifact,
         document=document,
         manifest=manifest,
     )
-    connection = _Connection([_Cursor(rowcount=0)])
 
     _repository(connection).save_document(document, manifest)
 
-    assert len(connection.calls) == 1
+    statements = "\n".join(sql for sql, _ in connection.calls)
+    assert "SELECT document_id, artifact_id" in statements
+    assert "SELECT manifest FROM tarkka.resource_manifest" in statements
     assert connection.commits == 1
+    assert connection.rollbacks == 0
 
 
 def test_document_and_manifest_getters_cover_missing_and_found_rows() -> None:
@@ -255,16 +269,7 @@ def test_document_and_manifest_getters_cover_missing_and_found_rows() -> None:
     missing_document = _Connection([_Cursor(row=None)])
     assert _repository(missing_document).get_document(_DOCUMENT_ID) is None
 
-    found_document = _Connection(
-        [
-            _Cursor(row=_document_row(document)),
-            _Cursor(rows=[]),
-            _Cursor(rows=[]),
-            _Cursor(rows=[]),
-            _Cursor(rows=[]),
-            _Cursor(rows=[]),
-        ]
-    )
+    found_document = _Connection(_document_read_cursors(document))
     assert _repository(found_document).get_document(_DOCUMENT_ID) == document
 
     found_manifest = _Connection([_Cursor(row=(manifest.to_dict(),))])
@@ -274,6 +279,7 @@ def test_document_and_manifest_getters_cover_missing_and_found_rows() -> None:
 
 
 def test_sections_are_persisted_parent_first_across_multiple_ready_passes() -> None:
+    artifact = _artifact()
     root = Section(_ROOT_SECTION_ID, _DOCUMENT_ID, 1, "Root")
     child = Section(
         _CHILD_SECTION_ID,
@@ -283,9 +289,15 @@ def test_sections_are_persisted_parent_first_across_multiple_ready_passes() -> N
         parent_section_id=_ROOT_SECTION_ID,
     )
     document = replace(_document(), sections=(child, root))
-    connection = _Connection([])
+    manifest = build_document_manifest(document, artifact)
+    connection = _Connection(
+        [
+            _Cursor(row=_artifact_row(artifact)),
+            _Cursor(rowcount=1),
+        ]
+    )
 
-    PostgresResearchRepository._save_sections(connection, document)
+    _repository(connection).save_document(document, manifest)
 
     section_params = [
         params
@@ -294,6 +306,8 @@ def test_sections_are_persisted_parent_first_across_multiple_ready_passes() -> N
     ]
     assert section_params[0] is not None and section_params[0][0] == _ROOT_SECTION_ID
     assert section_params[1] is not None and section_params[1][0] == _CHILD_SECTION_ID
+    assert connection.commits == 1
+    assert connection.rollbacks == 0
 
 
 def test_manifest_decoder_rejects_non_object_json() -> None:

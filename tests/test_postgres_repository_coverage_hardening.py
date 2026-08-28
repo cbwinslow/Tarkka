@@ -246,9 +246,8 @@ def test_work_transaction_preserves_application_failure_and_resets_connection(
     repository = PostgresWorkRepository(_SETTINGS, connection_factory=lambda _: connection)
     monkeypatch.setattr(work_module, "translate_driver_error", lambda exc: None)
 
-    with pytest.raises(RuntimeError, match="application failure"):
-        with repository.transaction():
-            raise RuntimeError("application failure")
+    with pytest.raises(RuntimeError, match="application failure"), repository.transaction():
+        raise RuntimeError("application failure")
 
     assert connection.closed
     assert connection.entered == 0

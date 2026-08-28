@@ -116,14 +116,35 @@ def test_coverage_path_normalization_supports_package_source_and_scripts() -> No
     )
     assert _checker._normalize_coverage_path("scripts/check.py") == "scripts/check.py"
     assert _checker._normalize_coverage_path("check.py") == "scripts/check.py"
+    assert _checker._normalize_coverage_path("conftest.py") == "scripts/conftest.py"
     assert (
         _checker._normalize_coverage_path("C:\\work\\Tarkka\\scripts\\check.py")
         == "scripts/check.py"
+    )
+    assert (
+        _checker._normalize_coverage_path("/cache/scripts/project/src/tarkka/module.py")
+        == "src/tarkka/module.py"
+    )
+    assert (
+        _checker._normalize_coverage_path("/cache/src/project/scripts/tool.py")
+        == "scripts/tool.py"
     )
     assert _checker._normalize_coverage_path("tests/test_a.py") is None
     assert _checker._normalize_coverage_path("src/../../scripts/escape.py") is None
     assert _checker._normalize_coverage_path("src/other.py") is None
     assert _checker._normalize_coverage_path("README") is None
+
+
+def test_bare_coverage_names_cannot_match_root_files_outside_git_scope() -> None:
+    diff = """diff --git a/conftest.py b/conftest.py
+--- a/conftest.py
++++ b/conftest.py
+@@ -0,0 +1,1 @@
++ROOT = True
+"""
+
+    assert _checker._normalize_coverage_path("conftest.py") == "scripts/conftest.py"
+    assert changed_python_lines(diff) == {}
 
 
 def test_coverage_hits_normalizes_tracked_paths_and_ignores_invalid_entries(tmp_path: Path) -> None:

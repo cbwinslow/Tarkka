@@ -105,6 +105,11 @@ def test_context_queries_cover_empty_unbounded_and_nonmatching_documents(tmp_pat
         frozenset({passage_id}),
         limit=None,
     ) == (matching,)
+    assert repository.list_contexts_for_passages(
+        document_id,
+        frozenset({passage_id}),
+        limit=1,
+    ) == (matching,)
     assert repository.page_contexts_for_passages(document_id, frozenset()) == (0, ())
     assert repository.list_contexts_for_mentions(document_id, frozenset()) == ()
 

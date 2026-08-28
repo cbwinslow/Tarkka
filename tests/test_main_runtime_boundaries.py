@@ -103,6 +103,39 @@ def test_configured_model_claim_extractor_passes_optional_provider_metadata(
     }
 
 
+def test_configured_model_claim_extractor_preserves_optional_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = object()
+    extractor = object()
+    captured: dict[str, object] = {}
+
+    def build_model(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return model
+
+    def build_extractor(configured_model: object) -> object:
+        assert configured_model is model
+        return extractor
+
+    monkeypatch.setenv("TARKKA_MODEL_BASE_URL", "https://model.example.test/v1")
+    monkeypatch.setenv("TARKKA_MODEL_NAME", "research-model")
+    monkeypatch.delenv("TARKKA_MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("TARKKA_MODEL_PROVIDER", raising=False)
+    monkeypatch.delenv("TARKKA_MODEL_VERSION", raising=False)
+    monkeypatch.setattr(interface, "OpenAICompatibleClaimModel", build_model)
+    monkeypatch.setattr(interface, "ModelClaimExtractor", build_extractor)
+
+    assert interface._configured_claim_extractor("model") is extractor
+    assert captured == {
+        "base_url": "https://model.example.test/v1",
+        "model_name": "research-model",
+        "api_key": None,
+        "provider": "openai-compatible",
+        "model_version": None,
+    }
+
+
 def test_db_upgrade_command_serializes_applied_and_skipped_migrations(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

@@ -238,6 +238,21 @@ def test_extraction_serialization_rejects_unsupported_runtime_type() -> None:
         json_extraction_repository._extraction_to_dict(unsupported)
 
 
+def test_extraction_deserialization_rejects_unknown_kind() -> None:
+    provenance = ExtractionProvenance(run_id=uuid4())
+    raw = {
+        "extraction_id": str(uuid4()),
+        "document_id": str(uuid4()),
+        "evidence_ids": [str(uuid4())],
+        "provenance": json_extraction_repository._provenance_to_dict(provenance),
+        "attribution": AttributionKind.AUTHOR_STATED.value,
+        "kind": "future_kind",
+    }
+
+    with pytest.raises(ValueError, match="unsupported extraction kind"):
+        json_extraction_repository._extraction_from_dict(raw)
+
+
 def test_directory_fsync_is_noop_off_posix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

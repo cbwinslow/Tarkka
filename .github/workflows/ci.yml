@@ -278,6 +278,20 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/infrastructure/storage/json_repository.py
           --fail-under=100
+      - name: Enforce local JSON persistence ratchets
+        # New #190 JSON adapters are declared in one manifest so this workflow
+        # stays stable as historical persistence coverage is completed.
+        if: matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          while IFS= read -r module || [[ -n "$module" ]]; do
+            case "$module" in
+              ""|\#*) continue ;;
+            esac
+            uv run --no-sync coverage report \
+              --include="$module" \
+              --fail-under=100
+          done < .github/coverage/local-json-ratchets.txt
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

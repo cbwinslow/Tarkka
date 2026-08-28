@@ -165,7 +165,11 @@ def test_cmd_work_save_serializes_selection(
     work = Work(work_id=uuid4(), title="Selected")
     selection = SavedWorkSelection(snapshot_id=snapshot_id, result_index=2, work=work)
     _patch_work_save_dependencies(monkeypatch, selection)
-    monkeypatch.setattr(cli, "_work_payload", lambda selected, repository: {"title": selected.title})
+    monkeypatch.setattr(
+        cli,
+        "_work_payload",
+        lambda selected, repository: {"title": selected.title},
+    )
 
     assert cli._cmd_work_save(_args(snapshot_id=snapshot_id, index=2)) == 0
     payload = json.loads(capsys.readouterr().out)
@@ -249,7 +253,11 @@ def test_cmd_work_enrich_handles_success_and_service_failure(
     monkeypatch.setattr(cli, "_work_repository", lambda: object())
     monkeypatch.setattr(cli, "WorkCatalogService", lambda repository: service)
     monkeypatch.setattr(cli, "_crossref", lambda: object())
-    monkeypatch.setattr(cli, "_work_payload", lambda selected, repository: {"title": selected.title})
+    monkeypatch.setattr(
+        cli,
+        "_work_payload",
+        lambda selected, repository: {"title": selected.title},
+    )
 
     assert cli._cmd_work_enrich(_args(work_id=work_id)) == 0
     assert json.loads(capsys.readouterr().out) == {"title": "Enriched"}

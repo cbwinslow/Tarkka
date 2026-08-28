@@ -284,6 +284,9 @@ def _run_params(value: ExtractionRun) -> tuple[object, ...]:
 
 
 def _evidence_params(value: EvidenceRecord) -> tuple[object, ...]:
+    if not isinstance(value, (Evidence, FigureEvidence, TableEvidence, EquationEvidence)):
+        raise TypeError(f"unsupported evidence type: {type(value)!r}")
+
     provenance = value.provenance
     common = (value.evidence_id, provenance.run_id, value.document_id)
     if isinstance(value, Evidence):
@@ -343,26 +346,24 @@ def _evidence_params(value: EvidenceRecord) -> tuple[object, ...]:
             value.column_end,
             None,
         )
-    if isinstance(value, EquationEvidence):
-        return common + (
-            None,
-            None,
-            None,
-            None,
-            None,
-            provenance.confidence,
-            provenance.human_review_state.value,
-            provenance.reasoning_summary,
-            "equation",
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            value.equation_id,
-        )
-    raise TypeError(f"unsupported evidence type: {type(value)!r}")
+    return common + (
+        None,
+        None,
+        None,
+        None,
+        None,
+        provenance.confidence,
+        provenance.human_review_state.value,
+        provenance.reasoning_summary,
+        "equation",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        value.equation_id,
+    )
 
 
 def _extraction_params(value: ResearchExtraction) -> tuple[object, ...]:
@@ -454,49 +455,48 @@ def _extraction_from_row(
         ),
         "attribution": AttributionKind(attribution),
     }
-    object_kind = ResearchObjectKind(kind)
-    if object_kind is ResearchObjectKind.CLAIM:
+    if kind == ResearchObjectKind.CLAIM.value:
         return Claim(
             **base, text=cast(str, payload["text"]), claim_type=cast(str, payload["claim_type"])
         )
-    if object_kind is ResearchObjectKind.HYPOTHESIS:
+    if kind == ResearchObjectKind.HYPOTHESIS.value:
         return Hypothesis(**base, text=cast(str, payload["text"]))
-    if object_kind is ResearchObjectKind.METHOD:
+    if kind == ResearchObjectKind.METHOD.value:
         return Method(
             **base,
             name=cast(str, payload["name"]),
             description=cast(str | None, payload.get("description")),
         )
-    if object_kind is ResearchObjectKind.DATASET:
+    if kind == ResearchObjectKind.DATASET.value:
         return Dataset(
             **base,
             name=cast(str, payload["name"]),
             description=cast(str | None, payload.get("description")),
         )
-    if object_kind is ResearchObjectKind.VARIABLE:
+    if kind == ResearchObjectKind.VARIABLE.value:
         return Variable(
             **base, name=cast(str, payload["name"]), role=cast(str | None, payload.get("role"))
         )
-    if object_kind is ResearchObjectKind.MODEL:
+    if kind == ResearchObjectKind.MODEL.value:
         return Model(
             **base, name=cast(str, payload["name"]), family=cast(str | None, payload.get("family"))
         )
-    if object_kind is ResearchObjectKind.METRIC:
+    if kind == ResearchObjectKind.METRIC.value:
         return Metric(
             **base,
             name=cast(str, payload["name"]),
             value_text=cast(str | None, payload.get("value_text")),
             unit=cast(str | None, payload.get("unit")),
         )
-    if object_kind is ResearchObjectKind.RESULT:
+    if kind == ResearchObjectKind.RESULT.value:
         return Result(
             **base,
             text=cast(str, payload["text"]),
             direction=cast(str | None, payload.get("direction")),
         )
-    if object_kind is ResearchObjectKind.LIMITATION:
+    if kind == ResearchObjectKind.LIMITATION.value:
         return Limitation(**base, text=cast(str, payload["text"]))
-    raise RuntimeError(f"unsupported PostgreSQL extraction kind: {object_kind!r}")
+    raise RuntimeError(f"unsupported PostgreSQL extraction kind: {kind!r}")
 
 
 def _run_from_row(row: tuple[Any, ...]) -> ExtractionRun:

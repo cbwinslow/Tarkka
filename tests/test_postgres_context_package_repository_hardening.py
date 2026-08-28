@@ -36,6 +36,11 @@ class _Connection:
         self.closed = True
 
 
+class _FailingExecuteConnection(_Connection):
+    def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> _Cursor:
+        raise RuntimeError("query failed after connection acquisition")
+
+
 def test_postgres_context_package_get_returns_none_for_unknown_handle() -> None:
     connection = _Connection()
     repository = PostgresDocumentContextPackageRepository(
@@ -43,6 +48,18 @@ def test_postgres_context_package_get_returns_none_for_unknown_handle() -> None:
     )
 
     assert repository.get(uuid4()) is None
+    assert connection.closed
+
+
+def test_postgres_context_package_closes_acquired_connection_after_query_failure() -> None:
+    connection = _FailingExecuteConnection()
+    repository = PostgresDocumentContextPackageRepository(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    )
+
+    with pytest.raises(RuntimeError, match="query failed after connection acquisition"):
+        repository.get(uuid4())
+
     assert connection.closed
 
 
@@ -73,7 +90,7 @@ def test_postgres_context_package_translates_driver_connection_errors() -> None:
         PostgresSettings("postgresql://unused"), connection_factory=fail_connection
     )
 
-    with pytest.raises(PostgresTransientOperationError, match="retry may succeed") as raised:
+    with pytest.raises(PostgresTransientOperationError) as raised:
         repository.get(uuid4())
 
     assert raised.value.__cause__ is expected

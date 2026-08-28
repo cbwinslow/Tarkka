@@ -153,3 +153,4 @@ def test_markdown_rejects_indented_or_short_fence_markers() -> None:
 def test_markdown_rejects_non_headings_and_invalid_atx_depth() -> None:
     assert markdown_normalizer._atx_heading("plain text\n") is None
     assert markdown_normalizer._atx_heading("####### too deep\n") is None
+    assert markdown_normalizer._atx_heading("#    \n") is None

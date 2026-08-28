@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import ModuleType
 from typing import Any
 from uuid import UUID
 
 import pytest
 
-import tarkka.infrastructure.postgres.citation_context_repository as citation_module
-import tarkka.infrastructure.postgres.verification_repository as verification_module
 import tarkka.infrastructure.postgres.work_repository as work_module
 from tarkka.domain.citations import BibliographicReference, CitationContext
 from tarkka.domain.models import Work
@@ -52,6 +52,8 @@ class _Connection:
     calls: list[tuple[str, tuple[Any, ...] | None]] = field(default_factory=list)
     closed: bool = False
     entered: int = 0
+    commits: int = 0
+    rollbacks: int = 0
 
     def execute(
         self,
@@ -66,8 +68,12 @@ class _Connection:
         self.entered += 1
         return self
 
-    def __exit__(self, *_: Any) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, *_: Any) -> None:
         self.entered -= 1
+        if exc_type is None:
+            self.commits += 1
+        else:
+            self.rollbacks += 1
 
     def close(self) -> None:
         self.closed = True
@@ -86,6 +92,16 @@ class _FailingConnection(_Connection):
     ) -> _Cursor:
         self.calls.append((sql, params))
         raise self.error
+
+
+def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> type[Exception]:
+    class DriverError(Exception):
+        pass
+
+    driver = ModuleType("psycopg")
+    setattr(driver, "Error", DriverError)
+    monkeypatch.setitem(sys.modules, "psycopg", driver)
+    return DriverError
 
 
 def _reference() -> BibliographicReference:
@@ -221,22 +237,23 @@ def test_citation_repository_shortcuts_empty_pages_and_supports_unbounded_query(
     assert params == (_DOCUMENT_ID, _PASSAGE_ID, 2)
 
 
-def test_citation_repository_translates_connection_failure(
+def test_citation_repository_translates_query_failure_with_real_classifier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original = RuntimeError("driver failure")
-    translated = PostgresOperationError("translated")
-    monkeypatch.setattr(citation_module, "translate_driver_error", lambda exc: translated)
+    DriverError = _install_fake_psycopg(monkeypatch)
+    original = DriverError("query failure")
+    connection = _FailingConnection(original)
     repository = PostgresCitationContextRepository(
-        _SETTINGS,
-        connection_factory=lambda _: (_ for _ in ()).throw(original),
+        _SETTINGS, connection_factory=lambda _: connection
     )
 
-    with pytest.raises(PostgresOperationError, match="translated") as raised:
+    with pytest.raises(PostgresOperationError, match="PostgreSQL operation failed") as raised:
         repository.list_references(_DOCUMENT_ID)
 
-    assert raised.value is translated
     assert raised.value.__cause__ is original
+    assert connection.closed
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
 
 
 def test_work_transaction_preserves_application_failure_and_resets_connection(
@@ -251,6 +268,8 @@ def test_work_transaction_preserves_application_failure_and_resets_connection(
 
     assert connection.closed
     assert connection.entered == 0
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
     assert repository._transaction_connection.get() is None
 
 
@@ -279,6 +298,8 @@ def test_work_transaction_translates_query_failure_on_active_connection(
     assert raised.value is translated
     assert raised.value.__cause__ is original
     assert connection.closed
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
     assert repository._transaction_connection.get() is None
 
 
@@ -298,6 +319,8 @@ def test_work_transaction_preserves_untranslated_query_failure(
 
     assert raised.value is original
     assert connection.closed
+    assert connection.rollbacks == 1
+    assert connection.commits == 0
     assert repository._transaction_connection.get() is None
 
 
@@ -326,19 +349,20 @@ def test_verification_repository_covers_success_missing_claim_and_get_paths() ->
     ).get_relation(_RELATION_ID) is None
 
 
-def test_verification_repository_translates_connection_failure(
+def test_verification_repository_translates_query_failure_with_real_classifier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original = RuntimeError("driver failure")
-    translated = PostgresOperationError("translated")
-    monkeypatch.setattr(verification_module, "translate_driver_error", lambda exc: translated)
+    DriverError = _install_fake_psycopg(monkeypatch)
+    original = DriverError("query failure")
+    connection = _FailingConnection(original)
     repository = PostgresVerificationRepository(
-        _SETTINGS,
-        connection_factory=lambda _: (_ for _ in ()).throw(original),
+        _SETTINGS, connection_factory=lambda _: connection
     )
 
-    with pytest.raises(PostgresOperationError, match="translated") as raised:
+    with pytest.raises(PostgresOperationError, match="PostgreSQL operation failed") as raised:
         repository.get_relation(_RELATION_ID)
 
-    assert raised.value is translated
     assert raised.value.__cause__ is original
+    assert connection.closed
+    assert connection.rollbacks == 1
+    assert connection.commits == 0

@@ -2,3 +2,4 @@
 # Add one repository-relative source path per completed #190 slice.
 src/tarkka/infrastructure/storage/json_work_repository.py
 src/tarkka/infrastructure/storage/json_source_observation_repository.py
+src/tarkka/infrastructure/storage/json_verification_repository.py

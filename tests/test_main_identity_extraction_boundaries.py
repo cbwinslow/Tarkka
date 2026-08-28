@@ -272,7 +272,11 @@ def test_extract_claims_serializes_model_metadata(
         def __init__(self, configured_repository: object) -> None:
             assert configured_repository is repository
 
-        def extract(self, configured_document: object, configured_extractor: object) -> SimpleNamespace:
+        def extract(
+            self,
+            configured_document: object,
+            configured_extractor: object,
+        ) -> SimpleNamespace:
             assert configured_document is document
             assert configured_extractor is extractor
             return SimpleNamespace(
@@ -337,7 +341,6 @@ def test_evidence_payload_serializes_all_supported_locator_variants() -> None:
 
     passage_payload = interface._evidence_payload(passage)
     assert passage_payload == {
-        "char_end": 4,
         "evidence_id": str(passage.evidence_id),
         "passage_char_end": 4,
         "passage_char_start": 0,

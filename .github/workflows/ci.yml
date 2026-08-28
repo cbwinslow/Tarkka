@@ -147,15 +147,18 @@ jobs:
             --include="${include_csv}" \
             --fail-under=100
       - name: Enforce security domain coverage
-        # Security/provenance boundaries completed under #189 are ratcheted as
-        # soon as they reach 100% so later transport work cannot weaken them.
+        # Security/provenance/robots boundaries completed under #189 are
+        # ratcheted immediately so later network work cannot weaken them.
         if: matrix.python-version == '3.13'
         shell: bash
         run: |
           include_patterns=(
+            src/tarkka/domain/crawl_access.py
             src/tarkka/domain/http_observations.py
             src/tarkka/domain/policy_fetch_finalization.py
             src/tarkka/domain/resource_acquisition.py
+            src/tarkka/domain/robots_cache.py
+            src/tarkka/domain/robots_rules.py
           )
           include_csv="$(IFS=,; echo "${include_patterns[*]}")"
           uv run --no-sync coverage report \

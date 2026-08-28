@@ -179,10 +179,6 @@ def _canonicalize_rule_pattern(value: str) -> str:
         raise ValueError("robots rule pattern must not be empty")
     if any(ord(character) < 0x21 or character == "#" for character in body):
         raise ValueError("robots rule pattern contains invalid characters")
-    try:
-        body.encode("utf-8")
-    except UnicodeEncodeError as exc:
-        raise ValueError("robots rule pattern must be valid UTF-8") from exc
     canonical = _canonicalize_component(body, preserve_wildcard=True)
     return canonical + ("$" if anchored else "")
 

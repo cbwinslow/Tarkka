@@ -24,6 +24,7 @@ from tarkka.infrastructure.storage.json_traversal_checkpoint_repository import (
 )
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.ports.http_transport import HttpTransportResponse
+from tarkka.ports.traversal import TraversalCheckpointRepository
 
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.regression]
 
@@ -135,7 +136,9 @@ def _outputs(body: bytes) -> tuple[str, UUID, HttpResponseSnapshot]:
     return digest, observation.observation_id, snapshot
 
 
-def _finalizing(body: bytes = b"research") -> tuple[TraversalCheckpoint, UUID, HttpResponseSnapshot]:
+def _finalizing(
+    body: bytes = b"research",
+) -> tuple[TraversalCheckpoint, UUID, HttpResponseSnapshot]:
     checkpoint, target_id = _queued()
     active = checkpoint.start(target_id, _policy())
     digest, observation_id, snapshot = _outputs(body)
@@ -151,7 +154,7 @@ def _finalizing(body: bytes = b"research") -> tuple[TraversalCheckpoint, UUID, H
 def _service(
     tmp_path: Path,
     *,
-    checkpoints: object | None = None,
+    checkpoints: TraversalCheckpointRepository | None = None,
     artifacts: LocalArtifactStore | None = None,
     observations: JsonSourceObservationRepository | None = None,
     resolver: _Resolver | None = None,
@@ -163,7 +166,7 @@ def _service(
         artifact_store=artifacts or LocalArtifactStore(tmp_path / "artifacts"),
         observation_repository=observations
         or JsonSourceObservationRepository(tmp_path / "observations.json"),
-        checkpoint_repository=checkpoints  # type: ignore[arg-type]
+        checkpoint_repository=checkpoints
         or JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json"),
         clock=lambda: 0.0,
         sleeper=lambda _: None,
@@ -179,10 +182,13 @@ def test_recovery_requires_authoritative_durable_checkpoint(tmp_path: Path) -> N
 
 def test_recovery_rejects_changed_durable_output_identity(tmp_path: Path) -> None:
     supplied, target_id, _ = _finalizing(b"supplied")
-    durable_active = replace(
-        supplied,
-        targets=(replace(supplied.targets[0], status=TraversalStatus.IN_PROGRESS, final_artifact_sha256=None, final_observation_id=None),),
+    reset_target = replace(
+        supplied.targets[0],
+        status=TraversalStatus.IN_PROGRESS,
+        final_artifact_sha256=None,
+        final_observation_id=None,
     )
+    durable_active = replace(supplied, targets=(reset_target,))
     other_digest, other_observation_id, _ = _outputs(b"durable")
     durable = durable_active.begin_finalization(
         target_id,

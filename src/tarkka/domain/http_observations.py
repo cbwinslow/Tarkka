@@ -286,12 +286,13 @@ def _sanitize_nested_uri(value: str) -> str | None:
 
     netloc = ""
     if parsed.netloc:
-        if parsed.hostname is None:
-            return None
-        host = _normalize_host(parsed.hostname)
-        if ":" in host:
-            host = f"[{host}]"
-        netloc = host if port is None else f"{host}:{port}"
+        if parsed.hostname is not None:
+            host = _normalize_host(parsed.hostname)
+            if ":" in host:
+                host = f"[{host}]"
+            netloc = host if port is None else f"{host}:{port}"
+        # A malformed network-path authority is dropped rather than copied into
+        # durable provenance. Its path/query/fragment are still sanitized below.
 
     return urlunsplit(
         (

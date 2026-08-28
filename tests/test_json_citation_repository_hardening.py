@@ -91,6 +91,13 @@ def test_context_queries_cover_empty_unbounded_and_nonmatching_documents(tmp_pat
         char_end=14,
         passage_id=passage_id,
     )
+
+    assert repository.list_contexts_for_passages(
+        document_id,
+        frozenset({passage_id}),
+        limit=None,
+    ) == ()
+
     repository.save_context(matching)
     repository.save_context(other_document)
 

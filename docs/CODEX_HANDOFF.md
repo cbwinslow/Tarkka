@@ -3,171 +3,100 @@
 **Snapshot timestamp:** 2026-08-28 UTC
 **Repository:** `cbwinslow/Tarkka`
 **Default branch:** `main`
-**Active branch:** `test/security-network-coverage-ratchet`
-**Active PR:** #194 — `test: ratchet security and network coverage to 100%`
+**Active branch:** `test/security-robots-domain-coverage`
+**Active PR:** #195 — `test: ratchet robots domain coverage to 100%`
 **Active issue:** #189 — security/network acquisition coverage
 **Parent program:** #185 — historical branch coverage to 100%
 
-> `AGENTS.md` is authoritative. This file is the current execution baton, not a journal. GitHub issues,
-> pull requests, reviews, workflow runs, and commits are the historical audit trail. Always verify the
-> live PR head because the commit updating this file necessarily advances the branch.
+> `AGENTS.md` is authoritative. GitHub issues, pull requests, reviews, workflow runs, and commits are
+> the historical audit trail. Always verify the live PR head because this handoff commit advances it.
 
----
+## Current objective
 
-## 1. Current objective
+Merge PR #195 after one final documentation-inclusive required-check/review sweep, then continue #189
+from the resulting `main` in a fresh PR for robots/crawl application services. No user action is
+currently required.
 
-Merge the first #189 security-domain slice in PR #194 after one final documentation-inclusive workflow
-and review sweep. Then continue #189 from the resulting `main` with a fresh robots/crawl PR rather than
-growing #194.
+## Merged baseline
 
-No user action is currently required.
+PR #194, the first #189 security-domain slice, merged into `main` as
+`2c5f797272a3ac23be91c618bb524410be0bb653`.
 
----
+Permanent inherited 100% gates include Phase 5 agent-serving, coverage tooling, interface/runtime,
+thirteen core-domain modules, and the first #189 security/provenance modules.
 
-## 2. Merged baseline
+## #195 validated source result
 
-PR #193 / issue #188 completed the core-domain slice and merged into `main` as:
-
-`326c0d70f67b3cea38144e45696641fd663625bf`
-
-Permanent inherited gates before #194:
-
-- Phase 5 agent-serving/context-package/telemetry: **549 statements + 122 branches = 100%**;
-- coverage checker: **154 statements + 70 branches = 100%**;
-- interface/runtime: **1,013 statements + 168 branches = 100%**;
-- thirteen core-domain modules: **1,158 statements + 416 branches = 100%**;
-- changed executable Python lines: **100% required**;
-- cumulative Phase 5 executable range from immutable anchor
-  `7e4f51ddb14a44c1b32a782d3cbdbb7c06a41b01`: **100% required**.
-
-Repository deterministic coverage after #188 was 90% with 1,289 passed / 36 deselected.
-
----
-
-## 3. #194 completed source result
-
-Validated source/test head immediately before this handoff commit:
-
-`8f3158f05be752c36692f31a8cd62c083dcd7f6a`
+Validated source/test head before the CI-ratchet and handoff commits: `6768be9ea17ce69cdc1cc32cb6b0761df90df070`.
 
 Python 3.13 result:
 
-- **1,322 passed / 36 deselected**;
-- repository aggregate: **12,287 statements / 874 misses; 3,868 branches / 656 partials = 90%**;
-- `domain/http_observations.py`: **172 statements + 52 branches = 100%**;
-- `domain/policy_fetch_finalization.py`: **34 + 12 = 100%**;
-- `domain/resource_acquisition.py`: **128 + 44 = 100%**;
-- first #189 security-domain ratchet: **334 statements + 108 branches = 100%**;
-- cumulative Phase 5 executable changed lines: **635/635 = 100%**;
-- current #194 executable changed lines: **18/18 = 100%**.
+- **1,352 passed / 36 deselected**;
+- repository aggregate: **12,285 statements / 838 misses; 3,870 branches / 626 partials = 91%**;
+- `domain/crawl_access.py`: **75 statements + 32 branches = 100%**;
+- `domain/robots_cache.py`: **53 + 24 = 100%**;
+- `domain/robots_rules.py`: **179 + 70 = 100%**;
+- completed robots-domain slice: **307 statements + 126 branches = 100%**;
+- cumulative Phase 5 executable changed lines: **637/637 = 100%**;
+- current PR executable changed lines: **2/2 = 100%**.
 
-The same source head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, and every
-inherited 100% coverage gate. Package and Dependency Review were also green when this handoff was
-written; re-check all workflows on the live handoff head before merge.
+The same source head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, Package, and
+Dependency Review. The current CI ratchet extends `Enforce security domain coverage` to all six #189
+completed domain modules: **641 statements + 234 branches**, required to remain at 100%.
 
----
+## Production improvements made in #195
 
-## 4. Security defects found and fixed in #194
+- Removed an unreachable inner UTF-8 guard from robots-rule pattern parsing; UTF-8 remains enforced once
+  at the public `RobotsRules.parse()` boundary.
+- `RobotsFetchResult` now rejects non-text content immediately for successful fetches, preventing invalid
+  values from failing later inside cache/rules processing.
 
-Coverage-guided review found real durable-provenance sanitation weaknesses in nested URLs:
+## Review disposition
 
-1. Scheme-relative nested URLs containing userinfo could preserve username/password values.
-2. Malformed scheme-relative authorities could fall back to preserving nested sensitive query values.
-3. Invalid IDNA hostnames or malformed ports needed a fail-closed path that did not re-persist the
-   untrusted authority.
+All review threads present before this snapshot are resolved.
 
-Current behavior:
+- The non-text successful robots-content finding was valid and fixed at the domain boundary.
+- A pattern-matching semantics finding was verified as incorrect; existing expectations match the
+  implementation (`/abc*bc$` does not disallow `/abc`; `/prefix*tail*$` intentionally matches a trailing
+  arbitrary suffix and therefore disallows the tested target).
+- The stale mixed-fixture invalid-UTF-8 finding was already fixed; the redundant unreachable production
+  guard was removed rather than retained as artificial coverage debt.
 
-- valid nested HTTP(S) URIs are normalized recursively;
-- scheme-relative userinfo is dropped;
-- malformed/un-normalizable nested authorities are dropped;
-- path/query/fragment components are retained only after recursive sensitive-parameter sanitation;
-- genuinely unparseable nested values are preserved only when the URI parser cannot safely recover
-  components at all;
-- generated property tests assert credential fields are structurally absent and sensitive query values
-  are `[REDACTED]` without brittle whole-URI substring checks.
+Re-list reviews/threads on the live final head before merging because automated reviewers can add late
+comments.
 
-No live network access is required by these tests.
+## Exact next actions
 
----
+1. Read the live #195 head SHA.
+2. Confirm required `main` ruleset checks on that exact head: `Quality`, Python 3.11, 3.12, and 3.13.
+3. Confirm the expanded six-module #189 security-domain gate passes at **641 statements + 234 branches = 100%**.
+4. Re-list review threads/submissions and disposition every meaningful late finding.
+5. Refresh PR #195/#189 readiness metadata if needed and merge #195 using expected-head protection.
+6. Keep #189 open; create a fresh branch from the #195 merge commit.
 
-## 5. Review disposition
+## Next #189 merge boundary
 
-All review threads present before this snapshot were replied to and resolved.
+Target the robots/crawl application layer next:
 
-Substantive reviewer findings improved the branch by:
+- `application/crawl_eligibility.py`: baseline **80%**;
+- `application/robots_refresh.py`: baseline **85%**;
+- `application/recursive_crawl.py`: baseline **80%**.
 
-- replacing brittle Hypothesis substring assertions with parsed userinfo/query assertions;
-- handling invalid-IDNA nested hosts without leaking the authority or query secrets;
-- strengthening malformed-port behavior from permissive preservation to fail-closed sanitized
-  components.
+Use deterministic fake fetch/cache/clock/transport boundaries for policy outcomes, refresh/reuse paths,
+rate/budget guards, checkpoint/finalization recovery, and failure injection. Ratchet the completed set to
+100% and merge before moving into `ports/http_transport.py` and
+`infrastructure/web/pinned_http_transport.py`.
 
-A suggestion to widen `ResourceAcquisitionPolicy.allows_uri` from `str` to `str | None` was declined:
-the production API remains a string contract, while the test-only `cast(str, None)` intentionally
-exercises the defensive runtime guard without changing the public type.
+## Program / repository hygiene
 
-Re-list review threads and submitted reviews on the final live head before merging because bots can add
-new findings after this snapshot.
-
----
-
-## 6. Exact next actions
-
-1. Read the live #194 head SHA; this handoff commit is newer than `8f3158f...`.
-2. Confirm every triggered workflow on that exact head is green, especially:
-   - Python 3.11 / 3.12 / 3.13;
-   - Ruff / strict mypy / SQLFluff / zizmor;
-   - first #189 security-domain gate = 100%;
-   - inherited Phase 5/interface/core-domain gates = 100%;
-   - cumulative Phase 5 and current-PR changed-line coverage = 100%;
-   - Package, Dependency Review, PR Agent, and any other triggered checks.
-3. Re-list inline review threads and submitted reviews; disposition/resolve all meaningful findings.
-4. Update PR #194 and issue #189 with final exact-head readiness.
-5. Merge #194 into `main` using expected-head SHA protection.
-6. Leave #189 open and create a fresh branch from the #194 merge commit for the robots/crawl domain
-   batch.
-
----
-
-## 7. Next #189 PR: robots/crawl domain batch
-
-Latest measured debt:
-
-- `domain/crawl_access.py`: **81%** — 73 statements, 30 branches;
-- `domain/robots_cache.py`: **82%** — 53 statements, 24 branches;
-- `domain/robots_rules.py`: **87%** — 183 statements, 70 branches;
-- `application/robots_access.py`: already **100%**.
-
-Recommended next merge boundary:
-
-1. close validation/state edge branches in `crawl_access.py`;
-2. close cache lifetime/UTF-8/provenance/time-comparison boundaries in `robots_cache.py`;
-3. close parser/group/rule/crawl-delay/path-normalization branches in `robots_rules.py`;
-4. add a permanent 100% robots-domain coverage gate;
-5. merge that small PR before moving to `application/robots_refresh.py`,
-   `application/crawl_eligibility.py`, and `application/recursive_crawl.py`.
-
-After robots/crawl, continue #189 into `ports/http_transport.py`,
-`infrastructure/web/pinned_http_transport.py`, then HTTP acquisition/policy-fetch application services.
-
----
-
-## 8. Program / repository hygiene
-
-Coverage program:
-
-- #187 — interface/runtime: **completed / merged**
-- #188 — core domain invariants: **completed / merged**
-- #189 — security/network acquisition: **active**
+- #187 — interface/runtime: completed / merged
+- #188 — core domain invariants: completed / merged
+- #189 — security/network acquisition: active
 - #190 — durable persistence adapters: queued
 - #191 — parser/provider/extraction adapters: queued
 
-Issue #192 tracks native GitHub repository automation/settings. A live re-check found:
-
-- `delete_branch_on_merge=false`;
-- `allow_auto_merge=false`;
-- `allow_update_branch=false`.
-
-The current connector does not expose repository-setting or branch-delete mutations, so do not create a
-redundant cleanup workflow. Continue using short-lived, clearly disposable branches and track enabling
-native automatic merged-branch deletion in #192.
+Issue #192 tracks native repository settings. Live state remains `delete_branch_on_merge=false`,
+`allow_auto_merge=false`, and `allow_update_branch=false`. The connector does not expose repository
+setting or branch-delete mutations, so use short-lived disposable branches and do not add a redundant
+cleanup workflow; enable native merged-branch deletion through #192 when repository settings access is
+available.

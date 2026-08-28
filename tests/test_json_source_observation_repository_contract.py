@@ -16,6 +16,7 @@ from tarkka.domain.source_observations import (
 from tarkka.infrastructure.storage import json_source_observation_repository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
+    SourceObservationConflictError,
 )
 from tests.contracts.source_observation_repository import (
     SourceObservationRepositoryContract,
@@ -91,6 +92,7 @@ def test_json_source_repository_rejects_stable_id_conflicts(tmp_path: Path) -> N
         repository,
         first,
         conflicting,
+        SourceObservationConflictError,
     )
 
 
@@ -103,6 +105,7 @@ def test_json_source_repository_rejects_resource_link_conflicts(tmp_path: Path) 
         _observation(),
         first,
         replace(first, target_uri="https://example.org/different.csv"),
+        SourceObservationConflictError,
     )
 
 

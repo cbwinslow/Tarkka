@@ -41,7 +41,8 @@ def test_research_field_rejects_malformed_transport_metadata(
         ResearchField(**values)
 
 
-def test_operation_registration_requires_a_callable_service_method() -> None:
+@pytest.mark.parametrize("method_name", ["missing_operation", "__doc__"])
+def test_operation_registration_requires_a_callable_service_method(method_name: str) -> None:
     with pytest.raises(ValueError, match="no callable service method"):
         _OperationRegistration(
             operation=ResearchOperation(
@@ -51,7 +52,7 @@ def test_operation_registration_requires_a_callable_service_method() -> None:
                 estimated_tokens=1,
             ),
             service_type=DiscoveryService,
-            method_name="missing_operation",
+            method_name=method_name,
             inputs=(),
             result_summary="Unused.",
         )

@@ -122,13 +122,15 @@ jobs:
           --include=src/tarkka/__main__.py,src/tarkka/interfaces/cli.py,src/tarkka/interfaces/main.py
           --fail-under=100
       - name: Enforce core domain invariant coverage
-        # Completed pure-domain contracts under #188 are promoted immediately
+        # Completed pure-domain contracts under #188 are permanently protected
         # so later work cannot regress already-eliminated historical debt.
         if: matrix.python-version == '3.13'
         shell: bash
         run: |
           include_patterns=(
+            src/tarkka/domain/bibliography.py
             src/tarkka/domain/citations.py
+            src/tarkka/domain/discovery.py
             src/tarkka/domain/identity_candidates.py
             src/tarkka/domain/media_types.py
             src/tarkka/domain/models.py

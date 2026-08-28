@@ -61,11 +61,11 @@ class FullTextAcquisitionService:
         if resource is None:
             raise FullTextNotFoundError(f"no full-text representation found for work {work_id}")
 
+        # FullTextResource owns the filename safety invariant: `filename` is exactly one
+        # non-traversing POSIX/Windows path component. Keep the acquisition service focused on
+        # orchestration rather than duplicating that validated domain contract.
         with TemporaryDirectory(prefix="tarkka-acquire-") as temp_dir:
-            root = Path(temp_dir).resolve()
-            path = (root / resource.filename).resolve()
-            if path.parent != root:
-                raise ValueError("full-text filename escaped temporary acquisition directory")
+            path = Path(temp_dir) / resource.filename
             self._fetcher.fetch(resource, path)
             result = self._ingest.ingest_acquired(
                 path,

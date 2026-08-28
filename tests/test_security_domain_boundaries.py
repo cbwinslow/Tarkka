@@ -134,6 +134,23 @@ def test_malformed_nested_uri_is_preserved_without_crashing_normalization() -> N
     assert outer["next"] == [nested]
 
 
+def test_malformed_scheme_relative_authority_is_dropped_but_query_is_sanitized() -> None:
+    nested = "//:80/callback?token=secret&view=full"
+    query = urlencode({"next": nested})
+
+    normalized = normalize_durable_http_uri(f"https://example.org/login?{query}")
+    outer = parse_qs(urlsplit(normalized).query, keep_blank_values=True)
+    sanitized_nested = outer["next"][0]
+    parsed_nested = urlsplit(sanitized_nested)
+    nested_query = parse_qs(parsed_nested.query, keep_blank_values=True)
+
+    assert parsed_nested.netloc == ""
+    assert parsed_nested.path == "/callback"
+    assert nested_query["token"] == ["[REDACTED]"]
+    assert nested_query["view"] == ["full"]
+    assert "secret" not in sanitized_nested
+
+
 def test_scheme_relative_nested_uri_drops_userinfo_and_redacts_query_secret() -> None:
     nested = "//user:pass@example.org/callback?token=secret&view=full"
     query = urlencode({"next": nested})

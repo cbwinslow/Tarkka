@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, Unpack, cast
 from uuid import UUID, uuid4
 
 import pytest
 
 from tarkka.application.http_acquisition import (
+    HttpAcquisitionError,
     HttpAcquisitionService,
     _abandon_finalization,
     _artifact_name,
@@ -16,7 +18,7 @@ from tarkka.application.http_acquisition import (
     _target,
 )
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
-from tarkka.domain.traversal import TraversalCheckpoint
+from tarkka.domain.traversal import TraversalCheckpoint, TraversalStatus
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
@@ -24,7 +26,7 @@ from tarkka.infrastructure.storage.json_traversal_checkpoint_repository import (
     JsonTraversalCheckpointRepository,
 )
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
-from tarkka.ports.http_transport import HttpTransportResponse
+from tarkka.ports.http_transport import HostResolver, HttpTransport, HttpTransportResponse
 
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.regression]
 
@@ -32,10 +34,30 @@ _CHECKPOINT_ID = UUID("00000000-0000-0000-0000-000000001990")
 _PUBLIC_ADDRESS = "93.184.216.34"
 
 
+class _PolicyOverrides(TypedDict, total=False):
+    allowed_domains: frozenset[str]
+    max_requests: int
+    max_bytes: int
+    max_retries: int
+    max_redirects: int
+    max_elapsed_seconds: float | None
+    min_request_interval_seconds: float
+
+
 class _Resolver:
-    def __init__(self, addresses: tuple[str, ...] = (_PUBLIC_ADDRESS,)) -> None:
+    def __init__(
+        self,
+        addresses: tuple[str, ...] = (_PUBLIC_ADDRESS,),
+        *,
+        error: Exception | None = None,
+    ) -> None:
         self.addresses = addresses
-        self.calls = 0
+        self.error = error
+        self.requests: list[tuple[str, float | None]] = []
+
+    @property
+    def calls(self) -> int:
+        return len(self.requests)
 
     def resolve(
         self,
@@ -43,15 +65,26 @@ class _Resolver:
         *,
         timeout_seconds: float | None = None,
     ) -> tuple[str, ...]:
-        del hostname, timeout_seconds
-        self.calls += 1
+        self.requests.append((hostname, timeout_seconds))
+        if self.error is not None:
+            raise self.error
         return self.addresses
 
 
 class _Transport:
-    def __init__(self, response: HttpTransportResponse | None = None) -> None:
+    def __init__(
+        self,
+        response: HttpTransportResponse | None = None,
+        *,
+        error: Exception | None = None,
+    ) -> None:
         self.response = response or HttpTransportResponse(status_code=200, body=b"ok")
-        self.calls = 0
+        self.error = error
+        self.requests: list[tuple[str, str, int, float | None]] = []
+
+    @property
+    def calls(self) -> int:
+        return len(self.requests)
 
     def request(
         self,
@@ -61,24 +94,26 @@ class _Transport:
         max_response_bytes: int,
         timeout_seconds: float | None = None,
     ) -> HttpTransportResponse:
-        del uri, resolved_address, max_response_bytes, timeout_seconds
-        self.calls += 1
+        self.requests.append(
+            (uri, resolved_address, max_response_bytes, timeout_seconds)
+        )
+        if self.error is not None:
+            raise self.error
         return self.response
 
 
-def _policy(**overrides: object) -> ResourceAcquisitionPolicy:
-    values: dict[str, object] = {
-        "allowed_domains": frozenset({"example.org"}),
-        "max_depth": 2,
-        "max_requests": 10,
-        "max_bytes": 32,
-        "max_retries": 1,
-        "max_redirects": 2,
-        "max_elapsed_seconds": 60.0,
-        "min_request_interval_seconds": 0.0,
-    }
-    values.update(overrides)
-    return ResourceAcquisitionPolicy(**values)  # type: ignore[arg-type]
+def _policy(**overrides: Unpack[_PolicyOverrides]) -> ResourceAcquisitionPolicy:
+    base = ResourceAcquisitionPolicy(
+        allowed_domains=frozenset({"example.org"}),
+        max_depth=2,
+        max_requests=10,
+        max_bytes=32,
+        max_retries=1,
+        max_redirects=2,
+        max_elapsed_seconds=60.0,
+        min_request_interval_seconds=0.0,
+    )
+    return replace(base, **overrides)
 
 
 def _checkpoint(uri: str = "https://example.org/start") -> tuple[TraversalCheckpoint, UUID]:
@@ -89,23 +124,19 @@ def _checkpoint(uri: str = "https://example.org/start") -> tuple[TraversalCheckp
 def _service(
     tmp_path: Path,
     *,
-    resolver: _Resolver | None = None,
-    transport: _Transport | None = None,
-    clock: object = None,
-    sleeper: object = None,
+    resolver: HostResolver | None = None,
+    transport: HttpTransport | None = None,
+    clock: Callable[[], float] | None = None,
+    sleeper: Callable[[float], None] | None = None,
 ) -> HttpAcquisitionService:
-    kwargs: dict[str, object] = {}
-    if clock is not None:
-        kwargs["clock"] = clock
-    if sleeper is not None:
-        kwargs["sleeper"] = sleeper
     return HttpAcquisitionService(
-        resolver=resolver or _Resolver(),
-        transport=transport or _Transport(),
+        resolver=resolver if resolver is not None else _Resolver(),
+        transport=transport if transport is not None else _Transport(),
         artifact_store=LocalArtifactStore(tmp_path / "artifacts"),
         observation_repository=JsonSourceObservationRepository(tmp_path / "observations.json"),
         checkpoint_repository=JsonTraversalCheckpointRepository(tmp_path / "checkpoints.json"),
-        **kwargs,  # type: ignore[arg-type]
+        clock=clock if clock is not None else (lambda: 0.0),
+        sleeper=sleeper if sleeper is not None else (lambda _: None),
     )
 
 
@@ -151,14 +182,80 @@ def test_recover_finalization_rejects_non_finalizing_target(tmp_path: Path) -> N
         _service(tmp_path).recover_finalization(checkpoint, target_id)
 
 
+def test_request_once_propagates_validated_network_and_budget_arguments(tmp_path: Path) -> None:
+    checkpoint, target_id = _checkpoint()
+    policy = _policy(max_bytes=32, max_elapsed_seconds=60.0)
+    active = checkpoint.start(target_id, policy)
+    resolver = _Resolver()
+    transport = _Transport()
+    clock_values = iter([1.0, 2.0])
+    service = _service(
+        tmp_path,
+        resolver=resolver,
+        transport=transport,
+        clock=lambda: next(clock_values),
+    )
+
+    response = service._request_once(
+        active,
+        policy,
+        "https://example.org/start?q=1",
+        started_at=0.0,
+    )
+
+    assert response.status_code == 200
+    assert resolver.requests == [("example.org", 59.0)]
+    assert transport.requests == [
+        ("https://example.org/start?q=1", _PUBLIC_ADDRESS, 32, 58.0)
+    ]
+
+
 def test_request_once_rejects_empty_resolution(tmp_path: Path) -> None:
     checkpoint, target_id = _checkpoint()
     policy = _policy()
     active = checkpoint.start(target_id, policy)
-    service = _service(tmp_path, resolver=_Resolver(()), clock=lambda: 0.0)
+    service = _service(tmp_path, resolver=_Resolver(()))
 
     with pytest.raises(ValueError, match="returned no addresses"):
         service._request_once(active, policy, "https://example.org/start", started_at=0.0)
+
+
+def test_acquire_wraps_resolver_failure_and_marks_target_failed(tmp_path: Path) -> None:
+    checkpoint, target_id = _checkpoint()
+    resolver = _Resolver(error=OSError("injected DNS failure"))
+    transport = _Transport()
+
+    with pytest.raises(HttpAcquisitionError) as caught:
+        _service(tmp_path, resolver=resolver, transport=transport).acquire(
+            checkpoint,
+            target_id,
+            _policy(),
+        )
+
+    assert isinstance(caught.value.__cause__, OSError)
+    assert caught.value.checkpoint.targets[0].status is TraversalStatus.FAILED
+    assert resolver.requests == [("example.org", 60.0)]
+    assert transport.calls == 0
+
+
+def test_acquire_wraps_transport_failure_and_marks_target_failed(tmp_path: Path) -> None:
+    checkpoint, target_id = _checkpoint()
+    resolver = _Resolver()
+    transport = _Transport(error=TimeoutError("injected transport failure"))
+
+    with pytest.raises(HttpAcquisitionError) as caught:
+        _service(tmp_path, resolver=resolver, transport=transport).acquire(
+            checkpoint,
+            target_id,
+            _policy(),
+        )
+
+    assert isinstance(caught.value.__cause__, TimeoutError)
+    assert caught.value.checkpoint.targets[0].status is TraversalStatus.FAILED
+    assert resolver.requests == [("example.org", 60.0)]
+    assert transport.requests == [
+        ("https://example.org/start", _PUBLIC_ADDRESS, 32, 60.0)
+    ]
 
 
 def test_request_once_rejects_transport_body_larger_than_requested_cap(tmp_path: Path) -> None:
@@ -166,7 +263,7 @@ def test_request_once_rejects_transport_body_larger_than_requested_cap(tmp_path:
     policy = _policy(max_bytes=2)
     active = checkpoint.start(target_id, policy)
     transport = _Transport(HttpTransportResponse(status_code=200, body=b"abc"))
-    service = _service(tmp_path, transport=transport, clock=lambda: 0.0)
+    service = _service(tmp_path, transport=transport)
 
     with pytest.raises(ValueError, match="larger than its requested cap"):
         service._request_once(active, policy, "https://example.org/start", started_at=0.0)
@@ -180,7 +277,7 @@ def test_request_once_rejects_already_exceeded_byte_budget(tmp_path: Path) -> No
     active = checkpoint.start(target_id, policy)
     over_budget = replace(active, budget=replace(active.budget, bytes_used=3))
     transport = _Transport()
-    service = _service(tmp_path, transport=transport, clock=lambda: 0.0)
+    service = _service(tmp_path, transport=transport)
 
     with pytest.raises(ValueError, match="byte budget is already exceeded"):
         service._request_once(
@@ -197,7 +294,7 @@ def test_wait_for_followup_rejects_interval_larger_than_elapsed_budget(tmp_path:
     checkpoint, target_id = _checkpoint()
     policy = _policy(min_request_interval_seconds=2.0, max_elapsed_seconds=1.0)
     active = checkpoint.start(target_id, policy)
-    service = _service(tmp_path, clock=lambda: 0.0)
+    service = _service(tmp_path)
 
     with pytest.raises(ValueError, match="wait would exceed elapsed-time budget"):
         service._wait_for_followup(
@@ -213,11 +310,36 @@ def test_wait_for_followup_sleeps_when_interval_is_positive(tmp_path: Path) -> N
     policy = _policy(min_request_interval_seconds=0.5)
     active = checkpoint.start(target_id, policy)
     sleeps: list[float] = []
-    service = _service(tmp_path, clock=lambda: 0.0, sleeper=sleeps.append)
+    service = _service(tmp_path, sleeper=sleeps.append)
 
     service._wait_for_followup(active, active.targets[0], policy, started_at=0.0)
 
     assert sleeps == [0.5]
+
+
+def test_wait_for_followup_rechecks_elapsed_budget_after_sleep(tmp_path: Path) -> None:
+    checkpoint, target_id = _checkpoint()
+    policy = _policy(min_request_interval_seconds=0.5, max_elapsed_seconds=0.75)
+    active = checkpoint.start(target_id, policy)
+    clock_value = [0.0]
+
+    def sleep_and_advance(seconds: float) -> None:
+        assert seconds == 0.5
+        clock_value[0] = 1.0
+
+    service = _service(
+        tmp_path,
+        clock=lambda: clock_value[0],
+        sleeper=sleep_and_advance,
+    )
+
+    with pytest.raises(ValueError, match="elapsed-time budget is exhausted"):
+        service._wait_for_followup(
+            active,
+            active.targets[0],
+            policy,
+            started_at=0.0,
+        )
 
 
 def test_remaining_elapsed_is_unbounded_when_policy_has_no_limit(tmp_path: Path) -> None:
@@ -238,7 +360,8 @@ def test_elapsed_rejects_backwards_clock(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("clock_value", [True, "1"])
 def test_read_clock_rejects_non_numeric_values(tmp_path: Path, clock_value: object) -> None:
-    service = _service(tmp_path, clock=lambda: clock_value)
+    clock = cast(Callable[[], float], lambda: clock_value)
+    service = _service(tmp_path, clock=clock)
 
     with pytest.raises(ValueError, match="clock must return a number"):
         service._read_clock()
@@ -283,6 +406,37 @@ def test_abandon_finalization_rejects_non_finalizing_target() -> None:
         )
 
 
+def test_abandon_finalization_clears_outputs_and_preserves_spent_budget() -> None:
+    checkpoint, target_id = _checkpoint()
+    policy = _policy()
+    active = checkpoint.start(target_id, policy).record_response_bytes(
+        target_id,
+        bytes_acquired=4,
+    )
+    finalizing = active.begin_finalization(
+        target_id,
+        artifact_sha256="a" * 64,
+        observation_id=uuid4(),
+        elapsed_seconds=2.0,
+    )
+
+    failed = _abandon_finalization(
+        finalizing,
+        target_id,
+        reason="outputs missing",
+        elapsed_seconds=3.0,
+    )
+    target = failed.targets[0]
+
+    assert target.status is TraversalStatus.FAILED
+    assert target.final_artifact_sha256 is None
+    assert target.final_observation_id is None
+    assert target.last_error == "outputs missing"
+    assert failed.budget.requests_used == finalizing.budget.requests_used
+    assert failed.budget.bytes_used == finalizing.budget.bytes_used
+    assert failed.budget.elapsed_seconds == 3.0
+
+
 @pytest.mark.parametrize(
     ("headers", "message"),
     [
@@ -291,6 +445,9 @@ def test_abandon_finalization_rejects_non_finalizing_target() -> None:
         ({"location": ("/two words",)}, "must not contain whitespace"),
         ({"location": ("javascript:alert(1)",)}, "must use HTTP"),
         ({"location": ("http://[::1",)}, "valid URI reference"),
+        ({"location": ("/one", "/two")}, "exactly one Location"),
+        ({"location": ("\x01",)}, "control characters"),
+        ({"location": ("//:80",)}, "invalid authority"),
     ],
 )
 def test_redirect_location_contract(

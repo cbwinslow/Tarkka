@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -36,7 +35,7 @@ def test_open_existing_returns_none_for_missing_catalog(tmp_path: Path) -> None:
     assert not path.exists()
 
 
-def test_short_resource_page_uses_selected_length_without_second_scan(tmp_path: Path) -> None:
+def test_short_resource_page_reports_selected_count(tmp_path: Path) -> None:
     repository = JsonSourceObservationRepository(tmp_path / "observations.json")
     artifact_id = uuid4()
     observation = SourceObservation(
@@ -90,11 +89,7 @@ def test_fsync_directory_is_noop_off_posix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        json_source_observation_repository,
-        "os",
-        SimpleNamespace(name="nt"),
-    )
+    monkeypatch.setattr(json_source_observation_repository.os, "name", "nt")
 
     json_source_observation_repository._fsync_directory(tmp_path)
 

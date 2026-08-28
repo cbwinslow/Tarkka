@@ -4,7 +4,6 @@ import io
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from email.message import Message
-from types import SimpleNamespace
 from typing import Any
 from urllib.error import HTTPError, URLError
 from xml.etree import ElementTree
@@ -99,7 +98,7 @@ def test_urllib_atom_transport_validates_timeout_and_decodes_bytes(
         headers={"X-Test": "yes"},
     ) == "<feed />"
     request = observed["request"]
-    assert getattr(request, "full_url").endswith("?q=a+b")
+    assert request.full_url.endswith("?q=a+b")
     assert observed["timeout"] == 2.5
 
 

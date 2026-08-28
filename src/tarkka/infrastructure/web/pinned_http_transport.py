@@ -144,8 +144,11 @@ class PinnedHttpTransport:
             raise ValueError("HTTP transport URI must be an absolute HTTP(S) URI")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("HTTP transport URI must not contain userinfo")
+        try:
+            host = parsed.hostname.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValueError("HTTP transport URI must be a valid HTTP(S) URI") from exc
 
-        host = parsed.hostname.encode("idna").decode("ascii")
         scheme = parsed.scheme.lower()
         connection: http.client.HTTPConnection
         if scheme == "https":

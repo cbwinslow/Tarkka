@@ -3,3 +3,4 @@
 src/tarkka/infrastructure/storage/json_work_repository.py
 src/tarkka/infrastructure/storage/json_source_observation_repository.py
 src/tarkka/infrastructure/storage/json_verification_repository.py
+src/tarkka/infrastructure/storage/json_robots_cache.py

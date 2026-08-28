@@ -113,6 +113,14 @@ jobs:
           uv run --no-sync coverage report
           --include=scripts/check_diff_coverage.py
           --fail-under=100
+      - name: Enforce completed CLI runtime coverage
+        # These historical interface files reached 100% in #187 and are now a
+        # permanent ratchet while the larger interfaces/main.py slice continues.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/__main__.py,src/tarkka/interfaces/cli.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

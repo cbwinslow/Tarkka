@@ -164,6 +164,21 @@ jobs:
           uv run --no-sync coverage report \
             --include="${include_csv}" \
             --fail-under=100
+      - name: Enforce security application coverage
+        # Crawl-eligibility, robots-refresh, and recursive-crawl orchestration
+        # completed under #189 are permanently protected against regression.
+        if: matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          include_patterns=(
+            src/tarkka/application/crawl_eligibility.py
+            src/tarkka/application/recursive_crawl.py
+            src/tarkka/application/robots_refresh.py
+          )
+          include_csv="$(IFS=,; echo "${include_patterns[*]}")"
+          uv run --no-sync coverage report \
+            --include="${include_csv}" \
+            --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

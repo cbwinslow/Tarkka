@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 from tarkka.application.crawl_eligibility import (
@@ -358,12 +358,12 @@ class RecursiveCrawlCoordinator:
 
         if gate.status is RecursiveCrawlGateStatus.ROBOTS_REFRESH_REQUIRED:
             target = _queued_target(gate.checkpoint, target_id)
-            if gate.robots_uri is None:
-                raise RuntimeError("robots refresh gate did not provide a robots URI")
+            # RecursiveCrawlGateResult validates the URI requirement for this status.
+            robots_uri = cast(str, gate.robots_uri)
             refresh = self._robots_refresher.refresh(
                 gate.checkpoint,
                 policy,
-                robots_uri=gate.robots_uri,
+                robots_uri=robots_uri,
                 depth=target.depth,
                 now=now,
                 seconds_since_last_request=seconds_since_last_request,
@@ -384,9 +384,8 @@ class RecursiveCrawlCoordinator:
         if gate.status is not RecursiveCrawlGateStatus.READY:
             return RecursiveCrawlResult(gate=gate, robots_refresh=refresh)
 
-        effective_policy = gate.effective_policy
-        if effective_policy is None:
-            raise RuntimeError("ready recursive crawl gate did not provide an effective policy")
+        # RecursiveCrawlGateResult validates the policy requirement for READY.
+        effective_policy = cast(ResourceAcquisitionPolicy, gate.effective_policy)
         acquisition = self._target_acquirer.acquire(
             gate.checkpoint,
             target_id,

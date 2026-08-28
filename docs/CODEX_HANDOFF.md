@@ -1,11 +1,11 @@
 # AI Handoff — Tarkka
 
-**Snapshot timestamp:** 2026-08-28 UTC  
-**Repository:** `cbwinslow/Tarkka`  
-**Default branch:** `main`  
-**Active branch:** `test/interface-runtime-coverage-ratchet`  
-**Active PR:** #186 — `test: ratchet interface runtime coverage to 100%`  
-**Active issue:** #187 — interface/runtime coverage slice  
+**Snapshot timestamp:** 2026-08-28 UTC
+**Repository:** `cbwinslow/Tarkka`
+**Default branch:** `main`
+**Active branch:** `test/interface-runtime-coverage-ratchet`
+**Active PR:** #186 — `test: ratchet interface runtime coverage to 100%`
+**Active issue:** #187 — interface/runtime coverage slice
 **Parent program:** #185 — historical branch coverage to 100%
 
 > `AGENTS.md` is authoritative. Read it first, then this snapshot, then #187/#186.

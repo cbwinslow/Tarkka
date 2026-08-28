@@ -124,6 +124,16 @@ def test_http_uri_normalization_rejects_blank_or_non_string_values(value: object
         normalize_http_uri(cast(str, value))
 
 
+def test_unparseable_nested_uri_is_preserved_without_crashing_outer_normalization() -> None:
+    nested = "https://[::1"
+    query = urlencode({"next": nested})
+
+    normalized = normalize_durable_http_uri(f"https://example.org/login?{query}")
+    outer = parse_qs(urlsplit(normalized).query, keep_blank_values=True)
+
+    assert outer["next"] == [nested]
+
+
 def test_malformed_nested_port_drops_authority_and_redacts_query_secret() -> None:
     nested = "https://user:pass@example.org:bad/resource?token=secret&view=full"
     query = urlencode({"next": nested})

@@ -3,3 +3,5 @@
 src/tarkka/infrastructure/storage/latex_parser.py
 src/tarkka/infrastructure/storage/markdown_normalizer.py
 src/tarkka/infrastructure/storage/docling_parser.py
+src/tarkka/infrastructure/storage/jats_parser.py
+src/tarkka/infrastructure/storage/semantic_html_parser.py

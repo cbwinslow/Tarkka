@@ -253,6 +253,21 @@ def test_extraction_deserialization_rejects_unknown_kind() -> None:
         json_extraction_repository._extraction_from_dict(raw)
 
 
+def test_extraction_deserialization_rejects_non_string_kind() -> None:
+    provenance = ExtractionProvenance(run_id=uuid4())
+    raw = {
+        "extraction_id": str(uuid4()),
+        "document_id": str(uuid4()),
+        "evidence_ids": [str(uuid4())],
+        "provenance": json_extraction_repository._provenance_to_dict(provenance),
+        "attribution": AttributionKind.AUTHOR_STATED.value,
+        "kind": 7,
+    }
+
+    with pytest.raises(TypeError, match="extraction kind must be a string"):
+        json_extraction_repository._extraction_from_dict(raw)
+
+
 def test_directory_fsync_is_noop_off_posix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -263,11 +278,8 @@ def test_directory_fsync_is_noop_off_posix(
         open_calls.append(path)
         return flags
 
-    monkeypatch.setattr(
-        json_extraction_repository,
-        "os",
-        SimpleNamespace(name="nt", open=record_open),
-    )
+    monkeypatch.setattr(json_extraction_repository.os, "name", "nt")
+    monkeypatch.setattr(json_extraction_repository.os, "open", record_open)
 
     json_extraction_repository._fsync_directory(tmp_path)
 

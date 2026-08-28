@@ -179,7 +179,9 @@ def test_semantic_html_sparse_structure_and_heading_parentage(tmp_path: Path) ->
         """<html xml:lang="fr"><head><title></title></head><body>
 <script>ignored script text</script>
 <p>Leading paragraph.</p>
+<p></p>
 <h7>Not a supported heading level</h7>
+<h2></h2>
 <h2 id="outer">Outer</h2><p>Outer body.</p>
 <h4 id="inner">Inner</h4><blockquote><span>Nested quote.</span></blockquote>
 <h2 id="sibling">Sibling</h2>
@@ -206,7 +208,7 @@ def test_semantic_html_sparse_structure_and_heading_parentage(tmp_path: Path) ->
         "Sibling",
     ]
     assert document.sections[2].parent_section_id == document.sections[1].section_id
-    assert document.sections[3].parent_section_id is None
+    assert document.sections[3].parent_section_id == document.sections[0].section_id
     assert all("ignored script text" not in p.text for s in document.sections for p in s.passages)
     assert document.figures[0].label is None
     assert document.figures[0].caption is None
@@ -217,6 +219,28 @@ def test_semantic_html_sparse_structure_and_heading_parentage(tmp_path: Path) ->
     assert result.mentions == ()
     assert result.resource_links == ()
     assert result.observation.metadata["language"] == "fr"
+
+
+def test_semantic_html_reference_without_native_id_ignores_non_doi_links(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "reference.html"
+    path.write_text(
+        """<html><body>
+<div role="doc-biblioentry">
+<a href="https://example.test/reference">Reference without native ID</a>
+</div>
+</body></html>""",
+        encoding="utf-8",
+    )
+
+    result = SemanticHtmlParser().parse_native(
+        _generic_artifact(original_name="reference.html"), path
+    )
+
+    assert len(result.references) == 1
+    assert result.references[0].source_anchor is None
+    assert dict(result.references[0].identifiers) == {}
 
 
 def test_semantic_html_classifies_all_supported_resource_relations(tmp_path: Path) -> None:
@@ -269,4 +293,5 @@ def test_semantic_html_metadata_doi_and_tree_helpers_cover_empty_values() -> Non
     paragraph.children.append(target)
     root.children.append(paragraph)
     assert semantic_html_parser._has_ancestor_block(root, target) is True
-    assert semantic_html_parser._has_ancestor_block(root, semantic_html_parser._Node("x", {})) is False
+    missing = semantic_html_parser._Node("x", {})
+    assert semantic_html_parser._has_ancestor_block(root, missing) is False

@@ -121,14 +121,27 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/__main__.py,src/tarkka/interfaces/cli.py,src/tarkka/interfaces/main.py
           --fail-under=100
-      - name: Enforce compact core domain invariant coverage
-        # The first #188 pure-domain slice is entirely validation/state contracts;
-        # protect it independently as the broader core-domain ratchet advances.
+      - name: Enforce core domain invariant coverage
+        # Completed pure-domain contracts under #188 are promoted immediately
+        # so later work cannot regress already-eliminated historical debt.
         if: matrix.python-version == '3.13'
-        run: >-
-          uv run --no-sync coverage report
-          --include=src/tarkka/domain/identity_candidates.py,src/tarkka/domain/source_artifacts.py,src/tarkka/domain/verification.py
-          --fail-under=100
+        shell: bash
+        run: |
+          include_patterns=(
+            src/tarkka/domain/identity_candidates.py
+            src/tarkka/domain/media_types.py
+            src/tarkka/domain/models.py
+            src/tarkka/domain/policy_requests.py
+            src/tarkka/domain/rights_access.py
+            src/tarkka/domain/source_artifacts.py
+            src/tarkka/domain/source_observations.py
+            src/tarkka/domain/verification.py
+            src/tarkka/domain/work_identity.py
+          )
+          include_csv="$(IFS=,; echo "${include_patterns[*]}")"
+          uv run --no-sync coverage report \
+            --include="${include_csv}" \
+            --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

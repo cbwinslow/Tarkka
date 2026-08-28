@@ -41,6 +41,7 @@ def test_cli_script_entrypoint_dispatches_and_exits(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("TARKKA_HOME", str(tmp_path))
+    monkeypatch.delenv("TARKKA_WORK_BACKEND", raising=False)
     monkeypatch.setattr(sys, "argv", ["cli.py", "inspect", str(uuid4())])
 
     with pytest.raises(SystemExit) as raised:
@@ -105,17 +106,42 @@ def test_cli_optional_docling_parser_is_added_only_when_available(
     assert isinstance(with_docling[-1], _AvailableDocling)
 
 
-def test_cli_discovery_provider_factories_construct_all_supported_providers(
+def test_cli_discovery_provider_factories_forward_environment_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    captured: list[tuple[str, dict[str, object]]] = []
+
+    def provider_factory(name: str) -> Callable[..., SimpleNamespace]:
+        def build(**kwargs: object) -> SimpleNamespace:
+            captured.append((name, kwargs))
+            return SimpleNamespace(name=name)
+
+        return build
+
     monkeypatch.setenv("TARKKA_OPENALEX_API_KEY", "openalex-key")
     monkeypatch.setenv("TARKKA_CROSSREF_MAILTO", "research@example.test")
     monkeypatch.setenv("TARKKA_SEMANTIC_SCHOLAR_API_KEY", "s2-key")
+    monkeypatch.setattr(cli, "OpenAlexProvider", provider_factory("openalex"))
+    monkeypatch.setattr(cli, "CrossrefProvider", provider_factory("crossref"))
+    monkeypatch.setattr(
+        cli,
+        "SemanticScholarProvider",
+        provider_factory("semantic-scholar"),
+    )
+    monkeypatch.setattr(cli, "ArxivProvider", provider_factory("arxiv"))
 
     providers = cli._discovery_providers()
+    crossref = cli._crossref()
 
     assert tuple(provider.name for provider in providers) == cli._PROVIDER_NAMES
-    assert cli._crossref().name == "crossref"
+    assert crossref.name == "crossref"
+    assert captured == [
+        ("openalex", {"api_key": "openalex-key"}),
+        ("crossref", {"mailto": "research@example.test"}),
+        ("semantic-scholar", {"api_key": "s2-key"}),
+        ("arxiv", {}),
+        ("crossref", {"mailto": "research@example.test"}),
+    ]
 
 
 def test_cli_manifest_yaml_preserves_manifest_blocks() -> None:
@@ -217,3 +243,23 @@ def test_cli_work_payload_groups_identifiers_and_source_providers() -> None:
     }
     assert payload["source_count"] == 3
     assert payload["source_providers"] == ["crossref", "openalex"]
+
+
+def test_cli_work_payload_preserves_null_and_empty_metadata_shape() -> None:
+    work = Work(work_id=uuid4(), title="Minimal work", abstract=None)
+
+    class _Repository:
+        def list_identifiers(self, work_id: UUID) -> list[SimpleNamespace]:
+            assert work_id == work.work_id
+            return []
+
+        def list_source_records(self, work_id: UUID) -> list[SimpleNamespace]:
+            assert work_id == work.work_id
+            return []
+
+    payload = cli._work_payload(work, cast(WorkRepository, _Repository()))
+
+    assert payload["abstract_available"] is False
+    assert payload["identifiers"] == {}
+    assert payload["source_count"] == 0
+    assert payload["source_providers"] == []

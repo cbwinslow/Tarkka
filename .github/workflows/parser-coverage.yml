@@ -54,3 +54,14 @@ jobs:
               --include="$module" \
               --fail-under=100
           done < .github/coverage/bibliography-ratchets.txt
+      - name: Enforce completed discovery ratchets
+        shell: bash
+        run: |
+          while IFS= read -r module || [[ -n "$module" ]]; do
+            case "$module" in
+              ""|\#*) continue ;;
+            esac
+            uv run --no-sync coverage report \
+              --include="$module" \
+              --fail-under=100
+          done < .github/coverage/discovery-ratchets.txt

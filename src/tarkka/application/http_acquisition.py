@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
+from typing import cast
 from urllib.parse import urljoin, urlsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -209,10 +210,9 @@ class HttpAcquisitionService:
             )
 
         recovery_started_at = self._read_clock()
-        artifact_sha256 = durable_target.final_artifact_sha256
-        observation_id = durable_target.final_observation_id
-        if artifact_sha256 is None or observation_id is None:
-            raise ValueError("finalizing target is missing expected output identifiers")
+        # TraversalTarget validates both identifiers whenever status is FINALIZING.
+        artifact_sha256 = cast(str, durable_target.final_artifact_sha256)
+        observation_id = cast(UUID, durable_target.final_observation_id)
 
         artifact_exists = self._artifact_store.exists(artifact_sha256)
         observation = self._observation_repository.get_observation(observation_id)
@@ -266,9 +266,8 @@ class HttpAcquisitionService:
         if not policy.allows_uri(uri):
             raise ValueError("HTTP request URI is not allowed by acquisition policy")
         dns_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
-        hostname = urlsplit(normalize_http_uri(uri)).hostname
-        if hostname is None:
-            raise ValueError("HTTP request URI has no hostname")
+        # allows_uri() above guarantees an HTTP(S) URI with a hostname.
+        hostname = cast(str, urlsplit(normalize_http_uri(uri)).hostname)
         addresses = self._resolver.resolve(hostname, timeout_seconds=dns_timeout_seconds)
         transport_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
         if not addresses:

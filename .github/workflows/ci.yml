@@ -165,13 +165,15 @@ jobs:
             --include="${include_csv}" \
             --fail-under=100
       - name: Enforce security application coverage
-        # Crawl-eligibility, robots-refresh, and recursive-crawl orchestration
-        # completed under #189 are permanently protected against regression.
+        # Crawl, robots, HTTP acquisition, and policy-fetch orchestration completed
+        # under #189 are permanently protected against regression.
         if: matrix.python-version == '3.13'
         shell: bash
         run: |
           include_patterns=(
             src/tarkka/application/crawl_eligibility.py
+            src/tarkka/application/http_acquisition.py
+            src/tarkka/application/http_policy_fetch.py
             src/tarkka/application/recursive_crawl.py
             src/tarkka/application/robots_refresh.py
           )

@@ -53,3 +53,21 @@ class SourceObservationRepositoryContract:
             raise AssertionError("conflicting stable observation ID must fail explicitly")
 
         assert repository.get_observation(first.observation_id) == first
+
+    @staticmethod
+    def assert_conflicting_link_fails(
+        repository: SourceObservationRepository,
+        observation: SourceObservation,
+        first: ResourceLinkObservation,
+        conflicting: ResourceLinkObservation,
+    ) -> None:
+        repository.save_observation(observation)
+        repository.save_resource_link(first)
+        try:
+            repository.save_resource_link(conflicting)
+        except Exception:
+            pass
+        else:
+            raise AssertionError("conflicting stable resource-link ID must fail explicitly")
+
+        assert repository.list_resource_links(observation.observation_id) == (first,)

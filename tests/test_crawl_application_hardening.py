@@ -10,7 +10,6 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 import pytest
 
 from tarkka.application.crawl_eligibility import (
-    CrawlEligibilityDecision,
     CrawlEligibilityReason,
     combine_crawl_eligibility,
 )

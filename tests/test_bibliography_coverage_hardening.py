@@ -58,10 +58,10 @@ def test_bibtex_rejects_malformed_entries(text: str, message: str) -> None:
         parse_bibtex(text)
 
 
-def test_bibtex_balances_parenthesized_quoted_values_and_author_gaps() -> None:
+def test_bibtex_balances_parenthesized_quoted_values() -> None:
     record = parse_bibtex(
         r'@article(key, title="A ) {Nested} \"Quoted\" Study", '
-        r'author={Smith and   and Doe}, year=2024)'
+        r'author={Smith and Doe}, year=2024)'
     )[0]
 
     assert record.title == r'A ) {Nested} \"Quoted\" Study'
@@ -91,6 +91,7 @@ def test_bibtex_field_lookup_is_case_insensitive_and_missing_safe() -> None:
     assert bibliography_bibtex._field_value(fields, "title") == "Study"
     assert bibliography_bibtex._field_value(fields, "author") is None
     assert bibliography_bibtex._bibtex_authors(None) == ()
+    assert bibliography_bibtex._bibtex_authors(" and ") == ()
 
 
 @pytest.mark.parametrize(

@@ -204,7 +204,12 @@ def test_resources_list_rejects_pagination_boundaries(
     limit: int,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert interface._cmd_resources_list(_args(document_id=uuid4(), offset=offset, limit=limit)) == 2
+    assert (
+        interface._cmd_resources_list(
+            _args(document_id=uuid4(), offset=offset, limit=limit)
+        )
+        == 2
+    )
     assert "resource" in capsys.readouterr().err
 
 

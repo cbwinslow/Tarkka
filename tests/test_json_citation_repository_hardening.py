@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -166,11 +165,8 @@ def test_directory_fsync_is_noop_off_posix(
         open_calls.append(path)
         return flags
 
-    monkeypatch.setattr(
-        json_citation_repository,
-        "os",
-        SimpleNamespace(name="nt", open=record_open),
-    )
+    monkeypatch.setattr(json_citation_repository.os, "name", "nt")
+    monkeypatch.setattr(json_citation_repository.os, "open", record_open)
 
     json_citation_repository._fsync_directory(tmp_path)
 

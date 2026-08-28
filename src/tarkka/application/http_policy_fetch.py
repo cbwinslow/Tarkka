@@ -257,11 +257,6 @@ class HttpPolicyFetchService(HttpAcquisitionService):
         observation = finalization.response.to_source_observation(
             native_artifact_id=artifact_id
         )
-        if observation.observation_id != finalization.observation_id:
-            raise HttpPolicyFetchCommitError(
-                "policy fetch finalization observation identity changed",
-                checkpoint=checkpoint,
-            )
 
         try:
             artifact = self._artifact_store.put_bytes(

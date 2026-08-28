@@ -210,13 +210,19 @@ def test_crossref_filters_bad_shapes_and_skips_non_objects() -> None:
 
 def test_crossref_lookup_rejects_bad_message_and_mismatched_doi() -> None:
     with pytest.raises(ValueError, match="work response message must be an object"):
-        CrossrefProvider(_JsonTransport({"message": []})).lookup_by_doi("10.1/test")
+        CrossrefProvider(_JsonTransport({"message": []})).lookup_by_doi("10.1000/test")
 
     transport = _JsonTransport(
-        {"message": {"DOI": "10.2/other", "title": ["Other"], "URL": "https://x"}}
+        {
+            "message": {
+                "DOI": "10.2000/other",
+                "title": ["Other"],
+                "URL": "https://x",
+            }
+        }
     )
     with pytest.raises(ValueError, match="different DOI"):
-        CrossrefProvider(transport).lookup_by_doi("10.1/test")
+        CrossrefProvider(transport).lookup_by_doi("10.1000/test")
 
 
 def test_crossref_record_identifier_metadata_and_date_fallbacks() -> None:

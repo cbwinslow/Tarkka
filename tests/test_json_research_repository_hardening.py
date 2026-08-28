@@ -79,6 +79,30 @@ def test_link_rejects_artifact_document_mismatch(tmp_path: Path) -> None:
         repository.save_work_document_link(link)
 
 
+def test_link_rejects_conflicting_reuse_of_link_id(tmp_path: Path) -> None:
+    result = _ingest(tmp_path, name="one.txt", content="one")
+    repository = JsonResearchRepository(tmp_path / "catalog.json")
+    link_id = uuid4()
+    first = WorkDocumentLink(
+        link_id=link_id,
+        work_id=uuid4(),
+        artifact_id=result.artifact.artifact_id,
+        document_id=result.document.document_id,
+    )
+    conflicting = WorkDocumentLink(
+        link_id=link_id,
+        work_id=uuid4(),
+        artifact_id=result.artifact.artifact_id,
+        document_id=result.document.document_id,
+    )
+    repository.save_work_document_link(first)
+
+    with pytest.raises(ValueError, match="conflicting work document link"):
+        repository.save_work_document_link(conflicting)
+
+    assert repository.list_work_document_links(first.work_id) == (first,)
+
+
 def test_fsync_directory_is_noop_off_posix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

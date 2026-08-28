@@ -256,24 +256,30 @@ def test_citation_repository_translates_query_failure_with_real_classifier(
     assert connection.commits == 0
 
 
-def test_work_transaction_preserves_application_failure_and_resets_connection(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    connection = _Connection([])
-    repository = PostgresWorkRepository(_SETTINGS, connection_factory=lambda _: connection)
-    monkeypatch.setattr(work_module, "translate_driver_error", lambda exc: None)
+def test_work_transaction_preserves_application_failure_and_allows_reuse() -> None:
+    failed = _Connection([])
+    recovered = _Connection([])
+    connections = iter((failed, recovered))
+    repository = PostgresWorkRepository(
+        _SETTINGS, connection_factory=lambda _: next(connections)
+    )
 
     with pytest.raises(RuntimeError, match="application failure"), repository.transaction():
         raise RuntimeError("application failure")
 
-    assert connection.closed
-    assert connection.entered == 0
-    assert connection.rollbacks == 1
-    assert connection.commits == 0
-    assert repository._transaction_connection.get() is None
+    with repository.transaction():
+        pass
+
+    assert failed.closed
+    assert failed.entered == 0
+    assert failed.rollbacks == 1
+    assert failed.commits == 0
+    assert recovered.closed
+    assert recovered.commits == 1
+    assert recovered.rollbacks == 0
 
 
-def test_work_transaction_translates_query_failure_on_active_connection(
+def test_work_transaction_translates_query_failure_and_allows_reuse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _DriverFailure(RuntimeError):
@@ -281,8 +287,12 @@ def test_work_transaction_translates_query_failure_on_active_connection(
 
     original = _DriverFailure("query failed")
     translated = PostgresOperationError("translated")
-    connection = _FailingConnection(original)
-    repository = PostgresWorkRepository(_SETTINGS, connection_factory=lambda _: connection)
+    failed = _FailingConnection(original)
+    recovered = _Connection([])
+    connections = iter((failed, recovered))
+    repository = PostgresWorkRepository(
+        _SETTINGS, connection_factory=lambda _: next(connections)
+    )
 
     def _translate(exc: Exception) -> PostgresOperationError | None:
         return translated if isinstance(exc, _DriverFailure) else None
@@ -295,20 +305,29 @@ def test_work_transaction_translates_query_failure_on_active_connection(
     ):
         repository.save_work(_work())
 
+    with repository.transaction():
+        pass
+
     assert raised.value is translated
     assert raised.value.__cause__ is original
-    assert connection.closed
-    assert connection.rollbacks == 1
-    assert connection.commits == 0
-    assert repository._transaction_connection.get() is None
+    assert failed.closed
+    assert failed.rollbacks == 1
+    assert failed.commits == 0
+    assert recovered.closed
+    assert recovered.commits == 1
+    assert recovered.rollbacks == 0
 
 
-def test_work_transaction_preserves_untranslated_query_failure(
+def test_work_transaction_preserves_untranslated_query_failure_and_allows_reuse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original = RuntimeError("application query failure")
-    connection = _FailingConnection(original)
-    repository = PostgresWorkRepository(_SETTINGS, connection_factory=lambda _: connection)
+    failed = _FailingConnection(original)
+    recovered = _Connection([])
+    connections = iter((failed, recovered))
+    repository = PostgresWorkRepository(
+        _SETTINGS, connection_factory=lambda _: next(connections)
+    )
     monkeypatch.setattr(work_module, "translate_driver_error", lambda exc: None)
 
     with (
@@ -317,11 +336,16 @@ def test_work_transaction_preserves_untranslated_query_failure(
     ):
         repository.save_work(_work())
 
+    with repository.transaction():
+        pass
+
     assert raised.value is original
-    assert connection.closed
-    assert connection.rollbacks == 1
-    assert connection.commits == 0
-    assert repository._transaction_connection.get() is None
+    assert failed.closed
+    assert failed.rollbacks == 1
+    assert failed.commits == 0
+    assert recovered.closed
+    assert recovered.commits == 1
+    assert recovered.rollbacks == 0
 
 
 def test_verification_repository_covers_success_missing_claim_and_get_paths() -> None:

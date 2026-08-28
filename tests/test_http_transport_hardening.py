@@ -23,11 +23,17 @@ class _NonIterable:
 
 class _FakeResponse:
     def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = iter(chunks)
+        self._chunks = list(chunks)
+        self._current = b""
 
     def read(self, amount: int) -> bytes:
-        chunk = next(self._chunks, b"")
-        return chunk[:amount]
+        while not self._current and self._chunks:
+            self._current = self._chunks.pop(0)
+        if not self._current:
+            return b""
+        result = self._current[:amount]
+        self._current = self._current[amount:]
+        return result
 
 
 class _FakeHttpResponse(_FakeResponse):
@@ -145,7 +151,7 @@ def test_http_transport_response_rejects_non_sequence_header_values(values: obje
 def test_http_transport_response_rejects_invalid_normalized_header_values(
     values: object,
 ) -> None:
-    with pytest.raises(ValueError, match="one or more single-line strings"):
+    with pytest.raises(ValueError, match="non-empty sequences of single-line strings"):
         HttpTransportResponse(
             status_code=200,
             headers=cast(Mapping[str, tuple[str, ...]], {"x-test": values}),
@@ -308,9 +314,21 @@ def test_pinned_transport_constructs_https_connection_without_dns_lookup(
     assert connection.closed is True
 
 
-def test_request_target_handles_root_and_query() -> None:
-    assert pinned._request_target("", "") == "/"
-    assert pinned._request_target("", "a=1") == "/?a=1"
+@pytest.mark.parametrize(
+    ("path", "query", "expected"),
+    [
+        ("", "", "/"),
+        ("", "a=1", "/?a=1"),
+        ("/path", "", "/path"),
+        ("/path", "a=1", "/path?a=1"),
+    ],
+)
+def test_request_target_handles_paths_and_queries(
+    path: str,
+    query: str,
+    expected: str,
+) -> None:
+    assert pinned._request_target(path, query) == expected
 
 
 def test_group_headers_handles_empty_input() -> None:
@@ -327,11 +345,21 @@ def test_read_limited_rejects_expired_deadline() -> None:
         )
 
 
-def test_read_limited_updates_socket_timeout_and_stops_on_eof(
+def test_fake_response_preserves_partial_read_remainder() -> None:
+    response = _FakeResponse([b"abcdef"])
+
+    assert response.read(2) == b"ab"
+    assert response.read(2) == b"cd"
+    assert response.read(2) == b"ef"
+    assert response.read(2) == b""
+
+
+def test_read_limited_updates_socket_timeout_as_deadline_approaches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_socket = _FakeSocket()
-    monkeypatch.setattr(pinned.time, "monotonic", lambda: 10.0)
+    times = iter([10.0, 11.0])
+    monkeypatch.setattr(pinned.time, "monotonic", lambda: next(times))
 
     body, overflow = pinned._read_limited(
         cast(object, _FakeResponse([b"ab", b""])),
@@ -342,4 +370,4 @@ def test_read_limited_updates_socket_timeout_and_stops_on_eof(
 
     assert body == b"ab"
     assert overflow is False
-    assert fake_socket.timeouts == [10.0, 10.0]
+    assert fake_socket.timeouts == [10.0, 9.0]

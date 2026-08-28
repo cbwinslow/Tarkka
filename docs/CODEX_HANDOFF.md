@@ -3,8 +3,8 @@
 **Snapshot timestamp:** 2026-08-28 UTC
 **Repository:** `cbwinslow/Tarkka`
 **Default branch:** `main`
-**Active branch:** `test/security-robots-domain-coverage`
-**Active PR:** #195 — `test: ratchet robots domain coverage to 100%`
+**Active branch:** `test/security-crawl-application-coverage`
+**Active PR:** #196 — `test: harden crawl application coverage`
 **Active issue:** #189 — security/network acquisition coverage
 **Parent program:** #185 — historical branch coverage to 100%
 
@@ -13,79 +13,76 @@
 
 ## Current objective
 
-Merge PR #195 after one final documentation-inclusive required-check/review sweep, then continue #189
-from the resulting `main` in a fresh PR for robots/crawl application services. No user action is
-currently required.
+Merge PR #196 after the final documentation-inclusive required-check/review sweep, then continue #189
+from the resulting `main` with a fresh HTTP transport/resolver coverage PR. No user action is currently
+required.
 
-## Merged baseline
+## Merged #189 baseline
 
-PR #194, the first #189 security-domain slice, merged into `main` as
-`2c5f797272a3ac23be91c618bb524410be0bb653`.
+- PR #194 merged as `2c5f797272a3ac23be91c618bb524410be0bb653` and completed the first HTTP
+  observation/policy-finalization/resource-acquisition domain slice.
+- PR #195 merged as `8ef51a637dffbb01bf6b5c5c23bc3ee26346488f` and completed crawl access,
+  robots cache, and robots rules.
+- The permanent #189 domain gate protects six modules: **641 statements + 234 branches = 100%**.
 
-Permanent inherited 100% gates include Phase 5 agent-serving, coverage tooling, interface/runtime,
-thirteen core-domain modules, and the first #189 security/provenance modules.
+Inherited permanent 100% gates also protect Phase 5 agent-serving, coverage tooling, interface/runtime,
+and the completed #188 core-domain invariant set.
 
-## #195 validated source result
+## #196 validated source result
 
-Validated source/test head before the CI-ratchet and handoff commits: `6768be9ea17ce69cdc1cc32cb6b0761df90df070`.
+Validated source/test head before the CI-ratchet and handoff commits: `b1a0a9bd44b614ad184a2ce6592894e78b156179`.
 
 Python 3.13 result:
 
-- **1,352 passed / 36 deselected**;
-- repository aggregate: **12,285 statements / 838 misses; 3,870 branches / 626 partials = 91%**;
-- `domain/crawl_access.py`: **75 statements + 32 branches = 100%**;
-- `domain/robots_cache.py`: **53 + 24 = 100%**;
-- `domain/robots_rules.py`: **179 + 70 = 100%**;
-- completed robots-domain slice: **307 statements + 126 branches = 100%**;
-- cumulative Phase 5 executable changed lines: **637/637 = 100%**;
-- current PR executable changed lines: **2/2 = 100%**.
+- **1,367 passed / 36 deselected**;
+- repository aggregate: **12,282 statements / 798 misses; 3,866 branches / 587 partials = 91%**;
+- `application/crawl_eligibility.py`: **47 statements + 22 branches = 100%**;
+- `application/robots_refresh.py`: **96 + 30 = 100%**;
+- `application/recursive_crawl.py`: **162 + 68 = 100%**;
+- completed application slice: **305 statements + 120 branches = 100%**;
+- cumulative Phase 5 executable changed lines: **640/640 = 100%**;
+- current PR executable changed source lines: **3/3 = 100%**.
 
-The same source head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, Package, and
-Dependency Review. The current CI ratchet extends `Enforce security domain coverage` to all six #189
-completed domain modules: **641 statements + 234 branches**, required to remain at 100%.
+The same source head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, and every
+inherited coverage ratchet. A new `Enforce security application coverage` CI gate now permanently
+protects the three #196 application modules at 100%.
 
-## Production improvements made in #195
+## Production cleanup in #196
 
-- Removed an unreachable inner UTF-8 guard from robots-rule pattern parsing; UTF-8 remains enforced once
-  at the public `RobotsRules.parse()` boundary.
-- `RobotsFetchResult` now rejects non-text content immediately for successful fetches, preventing invalid
-  values from failing later inside cache/rules processing.
+Coverage analysis identified two coordinator guards that duplicated invariants already enforced by
+`RecursiveCrawlGateResult` construction:
 
-## Review disposition
+- `ROBOTS_REFRESH_REQUIRED` always has a robots URI;
+- `READY` always has an effective acquisition policy.
 
-All review threads present before this snapshot are resolved.
-
-- The non-text successful robots-content finding was valid and fixed at the domain boundary.
-- A pattern-matching semantics finding was verified as incorrect; existing expectations match the
-  implementation (`/abc*bc$` does not disallow `/abc`; `/prefix*tail*$` intentionally matches a trailing
-  arbitrary suffix and therefore disallows the tested target).
-- The stale mixed-fixture invalid-UTF-8 finding was already fixed; the redundant unreachable production
-  guard was removed rather than retained as artificial coverage debt.
-
-Re-list reviews/threads on the live final head before merging because automated reviewers can add late
-comments.
+Those unreachable duplicate branches were removed instead of being excluded or covered through
+corrupted frozen dataclass state. The coordinator now uses typed casts after status checks and relies on
+the validated result contract. A separate reachable invariant—attaching a real acquisition to a
+non-READY gate—remains enforced and is explicitly tested.
 
 ## Exact next actions
 
-1. Read the live #195 head SHA.
+1. Read the live #196 head SHA; this handoff commit is newer than the validated source head.
 2. Confirm required `main` ruleset checks on that exact head: `Quality`, Python 3.11, 3.12, and 3.13.
-3. Confirm the expanded six-module #189 security-domain gate passes at **641 statements + 234 branches = 100%**.
-4. Re-list review threads/submissions and disposition every meaningful late finding.
-5. Refresh PR #195/#189 readiness metadata if needed and merge #195 using expected-head protection.
-6. Keep #189 open; create a fresh branch from the #195 merge commit.
+3. Confirm `Enforce security application coverage` reports **305 statements + 120 branches = 100%**.
+4. Confirm the inherited six-module security-domain gate remains **641 + 234 = 100%**.
+5. Re-list inline review threads and submitted reviews; fix or disposition every meaningful late finding.
+6. Update PR #196 / issue #189 with final exact-head readiness and merge using expected-head SHA
+   protection.
+7. Keep #189 open and create the next fresh branch from the #196 merge SHA.
 
 ## Next #189 merge boundary
 
-Target the robots/crawl application layer next:
+Target the HTTP transport/resolver boundary next:
 
-- `application/crawl_eligibility.py`: baseline **80%**;
-- `application/robots_refresh.py`: baseline **85%**;
-- `application/recursive_crawl.py`: baseline **80%**.
+- `ports/http_transport.py`: current coverage **67%**;
+- `infrastructure/web/pinned_http_transport.py`: current coverage **89%**.
 
-Use deterministic fake fetch/cache/clock/transport boundaries for policy outcomes, refresh/reuse paths,
-rate/budget guards, checkpoint/finalization recovery, and failure injection. Ratchet the completed set to
-100% and merge before moving into `ports/http_transport.py` and
-`infrastructure/web/pinned_http_transport.py`.
+Focus on response-contract validation, resolver timeout/error/no-result paths, address canonicalization,
+TLS socket cleanup, request URI/timeout validation, header grouping, byte-limit/deadline behavior, and
+pinned connection semantics. Prefer deterministic monkeypatch/fake socket/response tests; no live network
+access in the default suite. Ratchet the completed pair to 100% before moving into
+`application/http_acquisition.py` (**82%**) and `application/http_policy_fetch.py` (**84%**).
 
 ## Program / repository hygiene
 
@@ -97,6 +94,6 @@ rate/budget guards, checkpoint/finalization recovery, and failure injection. Rat
 
 Issue #192 tracks native repository settings. Live state remains `delete_branch_on_merge=false`,
 `allow_auto_merge=false`, and `allow_update_branch=false`. The connector does not expose repository
-setting or branch-delete mutations, so use short-lived disposable branches and do not add a redundant
-cleanup workflow; enable native merged-branch deletion through #192 when repository settings access is
-available.
+setting or branch-delete mutations, so continue using short-lived disposable branches and do not add a
+redundant cleanup workflow; enable native merged-branch deletion through #192 when repository settings
+access is available.

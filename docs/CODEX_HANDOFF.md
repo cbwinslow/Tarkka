@@ -15,13 +15,13 @@
 
 ## Current objective
 
-Finish and merge PR #200 with expected-head protection after validating the new permanent CI ratchets
-and completing the final reviewer sweep. PR #200 is intended to complete issue #189. After merge,
-close #189 and continue directly into #190 durable persistence adapters.
+Finish and merge PR #200 with expected-head protection after validating this final handoff-only head
+and completing the last reviewer sweep. PR #200 completes the selected #189 security/network coverage
+scope. After merge, close #189 and continue directly into #190 durable persistence adapters.
 
 No user action is required for routine PR merging.
 
-## Recently merged #189 work
+## Merged #189 work before #200
 
 - PR #194 merged as `2c5f797272a3ac23be91c618bb524410be0bb653`.
 - PR #195 merged as `8ef51a637dffbb01bf6b5c5c23bc3ee26346488f`.
@@ -29,40 +29,34 @@ No user action is required for routine PR merging.
 - PR #197 merged as `7eca7c077e474b0b63580d10522d2393eaa88e4a`.
 - PR #199 merged as `7ddd684d0127a17db85005d37fcc94c4f45b1385`.
 
-Permanent 100% gates inherited by #200 before its final ratchet:
+Inherited permanent 100% gates before #200 included:
 
 - security/robots domain: **641 statements + 234 branches = 100%**;
 - security application after #199: **693 statements + 232 branches = 100%**;
 - HTTP resolver/transport boundary after #197: **193 statements + 66 branches = 100%**;
-- Phase 5 agent-serving, coverage tooling, interface/runtime, and #188 core-domain invariants are also
-  permanently protected at 100%.
+- Phase 5 agent-serving, coverage tooling, interface/runtime, and #188 core-domain invariants.
 
-## #200 latest fully validated source result
+## #200 latest fully validated result
 
-Latest fully validated source head before the permanent-gate/handoff commits:
-`f2f423e33284bf8603c31ddf7c6b11b0aa26ed1a`.
+Latest fully validated head before this handoff commit:
+`7fc0429924e0be8708969e548b2142fd2de1eea5`.
 
-Python 3.13 result:
+Exact Python 3.13 result:
 
-- **1,531 passed / 36 deselected**;
-- repository aggregate: **12,273 statements / 694 misses; 3,854 branches / 515 partials = 92%**;
+- **1,545 passed / 36 deselected**;
+- repository aggregate: **12,273 statements / 690 misses; 3,854 branches / 511 partials = 92%**;
 - `application/full_text.py`: **42 statements + 6 branches = 100%**;
 - `infrastructure/full_text/http.py`: **136 statements + 58 branches = 100%**;
-- completed full-text pair: **178 statements + 64 branches = 100%**;
+- `ports/full_text.py`: **34 statements + 12 branches = 100%**;
+- application + HTTP adapter pair: **178 statements + 64 branches = 100%**;
+- complete full-text resource/application/HTTP contract: **212 statements + 76 branches = 100%**;
+- expanded security application permanent gate: **735 statements + 238 branches = 100%**;
+- expanded full-text/HTTP boundary permanent gate: **363 statements + 136 branches = 100%**;
 - cumulative Phase 5 executable changed lines: **657/657 = 100%**;
-- current PR changed executable source lines on that head: **1/1 = 100%**.
+- current PR changed executable source lines: **1/1 = 100%**.
 
-The same head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, and zizmor. Package and
-Dependency Review also passed. Recheck PR Agent on the live head before merge.
-
-Commit `cb4db2ba5180d3f588fec944e9e895a3d850d692` extends the permanent gates so:
-
-- `Enforce security application coverage` now includes `src/tarkka/application/full_text.py`;
-- `Enforce HTTP transport coverage` now includes `src/tarkka/infrastructure/full_text/http.py`.
-
-Expected gate totals after that commit are **735 statements + 238 branches = 100%** for security
-application and **329 statements + 124 branches = 100%** for HTTP transport. These are predictions
-until the documentation-inclusive live head validates them in CI.
+The same exact head passed Python 3.11, Python 3.12, Ruff, strict mypy, SQLFluff, zizmor, Package,
+Dependency Review, and PR Agent.
 
 ## #200 behavior and test hardening
 
@@ -86,52 +80,77 @@ until the documentation-inclusive live head validates them in CI.
 - duplicate/blank/whitespace/control/percent-encoded-control/unsafe-scheme/invalid-authority redirects;
 - Content-Type and Content-Length cardinality, parsing, mismatch, and oversize contracts.
 
-The first hardening pass took `infrastructure/full_text/http.py` directly from 79% to 100%.
-`application/full_text.py` reached 96% with one remaining branch, which was then removed as duplicate
-state validation rather than reached by constructing an invalid domain object.
+`tests/test_full_text_resource_security.py` was added in direct response to reviewer feedback and
+explicitly protects the invariant relied upon by the application simplification:
+
+- blank provider/source/media-type/filename rejection;
+- POSIX traversal and absolute path rejection;
+- Windows traversal and absolute path rejection;
+- NUL-byte filename rejection;
+- valid single-component filename acceptance;
+- immutable copied metadata.
 
 ## Production simplification justified by invariant
 
-`FullTextResource.__post_init__` is the authoritative filename safety contract. It requires a nonblank
-filename that is exactly one non-traversing POSIX/Windows path component, rejects `.`/`..`, path
-separators, and backslashes, and also validates the HTTPS source URI. Therefore the acquisition
-orchestrator's second `path.parent != root` escape check was unreachable through a valid
-`FullTextResource` and was removed. The service now joins the validated filename directly beneath its
-fresh temporary directory.
+`FullTextResource.__post_init__` and `_is_safe_filename()` are the authoritative filename safety
+contract. They reject blank filenames, `.`/`..`, NUL bytes, POSIX traversal/absolute paths, and Windows
+traversal/absolute paths by requiring both `PurePosixPath(filename).name == filename` and
+`PureWindowsPath(filename).name == filename`.
 
-## Review-bot status
+The acquisition orchestrator's second `path.parent != root` escape check was therefore unreachable
+through a valid `FullTextResource`. It was removed rather than reached by constructing invalid frozen
+objects. Reviewer feedback correctly noted that this architectural dependency needed explicit tests;
+`ports/full_text.py` is now itself at 100% statement + branch coverage and permanently ratcheted.
 
-As of source head `f2f423e...`:
+## Permanent CI ratchets added by #200
 
-- no inline review threads had been emitted;
-- Qodo is paused because its subscription is inactive;
-- CodeRabbit was temporarily rate-limited and emitted no actionable finding;
-- CodeAnt had started review but had not emitted inline findings at the last sweep.
+`Enforce security application coverage` now includes `src/tarkka/application/full_text.py`, producing
+**735 statements + 238 branches = 100%**.
 
-This is not final. After the CI/handoff commits, re-list all inline review threads and top-level bot
-comments. Verify, reply to, and resolve every substantive new finding according to `AGENTS.md`.
+`Enforce HTTP transport coverage` now protects:
+
+- `src/tarkka/ports/full_text.py`;
+- `src/tarkka/ports/http_transport.py`;
+- `src/tarkka/infrastructure/full_text/http.py`;
+- `src/tarkka/infrastructure/web/pinned_http_transport.py`.
+
+That gate is **363 statements + 136 branches = 100%**.
+
+## Review-bot disposition
+
+- Codex inline finding requesting permanent full-text coverage gates was valid, already applied on
+  later commits, explicitly replied to, and resolved.
+- The PR Reviewer Guide's path-traversal concern was valid as a test-visibility concern. The production
+  invariant was verified in `FullTextResource`, and explicit security tests were added rather than
+  merely dismissing the warning.
+- The same reviewer guide's earlier ticket-compliance warnings about missing coverage results, CI
+  ratchets, and handoff updates are now stale: all three are present and validated on `7fc0429...`.
+- Qodo is paused because its subscription is inactive.
+- CodeRabbit was rate-limited and did not emit an actionable code finding at the last sweep.
+
+Re-run the live reviewer sweep after this final documentation commit and disposition any newly emitted
+substantive feedback before merging.
 
 ## Exact next actions
 
 1. Read live PR #200 head SHA after this handoff commit.
 2. Confirm Python 3.11/3.12/3.13, Quality, Package, Dependency Review, and PR Agent on that exact head.
-3. Confirm the expanded permanent gates actually pass at 100% and record their exact totals.
-4. Re-list every inline thread and top-level bot comment; apply valid findings, explicitly decline
-   false positives/noise, and resolve only after a documented disposition.
-5. Rewrite PR #200 body into the canonical final audit record with exact-head coverage/check results.
-6. Add final readiness comments to #200 and #189.
-7. If an automated reviewer leaves a stale `CHANGES_REQUESTED` state after its findings are fixed,
-   dismiss only that stale review with explicit evidence, as done on #199.
-8. Merge #200 using `expected_head_sha` protection.
-9. Confirm the resulting `main` merge SHA, close #189 as completed, and update #185 progress.
-10. Create the first #190 branch from the exact #200 merge and begin durable persistence adapter
-    coverage without waiting for user action.
+3. Re-list every inline review thread, review submission, and top-level bot comment; apply valid new
+   findings and explicitly document declines/noise.
+4. Rewrite PR #200 body into the canonical final audit record using exact-head validation results.
+5. Add final readiness comments to #200 and #189 and a progress update to #185.
+6. If an automated reviewer leaves a stale `CHANGES_REQUESTED` state after all findings are fixed,
+   dismiss only that stale review with explicit evidence.
+7. Merge #200 using `expected_head_sha` protection and confirm the resulting `main` merge SHA.
+8. Close #189 as completed and record its permanent-gate totals.
+9. Create the first #190 branch from the exact #200 merge and begin durable persistence adapter
+   coverage without waiting for user action.
 
 ## Program / repository hygiene
 
 - #187 — interface/runtime: completed / merged
 - #188 — core domain invariants: completed / merged
-- #189 — security/network acquisition: active, #200 at finalization stage
+- #189 — security/network acquisition: active only until #200 merges
 - #190 — durable persistence adapters: queued next
 - #191 — parser/provider/extraction adapters: queued
 - #198 — product differentiation roadmap: active planning track

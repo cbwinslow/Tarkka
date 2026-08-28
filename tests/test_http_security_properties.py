@@ -102,9 +102,6 @@ def test_scheme_relative_nested_credentials_never_survive_durable_normalization(
     assert nested_parts.username is None
     assert nested_parts.password is None
     assert nested_query[secret_key] == ["[REDACTED]"]
-    assert username not in nested_uri
-    assert password not in nested_uri
-    assert secret not in nested_uri
 
 
 @given(

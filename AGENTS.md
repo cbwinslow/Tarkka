@@ -22,16 +22,20 @@ unless a repository ruleset explicitly makes a deterministic check required.
 
 Do **not** load every document immediately.
 
-Start with:
+When starting fresh, begin with:
 
 1. `README.md`
 2. `docs/PROJECT_CHARTER.md`
 3. the one architecture document relevant to the task
 
+When **resuming existing substantial work**, read `docs/CODEX_HANDOFF.md` immediately after this file,
+then open the issue/PR identified there before loading broader documentation.
+
 Load additional docs only when the task touches them:
 
 | Task | Read |
 |---|---|
+| resume current agent work / execution snapshot | `docs/CODEX_HANDOFF.md` |
 | current implementation sequence/status | `docs/ROADMAP.md`, latest `docs/MILESTONE_*.md` |
 | core/domain design | `docs/CANONICAL_DATA_MODEL.md` |
 | service/module boundaries | `docs/ARCHITECTURE.md` |
@@ -142,7 +146,7 @@ A green CI run does **not** substitute for review triage, and a reviewer suggest
 
 ## Task record and AI handoff contract
 
-For substantial work, the canonical task record is the relevant GitHub issue plus its pull request. Do not create a new permanent project-management file for every agent session.
+For substantial work, the canonical task record is the relevant GitHub issue plus its pull request. `docs/CODEX_HANDOFF.md` is the single repository-local **current execution snapshot** used for cross-session/agent baton passes; replace stale status there instead of appending an unbounded journal or creating parallel handoff files.
 
 At the start of a substantial task, establish or recover:
 
@@ -165,11 +169,12 @@ Before stopping or handing work to another agent:
 
 1. Refresh CI status and automated-review threads for the latest head.
 2. Update the PR body if its stated validation/head/coverage numbers are stale.
-3. Add a final handoff comment to the PR or canonical issue with the exact current head SHA, completed work, unresolved items, and next recommended action.
-4. Leave no substantive review thread unresolved without a documented disposition.
-5. If work continues in another PR, link the successor issue/PR explicitly.
+3. Refresh `docs/CODEX_HANDOFF.md` with the current branch/head, CI/review state, decisions, and exact next action. Keep it concise; history belongs in Git/PR/issues.
+4. Add a final handoff comment to the PR or canonical issue with the exact current head SHA, completed work, unresolved items, and next recommended action.
+5. Leave no substantive review thread unresolved without a documented disposition.
+6. If work continues in another PR, link the successor issue/PR explicitly.
 
-An incoming agent should read, in order: this `AGENTS.md`, the canonical issue, the current PR body, and the latest handoff/progress comment before making new changes. This is the baton-pass contract across Codex, Claude, ChatGPT, and other coding agents.
+An incoming agent should read, in order: this `AGENTS.md`, `docs/CODEX_HANDOFF.md`, the canonical issue, the current PR body, and the latest handoff/progress comment before making new changes. This is the baton-pass contract across Codex, Claude, ChatGPT, and other coding agents.
 
 ## Implementation style
 
@@ -240,6 +245,6 @@ Do not reopen decisions listed as resolved merely because an older planning docu
 
 ## Progress reporting
 
-For substantial work, maintain the canonical issue/PR task record defined in the handoff contract above. Keep it concise and decision-oriented rather than duplicating commit history.
+For substantial work, maintain the canonical issue/PR task record and the concise current snapshot in `docs/CODEX_HANDOFF.md` as defined above. Keep both decision-oriented rather than duplicating commit history.
 
-Do not create permanent project-management files for every temporary task unless the repository adopts such a convention.
+Do not create additional permanent project-management or handoff files for every temporary task unless the repository explicitly adopts a new convention.

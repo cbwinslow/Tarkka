@@ -101,6 +101,17 @@ def test_postgres_source_observation_repository_satisfies_shared_contract(
     SourceObservationRepositoryContract.assert_link_write_is_idempotent(
         repository, observation, link
     )
+    SourceObservationRepositoryContract.assert_conflicting_observation_fails(
+        repository,
+        observation,
+        replace(observation, metadata={"title": "Different evidence"}),
+    )
+    SourceObservationRepositoryContract.assert_conflicting_link_fails(
+        repository,
+        observation,
+        link,
+        replace(link, target_uri="https://example.test/different.csv"),
+    )
 
 
 def test_postgres_source_observation_repository_limits_links_to_artifact(

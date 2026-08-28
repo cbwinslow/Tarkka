@@ -158,10 +158,14 @@ def test_resource_link_retry_accepts_exact_existing_link() -> None:
     assert connection.rollbacks == 0
 
 
-@pytest.mark.parametrize("existing", [None, "changed"])
-def test_resource_link_retry_rejects_missing_or_changed_link(existing: str | None) -> None:
+@pytest.mark.parametrize("existing_state", ["missing", "changed"])
+def test_resource_link_retry_rejects_missing_or_changed_link(existing_state: str) -> None:
     link = _link()
-    row = None if existing is None else _link_row(replace(link, target_uri="https://example.test/changed"))
+    row = (
+        None
+        if existing_state == "missing"
+        else _link_row(replace(link, target_uri="https://example.test/changed"))
+    )
     connection = _Connection([_Cursor(rowcount=0), _Cursor(row=row)])
 
     with pytest.raises(PostgresSourceObservationConflictError, match="conflicting resource link"):
@@ -243,7 +247,7 @@ def test_nested_metadata_is_thawed_to_jsonb_values() -> None:
 
     params = connection.calls[0][1]
     assert params is not None
-    assert json.loads(str(params[7])) == {
+    assert json.loads(params[7]) == {
         "empty": None,
         "flags": [True, False],
         "nested": {"ids": ["a", "b"]},

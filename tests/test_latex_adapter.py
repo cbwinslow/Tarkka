@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
+import pytest
+
 from tarkka.domain.models import Artifact
 from tarkka.domain.source_observations import Capability, ObservationBasis, ResourceRelation
 from tarkka.infrastructure.storage.latex_parser import LatexParser
@@ -77,3 +79,42 @@ def test_latex_adapter_ids_are_stable_and_capabilities_are_explicit() -> None:
         Capability.EQUATIONS,
         Capability.LINK_DISCOVERY,
     )
+
+
+def test_latex_parse_handles_known_heading_and_unknown_body_citations(tmp_path: Path) -> None:
+    source = r"""\documentclass{article}
+\begin{document}
+\section{Heading \cite{known}}
+\section{Body}
+Ordinary text cites \cite{missing}.
+\begin{thebibliography}{9}
+\bibitem{known} Known reference.
+\end{thebibliography}
+\end{document}
+"""
+    path = tmp_path / "edge.tex"
+    path.write_text(source, encoding="utf-8")
+    artifact = Artifact(
+        artifact_id=uuid4(),
+        sha256="b" * 64,
+        size_bytes=len(source.encode()),
+        media_type="text/x-tex",
+        storage_key=PurePosixPath("bb/latex-edge"),
+        original_name="edge.tex",
+    )
+
+    document = LatexParser().parse(artifact, path)
+
+    assert [section.title for section in document.sections] == ["Heading [known]", "Body"]
+    assert document.sections[0].passages == ()
+    assert document.sections[1].passages[0].text == "Ordinary text cites [missing]."
+
+
+def test_latex_read_failure_preserves_path_context(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.tex"
+
+    with pytest.raises(ValueError, match="unable to read LaTeX source") as exc_info:
+        LatexParser().parse_native(_artifact(), missing)
+
+    assert str(missing) in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, OSError)

@@ -65,10 +65,19 @@ def _collapse_parts(parts: tuple[str, ...]) -> tuple[str, ...] | None:
 
 
 def _normalize_coverage_path(filename: str) -> str | None:
-    """Normalize coverage.py filenames to tracked repository-relative Python paths."""
+    """Normalize coverage.py filenames to tracked repository-relative Python paths.
+
+    ``coverage.py`` can report files from ``--cov=scripts`` either as
+    ``scripts/name.py`` or as a bare ``name.py`` relative to that configured
+    source root. Bare Python filenames therefore map to ``scripts/``; Tarkka
+    package files remain distinguishable because coverage reports them below
+    the ``tarkka/`` package path.
+    """
     parts = PurePosixPath(filename.replace("\\", "/")).parts
     if parts and parts[0] == "tarkka":
         candidate_parts = ("src", *parts)
+    elif len(parts) == 1 and parts[0].endswith(".py"):
+        candidate_parts = ("scripts", *parts)
     else:
         candidate_parts: tuple[str, ...] | None = None
         for root in ("src", "scripts"):

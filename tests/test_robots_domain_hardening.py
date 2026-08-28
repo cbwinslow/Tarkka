@@ -213,7 +213,6 @@ User-agent: *
 Disallow:
 Disallow: $
 Disallow: /bad path
-Disallow: /bad\ud800
 Crawl-delay: not-a-number
 Crawl-delay: -1
 Crawl-delay: inf

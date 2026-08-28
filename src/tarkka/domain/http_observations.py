@@ -274,18 +274,19 @@ def _sanitize_nested_uri(value: str) -> str | None:
     if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
         return normalize_http_uri(value, field_name="nested HTTP URI")
 
+    has_userinfo = parsed.username is not None or parsed.password is not None
     is_relative_uri = not parsed.scheme and (
         bool(parsed.netloc)
         or parsed.path.startswith(("/", "./", "../"))
         or bool(parsed.query)
         or bool(parsed.fragment)
     )
-    if not is_relative_uri or not (parsed.query or "=" in parsed.fragment):
+    if not is_relative_uri or not (parsed.query or "=" in parsed.fragment or has_userinfo):
         return None
 
     netloc = ""
     if parsed.netloc:
-        if parsed.hostname is None or parsed.username is not None or parsed.password is not None:
+        if parsed.hostname is None:
             return None
         host = _normalize_host(parsed.hostname)
         if ":" in host:

@@ -94,6 +94,18 @@ def test_json_source_repository_rejects_stable_id_conflicts(tmp_path: Path) -> N
     )
 
 
+def test_json_source_repository_rejects_resource_link_conflicts(tmp_path: Path) -> None:
+    repository = JsonSourceObservationRepository(tmp_path / "observations.json")
+    first = _link()
+
+    SourceObservationRepositoryContract.assert_conflicting_link_fails(
+        repository,
+        _observation(),
+        first,
+        replace(first, target_uri="https://example.org/different.csv"),
+    )
+
+
 def test_json_source_repository_fsyncs_parent_directory_after_atomic_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

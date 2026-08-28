@@ -14,6 +14,7 @@ from tarkka.domain.extraction import (
     Evidence,
     ExtractionProvenance,
     FigureEvidence,
+    Hypothesis,
     TableEvidence,
 )
 from tarkka.domain.identity_candidates import IdentityDecision
@@ -35,6 +36,18 @@ def _claim(*, evidence_id: UUID | None = None) -> Claim:
         evidence_ids=(evidence_id,),
         provenance=provenance,
         text="The model improved calibration.",
+    )
+
+
+def _hypothesis(*, evidence_id: UUID | None = None) -> Hypothesis:
+    evidence_id = evidence_id or uuid4()
+    provenance = ExtractionProvenance(run_id=uuid4(), confidence=0.7)
+    return Hypothesis(
+        extraction_id=uuid4(),
+        document_id=uuid4(),
+        evidence_ids=(evidence_id,),
+        provenance=provenance,
+        text="Calibration improves when temporal leakage is removed.",
     )
 
 
@@ -213,6 +226,55 @@ def test_identity_decide_serializes_decision_and_rationale(
     }
 
 
+def test_identity_decide_preserves_null_rationale(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    snapshot_id = uuid4()
+    candidate_id = uuid4()
+
+    class _Service:
+        def decide(
+            self,
+            requested: UUID,
+            left: int,
+            right: int,
+            decision: IdentityDecision,
+            *,
+            rationale: str | None,
+        ) -> SimpleNamespace:
+            assert requested == snapshot_id
+            assert (left, right) == (2, 4)
+            assert decision is IdentityDecision.REJECT
+            assert rationale is None
+            return SimpleNamespace(
+                candidate_id=candidate_id,
+                decision=decision,
+                snapshot_id=requested,
+                left_index=left,
+                right_index=right,
+                rationale=None,
+            )
+
+    monkeypatch.setattr(interface, "_identity_service", lambda: _Service())
+
+    assert (
+        interface._cmd_decide(
+            _args(
+                snapshot_id=snapshot_id,
+                left=2,
+                right=4,
+                decision="reject",
+                rationale=None,
+            )
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["rationale"] is None
+    assert payload["decision"] == "reject"
+
+
 def test_identity_decide_translates_service_failure(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -317,6 +379,57 @@ def test_extract_claims_serializes_model_metadata(
     }
 
 
+def test_extract_claims_rule_payload_omits_model_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    document_id = uuid4()
+    run_id = uuid4()
+    claim_id = uuid4()
+    document = object()
+    repository = object()
+    extractor = object()
+
+    class _Documents:
+        def get_document(self, requested: UUID) -> object:
+            assert requested == document_id
+            return document
+
+    class _Service:
+        def __init__(self, configured_repository: object) -> None:
+            assert configured_repository is repository
+
+        def extract(
+            self,
+            configured_document: object,
+            configured_extractor: object,
+        ) -> SimpleNamespace:
+            assert configured_document is document
+            assert configured_extractor is extractor
+            return SimpleNamespace(
+                document_id=document_id,
+                run=SimpleNamespace(
+                    run_id=run_id,
+                    extractor_name="rule-claims",
+                    extractor_version="1",
+                    model=None,
+                ),
+                extractions=(SimpleNamespace(extraction_id=claim_id),),
+                evidence=(object(),),
+            )
+
+    monkeypatch.setattr(interface, "_document_repository", lambda: _Documents())
+    monkeypatch.setattr(interface, "_extraction_repository", lambda: repository)
+    monkeypatch.setattr(interface, "_configured_claim_extractor", lambda name: extractor)
+    monkeypatch.setattr(interface, "ExtractionService", _Service)
+
+    assert interface._cmd_extract_claims(_args(document_id=document_id, extractor="rule")) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["extractor"] == "rule-claims"
+    assert payload["claims"] == 1
+    assert "model" not in payload
+
+
 def test_extract_claims_translates_extractor_failure(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -376,6 +489,7 @@ def test_claims_list_filters_non_claim_records_and_translates_repository_failure
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     claim = _claim()
+    hypothesis = _hypothesis()
 
     class _Repository:
         fail = False
@@ -383,7 +497,7 @@ def test_claims_list_filters_non_claim_records_and_translates_repository_failure
         def list_extractions(self, *args: object, **kwargs: object) -> tuple[object, ...]:
             if self.fail:
                 raise RuntimeError("extraction catalog unavailable")
-            return (object(), claim)
+            return (hypothesis, claim)
 
     repository = _Repository()
     monkeypatch.setattr(interface, "_extraction_repository", lambda: repository)
@@ -404,9 +518,10 @@ def test_claims_show_handles_wrong_record_missing_evidence_and_success(
 ) -> None:
     evidence = _evidence_records()[1]
     claim = _claim(evidence_id=evidence.evidence_id)
+    hypothesis = _hypothesis()
 
     class _Repository:
-        record: object = object()
+        record: object = hypothesis
         evidence_record: object | None = None
 
         def get_extraction(self, claim_id: UUID) -> object:

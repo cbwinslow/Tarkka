@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -68,20 +67,20 @@ def test_read_failure_preserves_cache_context_and_cause(
     monkeypatch.setattr(Path, "read_text", fail_read)
 
     with pytest.raises(OSError, match="unable to read robots cache") as raised:
-        cache._read()
+        cache.get(_ROBOTS)
 
     assert isinstance(raised.value.__cause__, OSError)
 
 
-def test_read_rejects_non_object_root(tmp_path: Path) -> None:
+def test_get_rejects_non_object_root(tmp_path: Path) -> None:
     cache = JsonRobotsCache(tmp_path / "robots.json")
     cache.path.write_text("[]", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="root must be an object"):
-        cache._read()
+        cache.get(_ROBOTS)
 
 
-def test_read_rejects_invalid_entries_bucket(tmp_path: Path) -> None:
+def test_get_rejects_invalid_entries_bucket(tmp_path: Path) -> None:
     cache = JsonRobotsCache(tmp_path / "robots.json")
     cache.path.write_text(
         json.dumps({"schema_version": 1, "entries": []}),
@@ -89,7 +88,7 @@ def test_read_rejects_invalid_entries_bucket(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RuntimeError, match="entries must be an object"):
-        cache._read()
+        cache.get(_ROBOTS)
 
 
 def test_get_rejects_malformed_object_entry(tmp_path: Path) -> None:
@@ -107,6 +106,6 @@ def test_fsync_directory_is_noop_off_posix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(json_robots_cache, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(json_robots_cache.os, "name", "nt")
 
     json_robots_cache._fsync_directory(tmp_path)

@@ -165,13 +165,14 @@ jobs:
             --include="${include_csv}" \
             --fail-under=100
       - name: Enforce security application coverage
-        # Crawl, robots, HTTP acquisition, and policy-fetch orchestration completed
-        # under #189 are permanently protected against regression.
+        # Crawl, robots, HTTP acquisition, policy fetch, and full-text orchestration
+        # completed under #189 are permanently protected against regression.
         if: matrix.python-version == '3.13'
         shell: bash
         run: |
           include_patterns=(
             src/tarkka/application/crawl_eligibility.py
+            src/tarkka/application/full_text.py
             src/tarkka/application/http_acquisition.py
             src/tarkka/application/http_policy_fetch.py
             src/tarkka/application/recursive_crawl.py
@@ -182,12 +183,12 @@ jobs:
             --include="${include_csv}" \
             --fail-under=100
       - name: Enforce HTTP transport coverage
-        # The resolver/transport boundary completed under #189 is permanently
-        # protected so later acquisition work cannot reopen SSRF/TLS contract debt.
+        # The general and full-text resolver/transport boundaries completed under
+        # #189 are protected so later acquisition work cannot reopen SSRF/TLS debt.
         if: matrix.python-version == '3.13'
         run: >-
           uv run --no-sync coverage report
-          --include=src/tarkka/ports/http_transport.py,src/tarkka/infrastructure/web/pinned_http_transport.py
+          --include=src/tarkka/ports/http_transport.py,src/tarkka/infrastructure/web/pinned_http_transport.py,src/tarkka/infrastructure/full_text/http.py
           --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both

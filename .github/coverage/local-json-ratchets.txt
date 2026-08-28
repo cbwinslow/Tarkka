@@ -1,5 +1,8 @@
 # Local JSON persistence adapters that must remain at 100% statement + branch coverage.
 # Add one repository-relative source path per completed #190 slice.
+src/tarkka/infrastructure/storage/json_policy_fetch_finalization_repository.py
+src/tarkka/infrastructure/storage/json_traversal_checkpoint_repository.py
+src/tarkka/infrastructure/storage/json_repository.py
 src/tarkka/infrastructure/storage/json_work_repository.py
 src/tarkka/infrastructure/storage/json_source_observation_repository.py
 src/tarkka/infrastructure/storage/json_verification_repository.py

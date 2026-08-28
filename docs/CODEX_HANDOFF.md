@@ -3,11 +3,11 @@
 **Snapshot timestamp:** 2026-08-28 UTC
 **Repository:** `cbwinslow/Tarkka`
 **Default branch:** `main`
-**Active branch:** `test/interface-runtime-coverage-ratchet`
-**Active PR:** #186 — `test: ratchet interface runtime coverage to 100%`
-**Active issue:** #187 — interface/runtime coverage slice
+**Active branch:** `test/core-domain-coverage-ratchet`
+**Active PR:** #193 — `test: ratchet core domain invariant coverage to 100%`
+**Active issue:** #188 — core domain invariant coverage
 **Parent program:** #185 — historical branch coverage to 100%
-**Next issue after merge:** #188 — core domain invariant coverage
+**Next issue after merge:** #189 — security/network acquisition coverage
 
 > `AGENTS.md` is authoritative. This file is the current execution baton, not a journal. GitHub issues,
 > pull requests, reviews, workflow runs, and commits are the historical audit trail. Always verify the
@@ -17,188 +17,198 @@
 
 ## 1. Current objective
 
-Close #187 by merging PR #186 after one final exact-head CI/review sweep, then start #188 from the new
-`main` immediately.
+Finish #188 by validating and merging PR #193, then start #189 immediately from the resulting `main`.
 
-The interface/runtime slice is functionally complete and has reached 100% branch coverage:
+The #188 pure/core-domain slice is functionally complete. The permanent CI step **Enforce core domain
+invariant coverage** protects these modules at 100% branch coverage:
 
-- `src/tarkka/__main__.py`
-- `src/tarkka/interfaces/cli.py`
-- `src/tarkka/interfaces/main.py`
+- `src/tarkka/domain/bibliography.py`
+- `src/tarkka/domain/citations.py`
+- `src/tarkka/domain/discovery.py`
+- `src/tarkka/domain/identity_candidates.py`
+- `src/tarkka/domain/media_types.py`
+- `src/tarkka/domain/models.py`
+- `src/tarkka/domain/policy_requests.py`
+- `src/tarkka/domain/rights_access.py`
+- `src/tarkka/domain/source_artifacts.py`
+- `src/tarkka/domain/source_observations.py`
+- `src/tarkka/domain/traversal.py`
+- `src/tarkka/domain/verification.py`
+- `src/tarkka/domain/work_identity.py`
 
-The CI workflow now permanently enforces all three together with `coverage report --fail-under=100`.
-
-Rules remain:
-
-- no coverage exclusions or score-padding assertions;
-- deterministic/network-free default tests;
-- preserve CLI/API behavior unless a real defect is demonstrated;
-- verify, reply to, and resolve every substantive automated-review finding;
-- merge only an exact head that satisfies branch rules and configured checks.
+No coverage exclusions or production-score padding were introduced.
 
 ---
 
 ## 2. Merged baseline
 
-PR #184 merged into `main` as `a2e601118ca6b1ad3e756324a809d7300c959372`.
+PR #186 / issue #187 completed the interface/runtime slice and merged into `main` as:
 
-Permanent invariants inherited from #184:
+`90ed54e471188f4b0be2251cd7a295d2a7365849`
 
-- every changed executable Python line under `src/tarkka/` and `scripts/` must be covered;
-- cumulative Phase 5 changes from immutable anchor
-  `7e4f51ddb14a44c1b32a782d3cbdbb7c06a41b01` remain 100% covered;
-- Phase 5 agent-serving/context-package/telemetry modules remain 100% branch-covered;
-- `scripts/check_diff_coverage.py` remains 100% branch-covered;
-- bot-review triage and cross-agent handoff rules are defined in `AGENTS.md`.
+Permanent inherited coverage invariants on `main` before #193:
 
-PR #186 was rebuilt cleanly from this merge commit after #184 landed. Do not reintroduce its old
-stacked ancestry.
+- `src/tarkka/__main__.py`, `src/tarkka/interfaces/cli.py`, and
+  `src/tarkka/interfaces/main.py` remain 100% branch-covered;
+- Phase 5 agent-serving/context-package/telemetry modules remain 100%;
+- `scripts/check_diff_coverage.py` remains 100%;
+- cumulative Phase 5 executable changes from immutable anchor
+  `7e4f51ddb14a44c1b32a782d3cbdbb7c06a41b01` remain 100%;
+- changed executable Python lines are required to be 100% covered.
 
----
-
-## 3. #187 result
-
-Validated source head immediately before the final CI-ratchet commit:
-
-`df5904bef23b939d5b5eb6fbeaf2e769ddbe1c22`
-
-Exact Python 3.13 result:
-
-- **1,112 passed / 36 deselected**;
-- repository aggregate: **12,277 statements / 1,039 misses; 3,870 branches / 804 partials = 88%**;
-- `src/tarkka/__main__.py`: **2 statements, 0 misses = 100%**;
-- `src/tarkka/interfaces/cli.py`: **278 statements, 46 branches, 0 misses/partials = 100%**;
-- `src/tarkka/interfaces/main.py`: **733 statements, 122 branches, 0 misses/partials = 100%**;
-- inherited Phase 5 subsystem: **549 statements + 122 branches = 100%**;
-- coverage checker: **154 statements + 70 branches = 100%**;
-- cumulative Phase 5 executable diff: **617/617 = 100%**.
-
-The same exact head passed:
-
-- Python 3.11;
-- Python 3.12;
-- Python 3.13;
-- Ruff;
-- strict mypy;
-- SQLFluff;
-- zizmor GitHub Actions audit.
-
-The following commit then promoted the completed slice into a permanent CI invariant:
-
-`759419e36910738f6fb386deb43dc60a28282ed2` — `ci: ratchet full interface runtime coverage`
-
-Its CI step is named **Enforce interface runtime coverage** and includes all three target modules.
+PR #193 starts cleanly from that exact merge commit.
 
 ---
 
-## 4. What PR #186 added
+## 3. Latest validated #188 measurement
 
-Behavior-focused tests now protect:
+Validated head before the final ratchet/mutation/handoff commits:
 
-- package and script entrypoint dispatch;
-- backend and environment configuration;
-- optional parser/provider construction and provider credential forwarding;
-- UUID/handle parsing and provider policy/cursor validation;
-- Work payload null/empty and populated shapes;
-- ingest/discovery/work/inspect/read success and stable error contracts;
-- full-text acquisition dependency wiring;
-- database-upgrade serialization/error translation;
-- identity suggestion/decision serialization and failures;
-- rule/model claim-extraction metadata contracts;
-- generalized evidence payload variants and fallback behavior;
-- claim list/show filtering and repository failures;
-- citation/resource pagination and missing-state boundaries;
-- verification record/list/show/candidate failures and evidence-only expansion;
-- source-observation summary provenance;
-- bibliography/legacy routing and real module execution;
-- top-level identity parser and dispatch.
+`9588a5740576f9a4be1efeeb04ebc35b4d622305`
 
-The test strategy intentionally verifies observable contracts and dependency wiring rather than merely
-executing uncovered lines.
+Python 3.13 result:
 
----
+- **1,289 passed / 36 deselected**;
+- repository aggregate: **12,277 statements / 901 misses; 3,870 branches / 669 partials = 90%**;
+- `domain/bibliography.py`: **51 statements + 14 branches = 100%**;
+- `domain/citations.py`: **153 + 66 = 100%**;
+- `domain/discovery.py`: **89 + 14 = 100%**;
+- `domain/identity_candidates.py`: **79 + 36 = 100%**;
+- `domain/media_types.py`: **16 + 8 = 100%**;
+- `domain/models.py`: **139 + 52 = 100%**;
+- `domain/policy_requests.py`: **29 + 16 = 100%**;
+- `domain/rights_access.py`: **50 + 20 = 100%**;
+- `domain/source_artifacts.py`: **93 + 36 = 100%**;
+- `domain/source_observations.py`: **151 + 32 = 100%**;
+- `domain/traversal.py`: **234 + 102 = 100%**;
+- `domain/verification.py`: **44 + 16 = 100%**;
+- `domain/work_identity.py`: **30 + 4 = 100%**.
 
-## 5. Review status / decisions
+The same head passed Python 3.11/3.12/3.13, Ruff, strict mypy, SQLFluff, zizmor, the inherited Phase 5
+and interface/runtime gates, and 617/617 cumulative Phase 5 changed-line coverage.
 
-All substantive inline findings seen before this snapshot were dispositioned with commit-backed replies
-and resolved. Reviewer-driven improvements included:
-
-- complete `ResearchQuery` argument-forwarding assertions;
-- exact `FullTextAcquisitionService` dependency graph assertions;
-- discovery provider environment/credential forwarding;
-- deterministic removal of inherited `TARKKA_WORK_BACKEND` in the script-entrypoint test;
-- null/empty Work payload coverage;
-- model extractor optional-default coverage;
-- successful `rationale=None` identity decisions;
-- rule-extractor payloads without model metadata;
-- realistic `Hypothesis` records for non-Claim filtering;
-- Ruff formatting fixes.
-
-A late Kilo question about the removed `char_end` expectation was verified against production code and
-resolved: passage evidence intentionally exposes `passage_char_start` / `passage_char_end`; there is no
-redundant `char_end` alias.
-
-Re-list inline threads and submitted reviews on the final live head before merging because bots can add
-new comments after this snapshot.
+The current branch is newer than this validated measurement because later commits completed the
+13-module permanent ratchet, extended mutation configuration, and refreshed this handoff. Revalidate
+the live head before merging.
 
 ---
 
-## 6. Exact next actions
+## 4. Test strategy added in #193
 
-1. Read the live #186 head SHA. This documentation commit is newer than the source/CI-ratchet SHAs
-   quoted above.
-2. Confirm final-head CI:
+The new tests protect actual domain behavior rather than merely exercising lines:
+
+- immutable mapping/value-object contracts for Workspace, Work, Acquisition, discovery, and source
+  observations;
+- source artifact ordinals/page/label/range validation;
+- identity-candidate evidence/index/review invariants;
+- evidence-relation exact-evidence and `NO_EVIDENCE` semantics;
+- rights decisions and explicit resource-use semantics;
+- policy-request budget accounting and elapsed-time monotonicity;
+- citation mention/context/resolution/work-relation invariants;
+- bibliography source identity and format-specific publication mapping;
+- discovery query/provider/cursor/year validation;
+- traversal target/checkpoint construction, provenance, deduplication, eligibility, request/byte
+  accounting, finalization, recovery, retry, failure, and skip transitions.
+
+Traversal hardening intentionally complements the existing Hypothesis lifecycle state machine instead of
+replacing it with duplicated example tests.
+
+---
+
+## 5. Mutation testing
+
+`pyproject.toml` now preserves the existing mutmut targets and adds the highest-risk completed #188
+state machine:
+
+- `src/tarkka/domain/identifiers.py`
+- `src/tarkka/domain/traversal.py`
+- `src/tarkka/infrastructure/storage/parser_identity.py`
+
+The selected mutation tests are bounded to identifier/parser identity plus traversal budget,
+checkpoint, finalization, invariant, and property tests.
+
+PR-side **Mutation Testing / Validate mutation tooling** passed on source head
+`f5ef4fd7b270ae17792a0935a4ebc35077053774`. The expensive targeted mutation baseline is deliberately
+not run on every PR; `.github/workflows/mutation-testing.yml` runs it on the weekly schedule or manual
+workflow dispatch. Do not claim an actual mutation-score result until such a run is observed.
+
+---
+
+## 6. Review status
+
+Two substantive CodeRabbit findings were dispositioned:
+
+1. Citation range-length mismatch coverage — declined as duplicate after verifying existing
+   `tests/test_citation_contracts.py` already covers both mention and context mismatch branches;
+   CodeRabbit independently verified this and withdrew the finding.
+2. Capability-manifest blank media type — implemented by separating the blank-string case from the
+   non-string-member case.
+
+Both inline threads are resolved. The stale CodeRabbit `CHANGES_REQUESTED` review from old head
+`26bdb6216e1d708b6313fc13512e8dfb95543169` was dismissed after both findings were resolved/withdrawn.
+Re-sweep the final live head because bots can add new comments after this snapshot.
+
+---
+
+## 7. Exact next actions
+
+1. Read the live #193 head SHA; this handoff commit advances it beyond the SHAs above.
+2. Confirm final-head workflows:
    - Python 3.11 / 3.12 / 3.13;
    - Ruff / strict mypy / SQLFluff / zizmor;
    - Phase 5 subsystem = 100%;
-   - coverage checker = 100%;
-   - **full interface/runtime gate = 100%**;
+   - interface/runtime = 100%;
+   - **13-module core-domain ratchet = 100%**;
    - cumulative Phase 5 diff = 617/617;
-   - current-PR changed executable lines = 100%;
-   - Dependency Review and all other workflows actually triggered on the head.
-3. Re-list all top-level comments, inline review threads, and review submissions. Apply or explicitly
-   decline findings with evidence; resolve every substantive thread.
-4. Update PR #186 body and #187/#185 with exact final-head metrics and readiness state.
-5. Leave a final merge-readiness comment.
-6. Merge #186 to `main` using expected-head SHA protection once branch rules allow it.
-7. Close #187 as completed and update #185 to point at #188.
-8. Create a fresh #188 branch from the new `main` and open its PR before doing core-domain work.
+   - Mutation Testing tooling validation succeeds;
+   - Package, PostgreSQL repository checks, Dependency Review, Docling, PR-Agent, and other triggered
+     workflows are green.
+3. Re-list inline review threads and submitted reviews. Resolve or explicitly disposition every new
+   substantive finding.
+4. Update PR #193 and #188/#185 with exact final-head metrics/readiness.
+5. Merge #193 with expected-head SHA protection when branch rules allow it.
+6. Close #188 completed and update #185 to make #189 active.
+7. Create `test/security-network-coverage-ratchet` from the new merge SHA and open the #189 PR.
 
 ---
 
-## 7. #188 prepared starting point
+## 8. #189 prepared starting point
 
-Issue #188 targets pure/core domain invariant coverage. Current coverage hotspots from the #187 final
-measurement include:
+The latest coverage measurement puts the next security/network targets at:
 
-- `domain/identity_candidates.py`: **70%** — 17 missed statements / 17 partial branches;
-- `domain/source_artifacts.py`: **72%** — 18 missed / 18 partials;
-- `domain/verification.py`: **77%** — 7 missed / 7 partials;
-- `domain/traversal.py`: **77%** — 39 missed / 39 partials;
-- `domain/models.py`: **81%** — 19 missed / 16 partials;
-- `domain/rights_access.py`: **83%**;
-- `domain/citations.py`: **90%**.
+- `domain/resource_acquisition.py`: **93%** — remaining lines 63, 67-68, 84-85, 172, 181, 193-194;
+- `domain/http_observations.py`: **93%** — 107, 113-114, 132-133, 196, 271-272, 289, 292, 312-313;
+- `domain/policy_fetch_finalization.py`: **74%** — 12, 40, 46, 52, 54, 60;
+- `domain/crawl_access.py`: **81%**;
+- `domain/robots_cache.py`: **82%**;
+- `domain/robots_rules.py`: **87%**;
+- `application/http_acquisition.py`: **82%**;
+- `application/http_policy_fetch.py`: **84%**;
+- `application/recursive_crawl.py`: **80%**;
+- `application/crawl_eligibility.py`: **80%**;
+- `application/robots_refresh.py`: **85%**;
+- `infrastructure/web/pinned_http_transport.py`: **89%**;
+- `ports/http_transport.py`: **67%**.
 
-Recommended first #188 batch: close the compact invariant-heavy value objects before tackling the much
-larger traversal state machine. Start with `identity_candidates.py`, `source_artifacts.py`, and
-`verification.py`; use parametrized/property tests for validation boundaries, then permanently ratchet
-completed coherent modules to 100%. After the domain slice reaches 100%, run targeted mutation testing
-to verify assertion quality as required by #188.
+Start #189 with the compact validation/provenance-heavy domain modules
+`resource_acquisition.py`, `http_observations.py`, and `policy_fetch_finalization.py`, permanently
+ratchet each completed set, then move outward into robots/crawl and the HTTP transport/application
+boundaries. Favor adversarial/property/failure-injection tests for SSRF, DNS/address policy, redirect,
+budget, and provenance behavior.
 
 ---
 
-## 8. Broader roadmap / GitHub automation
+## 9. Remaining program
 
-Coverage child issues:
+Coverage children:
 
-- #187 — interface/runtime (**merge candidate**)
-- #188 — core domain invariants (**next**)
-- #189 — security/network acquisition
+- #187 — interface/runtime (**completed / merged**)
+- #188 — core domain invariants (**final merge candidate**)
+- #189 — security/network acquisition (**next**)
 - #190 — durable persistence adapters
 - #191 — parser/provider/extraction adapters
 
-Repository automation issue #192 tracks GitHub-native settings/security features: verify CodeQL default
-setup and secret-scanning/push-protection state, enable delete-merged-branches, and evaluate auto-merge
-and update-branch support. Do not add a duplicate CodeQL workflow or another generic AI reviewer.
+Parent #185 remains open until repository-wide deterministic branch coverage reaches 100% without
+artificial exclusions.
 
-Release/PyPI SBOM/provenance attestations remain deferred until release policy is finalized.
+Repository automation issue #192 remains separate and tracks GitHub-native security/settings work.

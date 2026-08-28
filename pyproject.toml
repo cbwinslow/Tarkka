@@ -88,11 +88,17 @@ packages = ["tarkka"]
 source_paths = ["src/tarkka"]
 only_mutate = [
     "src/tarkka/domain/identifiers.py",
+    "src/tarkka/domain/traversal.py",
     "src/tarkka/infrastructure/storage/parser_identity.py",
 ]
 pytest_add_cli_args_test_selection = [
     "tests/test_identifiers.py",
     "tests/test_parser_identity.py",
+    "tests/test_policy_request_budget.py",
+    "tests/test_traversal_checkpoints.py",
+    "tests/test_traversal_finalization_serialization.py",
+    "tests/test_traversal_invariant_hardening.py",
+    "tests/test_traversal_properties.py",
 ]
 mutate_only_covered_lines = true
 max_stack_depth = 8

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from tarkka.domain.source_observations import ResourceLinkObservation, SourceObservation
 from tarkka.ports.source_observations import SourceObservationRepository
 
@@ -43,13 +45,44 @@ class SourceObservationRepositoryContract:
         repository: SourceObservationRepository,
         first: SourceObservation,
         conflicting: SourceObservation,
+        conflict_error: type[Exception],
     ) -> None:
         repository.save_observation(first)
-        try:
-            repository.save_observation(conflicting)
-        except Exception:
-            pass
-        else:
-            raise AssertionError("conflicting stable observation ID must fail explicitly")
+        SourceObservationRepositoryContract._expect_conflict(
+            conflict_error,
+            lambda: repository.save_observation(conflicting),
+        )
 
         assert repository.get_observation(first.observation_id) == first
+
+    @staticmethod
+    def assert_conflicting_link_fails(
+        repository: SourceObservationRepository,
+        observation: SourceObservation,
+        first: ResourceLinkObservation,
+        conflicting: ResourceLinkObservation,
+        conflict_error: type[Exception],
+    ) -> None:
+        repository.save_observation(observation)
+        repository.save_resource_link(first)
+        SourceObservationRepositoryContract._expect_conflict(
+            conflict_error,
+            lambda: repository.save_resource_link(conflicting),
+        )
+
+        assert repository.list_resource_links(observation.observation_id) == (first,)
+
+    @staticmethod
+    def _expect_conflict(
+        conflict_error: type[Exception],
+        operation: Callable[[], object],
+    ) -> None:
+        try:
+            operation()
+        except conflict_error:
+            return
+        except Exception as exc:
+            raise AssertionError(
+                f"expected {conflict_error.__name__}, got {type(exc).__name__}"
+            ) from exc
+        raise AssertionError(f"expected {conflict_error.__name__} to be raised")

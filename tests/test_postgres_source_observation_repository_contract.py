@@ -18,6 +18,7 @@ from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
 from tarkka.infrastructure.postgres.migrations import upgrade
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.postgres.source_observation_repository import (
+    PostgresSourceObservationConflictError,
     PostgresSourceObservationRepository,
 )
 from tests.contracts.source_observation_repository import SourceObservationRepositoryContract
@@ -100,6 +101,19 @@ def test_postgres_source_observation_repository_satisfies_shared_contract(
     )
     SourceObservationRepositoryContract.assert_link_write_is_idempotent(
         repository, observation, link
+    )
+    SourceObservationRepositoryContract.assert_conflicting_observation_fails(
+        repository,
+        observation,
+        replace(observation, metadata={"title": "Different evidence"}),
+        PostgresSourceObservationConflictError,
+    )
+    SourceObservationRepositoryContract.assert_conflicting_link_fails(
+        repository,
+        observation,
+        link,
+        replace(link, target_uri="https://example.test/different.csv"),
+        PostgresSourceObservationConflictError,
     )
 
 

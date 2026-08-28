@@ -92,6 +92,7 @@ def test_context_queries_cover_empty_unbounded_and_nonmatching_documents(tmp_pat
         passage_id=passage_id,
     )
 
+    repository.save_context(other_document)
     assert repository.list_contexts_for_passages(
         document_id,
         frozenset({passage_id}),
@@ -99,8 +100,6 @@ def test_context_queries_cover_empty_unbounded_and_nonmatching_documents(tmp_pat
     ) == ()
 
     repository.save_context(matching)
-    repository.save_context(other_document)
-
     assert repository.list_contexts_for_passages(
         document_id,
         frozenset({passage_id}),

@@ -78,10 +78,11 @@ def _section_spans(text: str, *, initial_title: str) -> list[tuple[str, int, int
         current_level = level
         current_start = content_start
 
-    if current_start <= len(text):
-        specs.append((current_title, current_level, current_start, len(text)))
-    if not specs:
-        specs.append((initial_title, 1, 0, len(text)))
+    # current_start is initialized to zero and thereafter comes from a heading's
+    # content offset, so it cannot exceed len(text). Appending the terminal span
+    # unconditionally removes two unreachable fallback branches while preserving
+    # the empty-document case as a single empty section.
+    specs.append((current_title, current_level, current_start, len(text)))
     return specs
 
 

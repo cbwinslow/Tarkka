@@ -71,10 +71,14 @@ def _normalize_coverage_path(filename: str) -> str | None:
     ``--cov=scripts`` either below ``scripts/`` or as a bare filename relative
     to that source root. Parent traversal is collapsed across the entire path
     before any repository suffix is selected, so an escaping path cannot be
-    reinterpreted as a valid later suffix. For absolute/noisy paths, the
-    rightmost recognized repository suffix wins. A bare Python filename maps
-    to ``scripts/``; this cannot create root-level false positives because git
-    diff is independently scoped to ``src/tarkka`` and ``scripts`` before
+    reinterpreted as a valid later suffix.
+
+    For absolute/noisy paths, the rightmost ``src/tarkka`` root owns everything
+    below it, including any nested directory named ``scripts``. Only when no
+    package root exists do we select the rightmost repository-level ``scripts``
+    suffix. A bare Python filename maps to ``scripts/``; this cannot create
+    root-level changed-line false positives because git diff independently
+    defines the eligible changes under ``src/tarkka`` and ``scripts`` before
     coverage data is joined.
     """
     raw_parts = PurePosixPath(filename.replace("\\", "/")).parts
@@ -87,16 +91,18 @@ def _normalize_coverage_path(filename: str) -> str | None:
     elif len(parts) == 1 and parts[0].endswith(".py"):
         candidate_parts = ("scripts", *parts)
     else:
-        candidate_parts: tuple[str, ...] | None = None
-        for index in range(len(parts) - 1, -1, -1):
-            if parts[index] == "scripts":
-                candidate_parts = parts[index:]
-                break
-            if parts[index : index + 2] == ("src", "tarkka"):
-                candidate_parts = parts[index:]
-                break
-        if candidate_parts is None:
-            return None
+        package_roots = [
+            index
+            for index in range(len(parts) - 1)
+            if parts[index : index + 2] == ("src", "tarkka")
+        ]
+        if package_roots:
+            candidate_parts = parts[max(package_roots) :]
+        else:
+            script_roots = [index for index, part in enumerate(parts) if part == "scripts"]
+            if not script_roots:
+                return None
+            candidate_parts = parts[max(script_roots) :]
 
     value = str(PurePosixPath(*candidate_parts))
     return value if _is_tracked_python_path(value) else None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
 
 import pytest
@@ -9,34 +10,41 @@ from tarkka.ports.full_text import FullTextResource
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.regression]
 
 
-def _resource(**overrides: object) -> FullTextResource:
-    values: dict[str, object] = {
-        "provider": "fixture",
-        "source_uri": "https://example.org/paper.txt",
-        "media_type": "text/plain",
-        "filename": "paper.txt",
-        "metadata": {"source": "fixture"},
-    }
-    values.update(overrides)
-    return FullTextResource(**values)  # type: ignore[arg-type]
+def _resource(
+    *,
+    provider: str = "fixture",
+    source_uri: str = "https://example.org/paper.txt",
+    media_type: str = "text/plain",
+    filename: str = "paper.txt",
+    metadata: Mapping[str, str] | None = None,
+) -> FullTextResource:
+    return FullTextResource(
+        provider=provider,
+        source_uri=source_uri,
+        media_type=media_type,
+        filename=filename,
+        metadata={"source": "fixture"} if metadata is None else metadata,
+    )
 
 
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        ("provider", " ", "provider must not be blank"),
-        ("source_uri", " ", "source URI must not be blank"),
-        ("media_type", " ", "media type must not be blank"),
-        ("filename", " ", "filename must not be blank"),
-    ],
-)
-def test_full_text_resource_rejects_blank_required_fields(
-    field: str,
-    value: str,
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        _resource(**{field: value})
+def test_full_text_resource_rejects_blank_provider() -> None:
+    with pytest.raises(ValueError, match="provider must not be blank"):
+        _resource(provider=" ")
+
+
+def test_full_text_resource_rejects_blank_source_uri() -> None:
+    with pytest.raises(ValueError, match="source URI must not be blank"):
+        _resource(source_uri=" ")
+
+
+def test_full_text_resource_rejects_blank_media_type() -> None:
+    with pytest.raises(ValueError, match="media type must not be blank"):
+        _resource(media_type=" ")
+
+
+def test_full_text_resource_rejects_blank_filename() -> None:
+    with pytest.raises(ValueError, match="filename must not be blank"):
+        _resource(filename=" ")
 
 
 @pytest.mark.parametrize(

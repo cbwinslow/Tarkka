@@ -52,15 +52,13 @@ class SystemHostResolver:
         if not self._slots.acquire(timeout=timeout):
             raise TimeoutError("HTTP hostname resolution exceeded its deadline")
 
-        result_queue: queue.Queue[tuple[tuple[str, ...] | None, Exception | None]] = queue.Queue(
-            maxsize=1
-        )
+        result_queue: queue.Queue[tuple[str, ...] | Exception] = queue.Queue(maxsize=1)
 
         def resolve_worker() -> None:
             try:
-                result_queue.put((_resolve_host(normalized_hostname), None))
+                result_queue.put(_resolve_host(normalized_hostname))
             except Exception as exc:
-                result_queue.put((None, exc))
+                result_queue.put(exc)
             finally:
                 self._slots.release()
 
@@ -71,12 +69,10 @@ class SystemHostResolver:
         if worker.is_alive():
             raise TimeoutError("HTTP hostname resolution exceeded its deadline")
 
-        addresses, error = result_queue.get_nowait()
-        if error is not None:
-            raise error
-        if addresses is None:
-            raise RuntimeError("HTTP hostname resolver returned no result")
-        return addresses
+        result = result_queue.get_nowait()
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 class PinnedHttpTransport:
@@ -294,8 +290,6 @@ def _read_limited(
         if sock is not None:
             sock.settimeout(remaining_time)
         remaining_with_sentinel = limit + 1 - len(body)
-        if remaining_with_sentinel <= 0:
-            break
         chunk = response.read(min(_READ_CHUNK_BYTES, remaining_with_sentinel))
         if not chunk:
             break

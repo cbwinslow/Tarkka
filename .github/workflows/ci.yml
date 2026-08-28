@@ -121,6 +121,14 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/__main__.py,src/tarkka/interfaces/cli.py,src/tarkka/interfaces/main.py
           --fail-under=100
+      - name: Enforce compact core domain invariant coverage
+        # The first #188 pure-domain slice is entirely validation/state contracts;
+        # protect it independently as the broader core-domain ratchet advances.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/domain/identity_candidates.py,src/tarkka/domain/source_artifacts.py,src/tarkka/domain/verification.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

@@ -51,7 +51,10 @@ def test_normalize_media_type_normalizes_case_and_parameters() -> None:
     assert normalize_media_type(None) is None
 
 
-@pytest.mark.parametrize(("scheme", "value", "message"), [(" ", "x", "scheme"), ("doi", " ", "value")])
+@pytest.mark.parametrize(
+    ("scheme", "value", "message"),
+    [(" ", "x", "scheme"), ("doi", " ", "value")],
+)
 def test_work_identifier_rejects_blank_components(
     scheme: str,
     value: str,

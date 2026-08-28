@@ -190,6 +190,14 @@ jobs:
           uv run --no-sync coverage report
           --include=src/tarkka/ports/full_text.py,src/tarkka/ports/http_transport.py,src/tarkka/infrastructure/web/pinned_http_transport.py,src/tarkka/infrastructure/full_text/http.py
           --fail-under=100
+      - name: Enforce PostgreSQL persistence foundation coverage
+        # The connection/error taxonomy, migration durability, and acquisition
+        # provenance foundation completed under #190 are permanently protected.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=src/tarkka/infrastructure/postgres/acquisition_recorder.py,src/tarkka/infrastructure/postgres/connection.py,src/tarkka/infrastructure/postgres/migrations.py
+          --fail-under=100
       - name: Enforce full coverage of recent Phase 5 changes
         # This is a permanent cumulative ratchet, so it intentionally runs both
         # on pull requests and on pushes to main.

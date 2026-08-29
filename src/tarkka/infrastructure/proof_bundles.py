@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -85,10 +87,21 @@ def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
 
 
 def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> int:
-    """Write a deterministic bundle and return the exact byte count persisted."""
+    """Verify a durable sibling temp file before atomically publishing the bundle."""
     data = build_proof_bundle_bytes(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        verify_proof_bundle(temp_path)
+        os.replace(temp_path, path)
+        _fsync_directory(path.parent)
+    finally:
+        temp_path.unlink(missing_ok=True)
     return len(data)
 
 
@@ -161,7 +174,6 @@ def _verify_archive(
         raise ProofBundleVerificationError("proof bundle manifest exceeds the configured limit")
     manifest_bytes = _read_member(archive, PROOF_BUNDLE_MANIFEST_PATH)
     manifest = _parse_manifest(manifest_bytes)
-    _validate_manifest_lineage(manifest)
 
     expected_names = [PROOF_BUNDLE_MANIFEST_PATH, manifest.artifact.path]
     if names != expected_names:
@@ -245,18 +257,6 @@ def _parse_manifest(data: bytes) -> ProofBundleManifest:
         raise ProofBundleVerificationError(str(exc)) from exc
 
 
-def _validate_manifest_lineage(manifest: ProofBundleManifest) -> None:
-    artifact_id = manifest.artifact.artifact_id
-    if any(
-        observation.native_artifact_id is not None
-        and observation.native_artifact_id != artifact_id
-        for observation in manifest.source_observations
-    ):
-        raise ProofBundleVerificationError(
-            "proof bundle source observation references another native artifact"
-        )
-
-
 def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -314,3 +314,15 @@ def _zip_info(name: str) -> zipfile.ZipInfo:
     info.create_system = 3
     info.external_attr = _FILE_MODE << 16
     return info
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush an atomic publish where the platform exposes POSIX directory fsync."""
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)

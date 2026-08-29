@@ -13,6 +13,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineageEvidenceNotFoundError,
     ClaimLineageExtractionRunNotFoundError,
     ClaimLineageMismatchError,
+    ClaimLineagePaginationError,
 )
 
 
@@ -47,12 +48,12 @@ def claim_lineage_problem(exc: Exception) -> ClaimLineageProblem:
         return ClaimLineageProblem("citation_context_not_found", str(exc))
     if isinstance(exc, ClaimLineageMismatchError):
         return ClaimLineageProblem("lineage_mismatch", str(exc))
-    if isinstance(exc, ValueError):
+    if isinstance(exc, ClaimLineagePaginationError):
         return ClaimLineageProblem(
             "invalid_argument",
             str(exc),
             ("research_operation_schema",),
         )
-    if isinstance(exc, (OSError, RuntimeError)):
+    if isinstance(exc, (ValueError, OSError, RuntimeError)):
         return ClaimLineageProblem("backend_unavailable", str(exc))
     raise TypeError(f"unsupported Claim lineage error: {type(exc).__name__}")

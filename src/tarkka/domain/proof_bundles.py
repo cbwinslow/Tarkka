@@ -14,7 +14,7 @@ from types import MappingProxyType
 from typing import Any
 from uuid import UUID
 
-from tarkka.domain.identifiers import artifact_id_from_sha256
+from tarkka.domain.identifiers import artifact_id_from_sha256, require_sha256
 from tarkka.domain.source_observations import ObservationBasis, ResourceRelation
 
 PROOF_BUNDLE_FORMAT = "tarkka-proof-bundle"
@@ -24,7 +24,7 @@ PROOF_BUNDLE_MANIFEST_PATH = "manifest.json"
 
 def artifact_member_path(sha256: str) -> str:
     """Return the canonical content-addressed archive path for one source artifact."""
-    _validate_sha256(sha256)
+    require_sha256(sha256, field_name="proof bundle sha256")
     return f"artifacts/sha256/{sha256}"
 
 
@@ -40,7 +40,6 @@ class ProofBundleArtifact:
     acquired_at: str
 
     def __post_init__(self) -> None:
-        _validate_sha256(self.sha256)
         if self.artifact_id != artifact_id_from_sha256(self.sha256):
             raise ValueError("proof bundle artifact_id must be derived from sha256")
         if self.size_bytes < 0:
@@ -448,11 +447,6 @@ def _uuid(value: object, field_name: str) -> UUID:
         return UUID(raw)
     except ValueError as exc:
         raise ValueError(f"{field_name} must be a UUID") from exc
-
-
-def _validate_sha256(value: str) -> None:
-    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
-        raise ValueError("proof bundle sha256 must be a lowercase 64-character hexadecimal digest")
 
 
 def _validate_datetime(value: str, field_name: str) -> None:

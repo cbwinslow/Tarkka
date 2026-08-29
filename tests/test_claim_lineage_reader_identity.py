@@ -186,7 +186,11 @@ def _service(
     )
 
 
-def _context(*, context_id: UUID = _CONTEXT_ID, document_id: UUID = _DOCUMENT_ID) -> CitationContext:
+def _context(
+    *,
+    context_id: UUID = _CONTEXT_ID,
+    document_id: UUID = _DOCUMENT_ID,
+) -> CitationContext:
     return CitationContext(
         context_id=context_id,
         mention_id=_id(6),
@@ -218,8 +222,15 @@ def test_inspect_rejects_run_lookup_returning_different_run_id() -> None:
 
 def test_inspect_rejects_document_lookup_returning_different_document_id() -> None:
     _, _, _, document, _ = _fixture()
+    wrong_document = Document(
+        document_id=_id(99),
+        artifact_id=document.artifact_id,
+        title="Wrong document",
+        parser_name="fixture",
+        parser_version="1",
+    )
     with pytest.raises(ClaimLineageMismatchError, match="lookup returned a different Document"):
-        _service(document=replace(document, document_id=_id(99))).inspect(_CLAIM_ID)
+        _service(document=wrong_document).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_context_lookup_returning_different_context_id() -> None:

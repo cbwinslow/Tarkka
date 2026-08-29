@@ -60,8 +60,6 @@ def build_model_requests(
             batch.append(passage)
             char_count = next_count
             cursor += 1
-        if not batch:
-            raise RuntimeError("model batching failed to make progress")
         batches.append(tuple(batch))
         if cursor >= len(model_passages):
             break

@@ -339,7 +339,4 @@ def _to_domain_record(
 
 
 def _resolve_passage(passages: dict[UUID, Passage], passage_id: UUID) -> Passage:
-    try:
-        return passages[passage_id]
-    except KeyError as exc:
-        raise ValueError(f"model evidence references unknown passage: {passage_id}") from exc
+    return passages[passage_id]

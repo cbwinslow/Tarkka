@@ -508,6 +508,32 @@ def test_manifest_metadata_requires_json_compatible_values(tmp_path: Path) -> No
         replace(resource, metadata={"nested": {"bad": object()}})
 
 
+def test_manifest_metadata_is_deeply_validated_frozen_and_thawed(tmp_path: Path) -> None:
+    observation = _payload(tmp_path).manifest.source_observations[0]
+
+    with pytest.raises(ValueError, match="must be an object"):
+        replace(observation, metadata=cast(Any, []))
+    with pytest.raises(ValueError, match="keys must be non-blank strings"):
+        replace(observation, metadata={"": 1})
+    with pytest.raises(ValueError, match="keys must be non-blank strings"):
+        replace(observation, metadata={"nested": cast(Any, {1: "bad"})})
+    with pytest.raises(ValueError, match="floats must be finite"):
+        replace(observation, metadata={"score": float("nan")})
+
+    frozen = replace(
+        observation,
+        metadata={"score": 1.25, "items": [1, {"ok": True}]},
+    )
+    assert frozen.metadata["score"] == 1.25
+    assert frozen.metadata["items"] == (1, {"ok": True})
+    assert frozen.to_dict()["metadata"] == {
+        "score": 1.25,
+        "items": [1, {"ok": True}],
+    }
+    with pytest.raises(TypeError):
+        cast(dict[str, Any], frozen.metadata)["score"] = 2.0
+
+
 def test_manifest_direct_validation_rejects_inconsistent_relationships(tmp_path: Path) -> None:
     payload = _payload(tmp_path)
     manifest = payload.manifest
@@ -627,9 +653,7 @@ def test_verifier_rejects_manifest_encoding_and_json_failures(tmp_path: Path) ->
     with pytest.raises(ProofBundleVerificationError, match="valid JSON"):
         verify_proof_bundle_bytes(invalid_json)
 
-    duplicate_key_json = (
-        b'{"format":"tarkka-proof-bundle","format":"tarkka-proof-bundle"}'
-    )
+    duplicate_key_json = b'{"format":"tarkka-proof-bundle","format":"tarkka-proof-bundle"}'
     duplicate_key = _zip_members(
         [
             (PROOF_BUNDLE_MANIFEST_PATH, duplicate_key_json),
@@ -702,7 +726,9 @@ def test_verifier_rejects_tampered_artifact_size_and_digest(tmp_path: Path) -> N
 
 def test_verifier_rejects_noncanonical_manifest_and_zip_encoding(tmp_path: Path) -> None:
     payload = _payload(tmp_path)
-    pretty_manifest = (json.dumps(payload.manifest.to_dict(), indent=2, sort_keys=True) + "\n").encode()
+    pretty_manifest = (
+        json.dumps(payload.manifest.to_dict(), indent=2, sort_keys=True) + "\n"
+    ).encode()
     noncanonical_manifest = _zip_members(
         [
             (PROOF_BUNDLE_MANIFEST_PATH, pretty_manifest),

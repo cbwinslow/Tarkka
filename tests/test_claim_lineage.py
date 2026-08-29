@@ -11,9 +11,11 @@ from tarkka.application.claim_lineage import (
     MAX_CLAIM_LINEAGE_PAGE_SIZE,
     ClaimLineageArtifactNotFoundError,
     ClaimLineageCitationContextNotFoundError,
+    ClaimLineageCitationRepositoryUnavailableError,
     ClaimLineageClaimNotFoundError,
     ClaimLineageDocumentNotFoundError,
     ClaimLineageEvidenceNotFoundError,
+    ClaimLineageExtractionRunNotFoundError,
     ClaimLineageMismatchError,
     ClaimLineageService,
 )
@@ -23,6 +25,7 @@ from tarkka.domain.extraction import (
     EquationEvidence,
     Evidence,
     ExtractionProvenance,
+    ExtractionRun,
     FigureEvidence,
     TableEvidence,
 )
@@ -39,15 +42,45 @@ def _id(value: int) -> UUID:
 
 
 _DOCUMENT_ID = _id(1)
+_OTHER_DOCUMENT_ID = _id(31)
 _RUN_ID = _id(7)
+_OTHER_RUN_ID = _id(37)
 _CLAIM_ID = _id(8)
 _TEXT_EVIDENCE_ID = _id(10)
 
 
+def _locators(document_id: UUID) -> tuple[UUID, UUID, UUID, UUID, UUID]:
+    if document_id == _DOCUMENT_ID:
+        return _id(2), _id(3), _id(4), _id(5), _id(6)
+    return _id(32), _id(33), _id(34), _id(35), _id(36)
+
+
+def _run_id(document_id: UUID) -> UUID:
+    return _RUN_ID if document_id == _DOCUMENT_ID else _OTHER_RUN_ID
+
+
+def _run(document_id: UUID = _DOCUMENT_ID, *, run_id: UUID | None = None) -> ExtractionRun:
+    return ExtractionRun(
+        run_id=run_id or _run_id(document_id),
+        document_id=document_id,
+        extractor_name="fixture",
+        extractor_version="1",
+    )
+
+
 class _Source:
-    def __init__(self, claim: Claim | None, evidence: dict[UUID, object]) -> None:
+    def __init__(
+        self,
+        claim: Claim | None,
+        evidence: dict[UUID, object],
+        runs: dict[UUID, ExtractionRun],
+    ) -> None:
         self.claim = claim
         self.evidence = evidence
+        self.runs = runs
+
+    def get_run(self, run_id: UUID) -> ExtractionRun | None:
+        return self.runs.get(run_id)
 
     def get_extraction(self, extraction_id: UUID) -> object | None:
         if self.claim is not None and self.claim.extraction_id == extraction_id:
@@ -63,14 +96,11 @@ class _Relations:
         self.items = items
         self.calls: list[tuple[UUID, int, int]] = []
 
-    def count_relations(self, claim_id: UUID) -> int:
-        return len(self.items)
-
-    def list_relations(
+    def page_relations(
         self, claim_id: UUID, *, offset: int = 0, limit: int = 100
-    ) -> tuple[EvidenceRelation, ...]:
+    ) -> tuple[int, tuple[EvidenceRelation, ...]]:
         self.calls.append((claim_id, offset, limit))
-        return self.items[offset : offset + limit]
+        return len(self.items), self.items[offset : offset + limit]
 
 
 class _Documents:
@@ -123,11 +153,7 @@ def _document(
     table_column_count: int | None = 2,
 ) -> tuple[Document, Artifact]:
     stored_artifact = artifact or _artifact("a" * 64)
-    section_id = _id(2) if document_id == _DOCUMENT_ID else _id(32)
-    passage_id = _id(3) if document_id == _DOCUMENT_ID else _id(33)
-    figure_id = _id(4) if document_id == _DOCUMENT_ID else _id(34)
-    table_id = _id(5) if document_id == _DOCUMENT_ID else _id(35)
-    equation_id = _id(6) if document_id == _DOCUMENT_ID else _id(36)
+    section_id, passage_id, figure_id, table_id, equation_id = _locators(document_id)
     passage = Passage(
         passage_id=passage_id,
         document_id=document_id,
@@ -168,17 +194,14 @@ def _document(
     )
 
 
-def _provenance(run_id: UUID = _RUN_ID) -> ExtractionProvenance:
-    return ExtractionProvenance(run_id=run_id, confidence=0.9)
+def _provenance(document_id: UUID = _DOCUMENT_ID, *, run_id: UUID | None = None) -> ExtractionProvenance:
+    return ExtractionProvenance(run_id=run_id or _run_id(document_id), confidence=0.9)
 
 
 def _evidence_set(document_id: UUID = _DOCUMENT_ID) -> dict[UUID, object]:
-    section_id = _id(2) if document_id == _DOCUMENT_ID else _id(32)
-    passage_id = _id(3) if document_id == _DOCUMENT_ID else _id(33)
-    figure_id = _id(4) if document_id == _DOCUMENT_ID else _id(34)
-    table_id = _id(5) if document_id == _DOCUMENT_ID else _id(35)
-    equation_id = _id(6) if document_id == _DOCUMENT_ID else _id(36)
+    section_id, passage_id, figure_id, table_id, equation_id = _locators(document_id)
     base = 10 if document_id == _DOCUMENT_ID else 40
+    provenance = _provenance(document_id)
     return {
         _id(base): Evidence(
             evidence_id=_id(base),
@@ -188,13 +211,13 @@ def _evidence_set(document_id: UUID = _DOCUMENT_ID) -> dict[UUID, object]:
             passage_char_start=0,
             passage_char_end=5,
             text="alpha" if document_id == _DOCUMENT_ID else "contr",
-            provenance=_provenance(),
+            provenance=provenance,
         ),
         _id(base + 1): FigureEvidence(
             evidence_id=_id(base + 1),
             document_id=document_id,
             figure_id=figure_id,
-            provenance=_provenance(),
+            provenance=provenance,
         ),
         _id(base + 2): TableEvidence(
             evidence_id=_id(base + 2),
@@ -204,13 +227,13 @@ def _evidence_set(document_id: UUID = _DOCUMENT_ID) -> dict[UUID, object]:
             row_end=1,
             column_start=0,
             column_end=1,
-            provenance=_provenance(),
+            provenance=provenance,
         ),
         _id(base + 3): EquationEvidence(
             evidence_id=_id(base + 3),
             document_id=document_id,
             equation_id=equation_id,
-            provenance=_provenance(),
+            provenance=provenance,
         ),
     }
 
@@ -251,6 +274,7 @@ def _service(
     *,
     claim: Claim | None = None,
     evidence: dict[UUID, object] | None = None,
+    runs: dict[UUID, ExtractionRun] | None = None,
     documents: dict[UUID, Document] | None = None,
     artifacts: dict[UUID, Artifact] | None = None,
     relations: tuple[EvidenceRelation, ...] = (),
@@ -258,7 +282,11 @@ def _service(
 ) -> ClaimLineageService:
     document, artifact = _document()
     return ClaimLineageService(
-        source=_Source(claim if claim is not None else _claim(), evidence or _evidence_set()),
+        source=_Source(
+            claim if claim is not None else _claim(),
+            evidence if evidence is not None else _evidence_set(),
+            runs if runs is not None else {_RUN_ID: _run()},
+        ),
         relations=_Relations(relations),
         documents=_Documents(
             documents if documents is not None else {document.document_id: document},
@@ -272,9 +300,11 @@ def test_inspect_resolves_original_evidence_and_cross_document_assessments() -> 
     document, artifact = _document()
     other_artifact = _artifact("b" * 64)
     other_document, _ = _document(
-        document_id=_id(31), artifact=other_artifact, passage_text="contrary finding"
+        document_id=_OTHER_DOCUMENT_ID,
+        artifact=other_artifact,
+        passage_text="contrary finding",
     )
-    evidence = {**_evidence_set(), **_evidence_set(_id(31))}
+    evidence = {**_evidence_set(), **_evidence_set(_OTHER_DOCUMENT_ID)}
     context = CitationContext(
         context_id=_id(50),
         mention_id=_id(51),
@@ -292,7 +322,11 @@ def test_inspect_resolves_original_evidence_and_cross_document_assessments() -> 
     )
     relation_repo = _Relations(relations)
     service = ClaimLineageService(
-        source=_Source(_claim(), evidence),
+        source=_Source(
+            _claim(),
+            evidence,
+            {_RUN_ID: _run(), _OTHER_RUN_ID: _run(_OTHER_DOCUMENT_ID)},
+        ),
         relations=relation_repo,
         documents=_Documents(
             {document.document_id: document, other_document.document_id: other_document},
@@ -304,6 +338,7 @@ def test_inspect_resolves_original_evidence_and_cross_document_assessments() -> 
     result = service.inspect(_CLAIM_ID, offset=0, limit=3)
 
     assert result.claim.text == "Treatment improves outcome."
+    assert result.claim_run == _run()
     assert result.claim_source.document == document
     assert result.claim_source.artifact == artifact
     assert [type(item.source).__name__ for item in result.claim_evidence] == [
@@ -312,11 +347,13 @@ def test_inspect_resolves_original_evidence_and_cross_document_assessments() -> 
         "Table",
         "Equation",
     ]
+    assert all(item.run == result.claim_run for item in result.claim_evidence)
     assert result.total_relations == 3
     assert result.assessments[0].citation_context == context
     assert result.assessments[1].evidence is not None
     assert result.assessments[1].evidence.lineage.document == other_document
     assert result.assessments[1].evidence.lineage.artifact == other_artifact
+    assert result.assessments[1].evidence.run == _run(_OTHER_DOCUMENT_ID)
     assert result.assessments[2].evidence is None
     assert result.assessments[2].citation_context is None
     assert relation_repo.calls == [(_CLAIM_ID, 0, 3)]
@@ -327,7 +364,7 @@ def test_inspect_passes_bounded_pagination_to_relation_repository() -> None:
     repository = _Relations(relations)
     document, artifact = _document()
     service = ClaimLineageService(
-        source=_Source(_claim(), _evidence_set()),
+        source=_Source(_claim(), _evidence_set(), {_RUN_ID: _run()}),
         relations=repository,
         documents=_Documents({document.document_id: document}, {artifact.artifact_id: artifact}),
     )
@@ -364,6 +401,28 @@ def test_inspect_rejects_unknown_claim() -> None:
         _service(claim=None).inspect(_id(999))
 
 
+def test_inspect_rejects_missing_claim_run() -> None:
+    with pytest.raises(ClaimLineageExtractionRunNotFoundError, match="extraction run not found"):
+        _service(runs={}).inspect(_CLAIM_ID)
+
+
+def test_inspect_rejects_claim_run_from_different_document() -> None:
+    with pytest.raises(ClaimLineageMismatchError, match="run belongs to a different Document"):
+        _service(runs={_RUN_ID: _run(_OTHER_DOCUMENT_ID, run_id=_RUN_ID)}).inspect(_CLAIM_ID)
+
+
+def test_inspect_rejects_original_evidence_from_different_run() -> None:
+    other_run_id = _id(70)
+    evidence = _evidence_set()
+    evidence[_TEXT_EVIDENCE_ID] = replace(
+        evidence[_TEXT_EVIDENCE_ID],
+        provenance=_provenance(run_id=other_run_id),
+    )
+    runs = {_RUN_ID: _run(), other_run_id: _run(run_id=other_run_id)}
+    with pytest.raises(ClaimLineageMismatchError, match="different extraction run"):
+        _service(evidence=evidence, runs=runs).inspect(_CLAIM_ID)
+
+
 def test_inspect_rejects_missing_claim_document() -> None:
     with pytest.raises(ClaimLineageDocumentNotFoundError, match="document not found"):
         _service(documents={}).inspect(_CLAIM_ID)
@@ -373,6 +432,16 @@ def test_inspect_rejects_missing_claim_artifact() -> None:
     document, _ = _document()
     with pytest.raises(ClaimLineageArtifactNotFoundError, match="artifact not found"):
         _service(documents={document.document_id: document}, artifacts={}).inspect(_CLAIM_ID)
+
+
+def test_inspect_rejects_artifact_returned_for_wrong_document_link() -> None:
+    document, _ = _document()
+    other_artifact = _artifact("b" * 64)
+    with pytest.raises(ClaimLineageMismatchError, match="Document artifact linkage"):
+        _service(
+            documents={document.document_id: document},
+            artifacts={document.artifact_id: other_artifact},
+        ).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_noncanonical_artifact_identity() -> None:
@@ -395,7 +464,7 @@ def test_inspect_rejects_missing_claim_evidence() -> None:
 def test_inspect_rejects_claim_evidence_from_different_document() -> None:
     evidence = _evidence_set()
     evidence[_TEXT_EVIDENCE_ID] = replace(
-        evidence[_TEXT_EVIDENCE_ID], document_id=_id(31)
+        evidence[_TEXT_EVIDENCE_ID], document_id=_OTHER_DOCUMENT_ID
     )
     with pytest.raises(ClaimLineageMismatchError, match="different Document"):
         _service(evidence=evidence).inspect(_CLAIM_ID)
@@ -411,10 +480,10 @@ def test_inspect_rejects_missing_assessment_evidence() -> None:
         _service(relations=(_relation(60, evidence_id=_id(999)),)).inspect(_CLAIM_ID)
 
 
-def test_inspect_rejects_context_when_citation_repository_is_unavailable() -> None:
+def test_inspect_distinguishes_unavailable_citation_repository() -> None:
     with pytest.raises(
-        ClaimLineageCitationContextNotFoundError,
-        match="citation context not found",
+        ClaimLineageCitationRepositoryUnavailableError,
+        match="citation repository unavailable",
     ):
         _service(relations=(_relation(60, context_id=_id(50)),)).inspect(_CLAIM_ID)
 
@@ -430,7 +499,7 @@ def test_inspect_rejects_missing_citation_context() -> None:
         ).inspect(_CLAIM_ID)
 
 
-def _inspect_bad_passage(evidence_item: Evidence, document: Document) -> None:
+def _inspect_single_evidence(evidence_item: Evidence, document: Document) -> None:
     _, artifact = _document()
     service = _service(
         claim=_claim((evidence_item.evidence_id,)),
@@ -445,37 +514,38 @@ def test_inspect_rejects_missing_evidence_section() -> None:
     document, _ = _document()
     evidence = replace(_evidence_set()[_TEXT_EVIDENCE_ID], section_id=_id(999))
     with pytest.raises(ClaimLineageMismatchError, match="Section is missing"):
-        _inspect_bad_passage(evidence, document)
+        _inspect_single_evidence(evidence, document)
 
 
 def test_inspect_rejects_missing_evidence_passage() -> None:
     document, _ = _document()
     evidence = replace(_evidence_set()[_TEXT_EVIDENCE_ID], passage_id=_id(999))
     with pytest.raises(ClaimLineageMismatchError, match="Passage is missing"):
-        _inspect_bad_passage(evidence, document)
+        _inspect_single_evidence(evidence, document)
 
 
 def test_inspect_rejects_evidence_span_past_passage() -> None:
     document, _ = _document()
+    section_id, passage_id, _, _, _ = _locators(_DOCUMENT_ID)
     evidence = Evidence(
         evidence_id=_TEXT_EVIDENCE_ID,
         document_id=_DOCUMENT_ID,
-        section_id=_id(2),
-        passage_id=_id(3),
+        section_id=section_id,
+        passage_id=passage_id,
         passage_char_start=0,
         passage_char_end=12,
         text="x" * 12,
         provenance=_provenance(),
     )
     with pytest.raises(ClaimLineageMismatchError, match="span exceeds"):
-        _inspect_bad_passage(evidence, document)
+        _inspect_single_evidence(evidence, document)
 
 
 def test_inspect_rejects_evidence_text_mismatch() -> None:
     document, _ = _document()
     evidence = replace(_evidence_set()[_TEXT_EVIDENCE_ID], text="other")
     with pytest.raises(ClaimLineageMismatchError, match="text does not match"):
-        _inspect_bad_passage(evidence, document)
+        _inspect_single_evidence(evidence, document)
 
 
 def test_inspect_rejects_missing_figure() -> None:

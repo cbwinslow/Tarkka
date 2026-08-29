@@ -109,3 +109,14 @@ jobs:
               --include="$module" \
               --fail-under=100
           done < .github/coverage/identity-work-ratchets.txt
+      - name: Enforce completed verification ratchets
+        shell: bash
+        run: |
+          while IFS= read -r module || [[ -n "$module" ]]; do
+            case "$module" in
+              ""|\#*) continue ;;
+            esac
+            uv run --no-sync coverage report \
+              --include="$module" \
+              --fail-under=100
+          done < .github/coverage/verification-ratchets.txt

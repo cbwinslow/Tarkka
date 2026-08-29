@@ -24,8 +24,6 @@ def build_citation_contexts(
     for mention in mentions:
         if mention.document_id != document.document_id:
             raise ValueError("citation mention must belong to context document")
-        if not mention.raw_text:
-            raise ValueError("citation mention raw_text must not be empty")
         passage = _anchored_passage(mention, passages, passages_by_id)
         if passage is None:
             continue

@@ -1,9 +1,8 @@
-"""Read-only Model Context Protocol access to staged Tarkka document retrieval.
+"""Read-only Model Context Protocol access to staged Tarkka research retrieval.
 
-The server deliberately exposes compact discovery and the manifest-to-section
-ladder before document text. It reuses application services and the same
-JSON/PostgreSQL runtime selection as the CLI; it does not introduce a second
-domain-facing API or enable state-changing operations.
+The server exposes compact capability discovery before expansion. It reuses
+application services and the same JSON/PostgreSQL runtime composition as the CLI;
+MCP is a thin agent-facing adapter, not a second research-logic layer.
 """
 
 from __future__ import annotations
@@ -21,6 +20,19 @@ from uuid import UUID
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
+from tarkka.application.claim_lineage import (
+    ClaimLineageArtifactNotFoundError,
+    ClaimLineageCitationContextNotFoundError,
+    ClaimLineageCitationRepositoryUnavailableError,
+    ClaimLineageClaimNotFoundError,
+    ClaimLineageDocumentNotFoundError,
+    ClaimLineageEvidenceNotFoundError,
+    ClaimLineageExtractionRunNotFoundError,
+    ClaimLineageMismatchError,
+    ClaimLineageService,
+)
+from tarkka.application.claim_lineage_contract import claim_lineage_problem
+from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
@@ -36,6 +48,9 @@ from tarkka.domain.manifest import estimate_tokens
 from tarkka.domain.models import Section
 from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorder
+from tarkka.interfaces.claim_lineage_runtime import (
+    claim_lineage_service as configured_claim_lineage_service,
+)
 from tarkka.interfaces.main import _document_retrieval_service
 from tarkka.ports.telemetry import AgentUsageRecorder
 
@@ -47,20 +62,22 @@ _READ_ONLY = ToolAnnotations(
     open_world_hint=False,
 )
 _MAX_SECTION_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
+_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 
 
 def create_server(
     *,
     documents: DocumentRetrievalService | None = None,
+    lineage: ClaimLineageService | None = None,
     telemetry: AgentUsageRecorder | None = None,
 ) -> MCPServer:
-    """Build the stdio MCP server, optionally using an injected retrieval service.
+    """Build the stdio MCP server with lazily constructed configured services.
 
-    Injection keeps the transport independently testable. Normal execution
-    uses the CLI's runtime factory, so ``TARKKA_DOCUMENT_BACKEND`` selects the
-    same JSON or PostgreSQL repository for both interfaces.
+    Injection keeps the transport independently testable. Normal execution uses
+    shared runtime factories so CLI and MCP resolve the same durable backends.
     """
     retrieval = documents
+    lineage_reader = lineage
 
     def retrieval_service() -> DocumentRetrievalService:
         """Create the configured document backend only when a document tool needs it."""
@@ -68,6 +85,13 @@ def create_server(
         if retrieval is None:
             retrieval = _document_retrieval_service()
         return retrieval
+
+    def lineage_service() -> ClaimLineageService:
+        """Create the configured lineage backend only when the lineage tool needs it."""
+        nonlocal lineage_reader
+        if lineage_reader is None:
+            lineage_reader = configured_claim_lineage_service()
+        return lineage_reader
 
     def instrument(
         operation_id: str,
@@ -158,6 +182,73 @@ def create_server(
             ],
             "result_summary": schema.result_summary,
             "estimated_tokens": schema.estimated_tokens,
+        }
+
+    @server.tool(
+        name="claim_lineage",
+        description=(
+            "Inspect deterministic Claim extraction, evidence, source, "
+            "and bounded assessment lineage."
+        ),
+        annotations=_READ_ONLY,
+    )
+    @instrument("claim_lineage")
+    def claim_lineage(
+        claim_id: object,
+        offset: int = 0,
+        limit: int = 20,
+        evidence_offset: int = 0,
+        evidence_limit: int = 20,
+    ) -> dict[str, object]:
+        """Return one bounded, machine-readable Claim provenance explanation."""
+        parsed = _uuid_or_error(claim_id, kind="claim")
+        if isinstance(parsed, dict):
+            return parsed
+        try:
+            inspected = lineage_service().inspect(
+                parsed,
+                offset=offset,
+                limit=limit,
+                evidence_offset=evidence_offset,
+                evidence_limit=evidence_limit,
+            )
+        except (
+            ClaimLineageArtifactNotFoundError,
+            ClaimLineageCitationContextNotFoundError,
+            ClaimLineageCitationRepositoryUnavailableError,
+            ClaimLineageClaimNotFoundError,
+            ClaimLineageDocumentNotFoundError,
+            ClaimLineageEvidenceNotFoundError,
+            ClaimLineageExtractionRunNotFoundError,
+            ClaimLineageMismatchError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            problem = claim_lineage_problem(exc)
+            return _error(problem.code, problem.message, next_actions=problem.next_actions)
+
+        payload = claim_lineage_view(
+            inspected,
+            offset=offset,
+            limit=limit,
+            evidence_offset=evidence_offset,
+            evidence_limit=evidence_limit,
+        )
+        estimated_tokens = estimate_tokens(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        )
+        if estimated_tokens > _MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS:
+            return _error(
+                "content_too_large",
+                "claim lineage exceeds the configured estimated-token maximum; retry with a "
+                "smaller evidence_limit and/or verification limit",
+                next_actions=("claim_lineage",),
+            )
+        return {
+            "ok": True,
+            "lineage": payload,
+            "estimated_tokens": estimated_tokens,
         }
 
     @server.tool(

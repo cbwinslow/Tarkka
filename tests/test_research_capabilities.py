@@ -1,6 +1,7 @@
 import pytest
 
 from tarkka.application.citation_traversal import CitationTraversalService
+from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_capabilities import (
@@ -24,6 +25,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.documents.manifest",
         "research.documents.sections",
         "research.documents.section",
+        "research.claims.lineage",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
@@ -34,13 +36,13 @@ def test_research_capabilities_are_stable_and_compact() -> None:
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
     )
-    # The first-turn index remains deliberately bounded as capability families grow.
-    assert capabilities.estimated_tokens < 250
+    assert capabilities.estimated_tokens < 275
     assert [(item.service_type, item.method_name) for item in _OPERATION_REGISTRATIONS] == [
         (DiscoveryService, "discover"),
         (DocumentRetrievalService, "manifest"),
         (DocumentRetrievalService, "sections"),
         (DocumentRetrievalService, "section"),
+        (ClaimLineageService, "inspect"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),
@@ -55,6 +57,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     document_manifest = research_operation_schema("research.documents.manifest")
     document_sections = research_operation_schema("research.documents.sections")
     document_section = research_operation_schema("research.documents.section")
+    lineage = research_operation_schema("research.claims.lineage")
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
     context = research_operation_schema("research.verify.context")
@@ -82,6 +85,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert discover.inputs[3].required_when == "mode == only"
     assert discover.inputs[6].property_value_type == "string"
     assert discover.result_summary == "Candidate manifests and provider cursors."
+
     assert [field.name for field in document_manifest.inputs] == ["document_id"]
     assert document_manifest.result_summary == (
         "One document manifest with structural and expansion metadata."
@@ -96,6 +100,28 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert document_section.result_summary == (
         "One exact section with source-preserving normalized passage handles and text."
     )
+
+    assert [field.name for field in lineage.inputs] == [
+        "claim_id",
+        "offset",
+        "limit",
+        "evidence_offset",
+        "evidence_limit",
+    ]
+    assert lineage.inputs[1].minimum == 0
+    assert lineage.inputs[1].maximum == 10_000
+    assert lineage.inputs[2].minimum == 0
+    assert lineage.inputs[2].maximum == 100
+    assert lineage.inputs[3].minimum == 0
+    assert lineage.inputs[3].maximum == 10_000
+    assert lineage.inputs[4].minimum == 0
+    assert lineage.inputs[4].maximum == 100
+    assert lineage.operation.family == "explain"
+    assert lineage.result_summary == (
+        "Claim extraction provenance, exact evidence/source lineage, and bounded assessments."
+    )
+    assert lineage.estimated_tokens < 100
+
     assert [field.name for field in verify.inputs] == [
         "claim_id",
         "kind",
@@ -110,7 +136,12 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert verify.inputs[4].minimum == 0
     assert verify.inputs[4].maximum == 1
     assert verify.inputs[5].required_when == "kind != no_evidence"
-    assert verify.inputs[7].allowed_values == ("unreviewed", "verified", "corrected", "rejected")
+    assert verify.inputs[7].allowed_values == (
+        "unreviewed",
+        "verified",
+        "corrected",
+        "rejected",
+    )
     assert verify.operation.operation_id == "research.verify"
     assert verify.estimated_tokens < 200
     assert [field.name for field in candidates.inputs] == ["claim_id", "offset", "limit"]

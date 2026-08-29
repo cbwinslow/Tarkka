@@ -228,6 +228,7 @@ def test_inspect_rejects_document_lookup_returning_different_document_id() -> No
         title="Wrong document",
         parser_name="fixture",
         parser_version="1",
+        sections=(),
     )
     with pytest.raises(ClaimLineageMismatchError, match="lookup returned a different Document"):
         _service(document=wrong_document).inspect(_CLAIM_ID)

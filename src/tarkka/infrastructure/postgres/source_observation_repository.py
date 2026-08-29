@@ -79,21 +79,11 @@ class PostgresSourceObservationRepository:
 
     def list_resource_links(self, observation_id: UUID) -> tuple[ResourceLinkObservation, ...]:
         with self._connection() as connection:
-            rows = connection.execute(
-                _SELECT_LINKS
-                + " WHERE observation_id = %s ORDER BY resource_relation, target_uri, link_id",
-                (observation_id,),
-            ).fetchall()
-        return tuple(_link_from_row(row) for row in rows)
+            return self._list_resource_links(connection, observation_id)
 
     def list_observations_for_artifact(self, artifact_id: UUID) -> tuple[SourceObservation, ...]:
         with self._connection() as connection:
-            rows = connection.execute(
-                _SELECT_OBSERVATIONS
-                + " WHERE native_artifact_id = %s ORDER BY source_name, observation_id",
-                (artifact_id,),
-            ).fetchall()
-        return tuple(_observation_from_row(row) for row in rows)
+            return self._list_observations_for_artifact(connection, artifact_id)
 
     def page_resource_links_for_artifact(
         self, artifact_id: UUID, *, offset: int, limit: int
@@ -145,6 +135,28 @@ class PostgresSourceObservationRepository:
     def _get_resource_link(connection: Any, link_id: UUID) -> ResourceLinkObservation | None:
         row = connection.execute(_SELECT_LINKS + " WHERE link_id = %s", (link_id,)).fetchone()
         return _link_from_row(row) if row is not None else None
+
+    @staticmethod
+    def _list_resource_links(
+        connection: Any, observation_id: UUID
+    ) -> tuple[ResourceLinkObservation, ...]:
+        rows = connection.execute(
+            _SELECT_LINKS
+            + " WHERE observation_id = %s ORDER BY resource_relation, target_uri, link_id",
+            (observation_id,),
+        ).fetchall()
+        return tuple(_link_from_row(row) for row in rows)
+
+    @staticmethod
+    def _list_observations_for_artifact(
+        connection: Any, artifact_id: UUID
+    ) -> tuple[SourceObservation, ...]:
+        rows = connection.execute(
+            _SELECT_OBSERVATIONS
+            + " WHERE native_artifact_id = %s ORDER BY source_name, observation_id",
+            (artifact_id,),
+        ).fetchall()
+        return tuple(_observation_from_row(row) for row in rows)
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:

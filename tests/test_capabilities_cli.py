@@ -39,9 +39,13 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "claim_id",
         "offset",
         "limit",
+        "evidence_offset",
+        "evidence_limit",
     ]
     assert lineage_schema["inputs"][1]["maximum"] == 10_000
     assert lineage_schema["inputs"][2]["maximum"] == 100
+    assert lineage_schema["inputs"][3]["maximum"] == 10_000
+    assert lineage_schema["inputs"][4]["maximum"] == 100
 
 
 def test_capabilities_cli_rejects_unknown_operation_without_advertising_it(capsys) -> None:

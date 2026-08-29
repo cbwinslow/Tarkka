@@ -6,8 +6,8 @@ import os
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
-from uuid import NAMESPACE_URL, uuid5
 
+from tarkka.domain.identifiers import artifact_id_from_sha256
 from tarkka.domain.models import Artifact
 
 
@@ -128,7 +128,7 @@ class LocalArtifactStore:
         source_uri: str | None,
     ) -> Artifact:
         return Artifact(
-            artifact_id=uuid5(NAMESPACE_URL, f"urn:sha256:{sha256}"),
+            artifact_id=artifact_id_from_sha256(sha256),
             sha256=sha256,
             size_bytes=size,
             media_type=media_type,

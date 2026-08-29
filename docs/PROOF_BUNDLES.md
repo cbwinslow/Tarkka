@@ -31,9 +31,17 @@ tarkka bundle create <document-id> --output research.tarkka
 
 Creation honors the same `TARKKA_DOCUMENT_BACKEND` selection as Tarkka's document interfaces.
 
+For PostgreSQL, configure both the document backend and database URL:
+
+```bash
+TARKKA_DOCUMENT_BACKEND=postgres \
+TARKKA_DATABASE_URL=postgresql://user:password@host/database \
+tarkka bundle create <document-id> --output research.tarkka
+```
+
 For the local JSON backend, Tarkka acquires the research-catalog and source-observation locks together in canonical path order and reads all exported state while both locks are held. This prevents an export from combining records observed at different write boundaries.
 
-For the PostgreSQL backend, Tarkka reads the Document, Artifact, source observations, and resource links through one `REPEATABLE READ READ ONLY` transaction. PostgreSQL v1 bundles intentionally omit Work↔Document links because that representation-link relation is not yet persisted in the PostgreSQL schema; Tarkka does **not** mix potentially stale JSON representation links into a PostgreSQL export.
+For the PostgreSQL backend, Tarkka reads the Document, Artifact, Work↔Document links, source observations, and resource links through one `REPEATABLE READ READ ONLY` transaction. The Work↔Document relation is persisted in PostgreSQL with a composite Document/Artifact foreign key, so an exported representation link cannot name an Artifact that differs from its Document.
 
 Creation does not call a discovery provider, model, or network service. Before exporting, Tarkka re-hashes the preserved artifact bytes and refuses to create the bundle if either the SHA-256 digest or byte count differs from the immutable Artifact record.
 
@@ -194,7 +202,6 @@ Priority A under the product roadmap will build on this foundation with:
 3. deterministic replay of non-model transformations;
 4. compact lineage inspection (`why`) and MCP/API bundle verification;
 5. frozen/live research-state diffing;
-6. PostgreSQL persistence for Work↔Document representation links;
-7. interoperability evaluation with established provenance/research packaging standards before any mapping is standardized.
+6. interoperability evaluation with established provenance/research packaging standards before any mapping is standardized.
 
 The archive codec and manifest contract are intentionally independent of Tarkka's persistence adapters so other storage backends and third-party tools can emit or consume compatible bundles later.

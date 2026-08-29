@@ -174,7 +174,9 @@ class ClaimLineageService:
         if artifact is None:
             raise ClaimLineageArtifactNotFoundError(f"artifact not found: {document.artifact_id}")
         if artifact.artifact_id != artifact_id_from_sha256(artifact.sha256):
-            raise ClaimLineageMismatchError("Artifact ID does not match its canonical SHA-256 identity")
+            raise ClaimLineageMismatchError(
+                "Artifact ID does not match its canonical SHA-256 identity"
+            )
         value = SourceLineage(document=document, artifact=artifact)
         cache[document_id] = value
         return value
@@ -239,7 +241,9 @@ def _resolve_evidence_source(document: Document, evidence: EvidenceRecord) -> Ev
             passage.text[evidence.passage_char_start : evidence.passage_char_end]
             != evidence.text
         ):
-            raise ClaimLineageMismatchError("evidence text does not match its persisted Passage span")
+            raise ClaimLineageMismatchError(
+                "evidence text does not match its persisted Passage span"
+            )
         return passage
 
     if isinstance(evidence, FigureEvidence):

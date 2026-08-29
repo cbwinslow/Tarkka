@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
@@ -184,16 +184,26 @@ def test_native_parse_result_validates_context_links_and_exact_anchor() -> None:
             contexts=(_context(document, mention, passage_id=uuid4()),),
         )
 
+    other_section = Section(
+        section_id=uuid4(),
+        document_id=document.document_id,
+        ordinal=1,
+        title="Other",
+    )
+    document_with_other_section = replace(
+        document,
+        sections=(*document.sections, other_section),
+    )
     with pytest.raises(ValueError, match="section must match"):
         NativeDocumentParseResult(
-            document=document,
+            document=document_with_other_section,
             observation=observation,
             mentions=(mention,),
             contexts=(
                 _context(
-                    document,
+                    document_with_other_section,
                     mention,
-                    section_id=uuid4(),
+                    section_id=other_section.section_id,
                     passage_id=passage.passage_id,
                 ),
             ),

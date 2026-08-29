@@ -421,7 +421,7 @@ class ExtractionBatch:
                     raise ValueError("evidence row range is outside its normalized table")
                 if table.column_count is not None and evidence_item.column_end > table.column_count:
                     raise ValueError("evidence column range is outside its normalized table")
-            elif isinstance(evidence_item, EquationEvidence):
+            else:
                 if evidence_item.equation_id not in equations:
                     raise ValueError("evidence does not resolve to a normalized equation")
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import NAMESPACE_URL, uuid5
+from uuid import UUID
 
 import pytest
 
@@ -25,7 +25,7 @@ def test_require_sha256_returns_canonical_digest_and_names_invalid_field() -> No
 def test_artifact_id_from_sha256_is_stable_and_content_derived() -> None:
     digest = "a" * 64
 
-    assert artifact_id_from_sha256(digest) == uuid5(NAMESPACE_URL, f"urn:sha256:{digest}")
+    assert artifact_id_from_sha256(digest) == UUID("25574447-4f70-5864-ac06-61c2cb4e7f6a")
     assert artifact_id_from_sha256(digest) == artifact_id_from_sha256(digest)
     assert artifact_id_from_sha256("b" * 64) != artifact_id_from_sha256(digest)
 

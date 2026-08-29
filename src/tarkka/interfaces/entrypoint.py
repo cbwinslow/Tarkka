@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import sys
 
+from tarkka.interfaces import main as research_interface
 from tarkka.interfaces.bundle_cli import main as bundle_main
-from tarkka.interfaces.main import main as research_main
 
 
 def main(argv: list[str] | None = None) -> int:
-    arguments = list(sys.argv[1:] if argv is None else argv)
+    if argv is None:
+        arguments = list(sys.argv[1:])
+        if arguments and arguments[0] == "bundle":
+            return bundle_main(arguments[1:])
+        return research_interface.main()
+
+    arguments = list(argv)
     if arguments and arguments[0] == "bundle":
         return bundle_main(arguments[1:])
-    return research_main(arguments)
+    return research_interface.main(arguments)

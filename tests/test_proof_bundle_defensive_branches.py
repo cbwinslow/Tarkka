@@ -15,6 +15,7 @@ from tarkka.infrastructure.postgres.connection import PostgresOperationError, Po
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleSnapshotReader
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
+    _validate_member_metadata,
     _validate_member_offsets,
     _zip_info,
     build_proof_bundle_bytes,
@@ -131,7 +132,6 @@ def test_verifier_rejects_noncanonical_member_mode() -> None:
     [
         ("create_version", 21),
         ("extract_version", 21),
-        ("volume", 1),
         ("internal_attr", 1),
     ],
 )
@@ -146,6 +146,14 @@ def test_verifier_rejects_noncanonical_member_version_metadata(
 
     with pytest.raises(ProofBundleVerificationError, match="version metadata is not canonical"):
         verify_proof_bundle_bytes(data)
+
+
+def test_member_metadata_validator_rejects_noncanonical_volume() -> None:
+    info = _zip_info("manifest.json")
+    info.volume = 1
+
+    with pytest.raises(ProofBundleVerificationError, match="version metadata is not canonical"):
+        _validate_member_metadata(info)
 
 
 def test_verifier_rejects_noncanonical_member_comment() -> None:

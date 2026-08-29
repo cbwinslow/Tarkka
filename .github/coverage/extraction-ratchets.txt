@@ -2,6 +2,8 @@
 src/tarkka/infrastructure/extraction/model_batching.py
 src/tarkka/infrastructure/extraction/model_claims.py
 src/tarkka/infrastructure/extraction/model_research.py
+src/tarkka/infrastructure/extraction/openai_compatible.py
+src/tarkka/infrastructure/extraction/openai_research.py
 src/tarkka/infrastructure/extraction/rule_claims.py
 src/tarkka/ports/extraction.py
 src/tarkka/ports/model_claims.py

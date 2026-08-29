@@ -65,8 +65,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
     output = Path(args.output).expanduser().resolve()
     try:
         payload = _bundle_service().build(args.document_id)
-        byte_count = write_proof_bundle(output, payload)
-        verification = verify_proof_bundle(output)
+        write_result = write_proof_bundle(output, payload)
     except (
         ProofBundleArtifactIntegrityError,
         ProofBundleArtifactNotFoundError,
@@ -78,8 +77,13 @@ def _cmd_create(args: argparse.Namespace) -> int:
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    response = verification.to_dict()
-    response.update({"bundle_path": str(output), "bundle_size_bytes": byte_count})
+    response = write_result.verification.to_dict()
+    response.update(
+        {
+            "bundle_path": str(output),
+            "bundle_size_bytes": write_result.byte_count,
+        }
+    )
     print(json.dumps(response, indent=2, sort_keys=True))
     return 0
 

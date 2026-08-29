@@ -382,14 +382,20 @@ def _validate_page(
     maximum_limit: int = MAX_CLAIM_LINEAGE_PAGE_SIZE,
 ) -> None:
     if offset < 0:
-        raise ClaimLineagePaginationError(f"{label} offset must be non-negative")
+        raise ClaimLineagePaginationError(
+            f"{label} offset and limit must be non-negative: offset={offset}"
+        )
     if limit < 0:
-        raise ClaimLineagePaginationError(f"{label} limit must be non-negative")
+        raise ClaimLineagePaginationError(
+            f"{label} offset and limit must be non-negative: limit={limit}"
+        )
     if offset > maximum_offset:
         raise ClaimLineagePaginationError(
-            f"{label} offset exceeds the configured maximum of {maximum_offset}"
+            f"{label} pagination exceeds the configured maximum: "
+            f"offset={offset}, maximum_offset={maximum_offset}"
         )
     if limit > maximum_limit:
         raise ClaimLineagePaginationError(
-            f"{label} limit exceeds the configured maximum of {maximum_limit}"
+            f"{label} pagination exceeds the configured maximum: "
+            f"limit={limit}, maximum_limit={maximum_limit}"
         )

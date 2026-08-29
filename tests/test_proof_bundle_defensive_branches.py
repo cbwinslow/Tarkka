@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import io
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
+from uuid import UUID
 
 import pytest
 
@@ -26,13 +28,13 @@ pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.regression]
 
 def _canonical_archive_with_mutated_manifest_info(
     tmp_path: Path,
-    mutate: object,
+    mutate: Callable[[zipfile.ZipInfo], None],
 ) -> bytes:
     payload = _payload(tmp_path)
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
         manifest_info = _zip_info("manifest.json")
-        mutate(manifest_info)  # type: ignore[operator]
+        mutate(manifest_info)
         archive.writestr(manifest_info, canonical_manifest_bytes(payload.manifest))
         archive.writestr(_zip_info(payload.manifest.artifact.path), payload.artifact_bytes)
     return buffer.getvalue()
@@ -58,17 +60,10 @@ def test_postgres_snapshot_translates_driver_failures(
     )
 
     with pytest.raises(PostgresOperationError, match="translated PostgreSQL failure") as raised:
-        reader.read(payload_document_id := _payload_id())
+        reader.read(UUID(int=1))
 
     assert raised.value is translated
     assert raised.value.__cause__ is driver_error
-    assert payload_document_id.int == 1
-
-
-def _payload_id() -> object:
-    from uuid import UUID
-
-    return UUID(int=1)
 
 
 def test_verifier_rejects_zip_level_comment(tmp_path: Path) -> None:

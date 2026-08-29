@@ -25,12 +25,6 @@ from tarkka.domain.proof_bundles import (
     PROOF_BUNDLE_FORMAT,
     PROOF_BUNDLE_MANIFEST_PATH,
     PROOF_BUNDLE_SCHEMA_VERSION,
-    ProofBundleArtifact,
-    ProofBundleDocument,
-    ProofBundleManifest,
-    ProofBundleResourceLink,
-    ProofBundleSourceObservation,
-    ProofBundleWorkDocumentLink,
     artifact_member_path,
     proof_bundle_manifest_from_dict,
 )
@@ -634,8 +628,8 @@ def test_verifier_rejects_manifest_encoding_and_json_failures(tmp_path: Path) ->
         verify_proof_bundle_bytes(invalid_json)
 
     duplicate_key_json = (
-        '{"format":"tarkka-proof-bundle","format":"tarkka-proof-bundle"}'
-    ).encode()
+        b'{"format":"tarkka-proof-bundle","format":"tarkka-proof-bundle"}'
+    )
     duplicate_key = _zip_members(
         [
             (PROOF_BUNDLE_MANIFEST_PATH, duplicate_key_json),

@@ -127,6 +127,18 @@ def render_comment(review: str, model: str, prompt: PromptBundle) -> str:
     )
 
 
+def _retry_delay(attempt: int, error: HTTPError) -> float:
+    """Use provider retry guidance when valid, otherwise fall back to exponential backoff."""
+    fallback = float(2**attempt)
+    retry_after = error.headers.get("Retry-After") if error.headers else None
+    if retry_after is None:
+        return fallback
+    try:
+        return max(float(retry_after), 0.0)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _request(
     url: str,
     *,
@@ -147,23 +159,28 @@ def _request(
         data = json.dumps(payload).encode("utf-8")
         request_headers.setdefault("Content-Type", "application/json")
     request = Request(url, data=data, headers=request_headers, method=method)
-    max_attempts = retries + 1 if method in _RETRYABLE_METHODS else 1
 
-    for attempt in range(max_attempts):
+    attempt = 0
+    while True:
+        delay = float(2**attempt)
         try:
             with urlopen(request, timeout=timeout) as response:
                 return response.read()
         except HTTPError as exc:
-            should_retry = exc.code in _RETRYABLE_HTTP_CODES and attempt + 1 < max_attempts
+            should_retry = (
+                method in _RETRYABLE_METHODS
+                and exc.code in _RETRYABLE_HTTP_CODES
+                and attempt < retries
+            )
             if not should_retry:
                 raise RuntimeError(f"{method} request failed with HTTP {exc.code}") from exc
+            delay = _retry_delay(attempt, exc)
         except URLError as exc:
-            should_retry = attempt + 1 < max_attempts
+            should_retry = method in _RETRYABLE_METHODS and attempt < retries
             if not should_retry:
                 raise RuntimeError(f"{method} request failed due to a network error") from exc
-        time.sleep(2**attempt)
-
-    raise RuntimeError(f"{method} request exhausted retries")
+        time.sleep(delay)
+        attempt += 1
 
 
 def _github_headers(token: str, accept: str = "application/vnd.github+json") -> dict[str, str]:

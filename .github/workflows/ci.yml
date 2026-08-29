@@ -113,6 +113,13 @@ jobs:
           uv run --no-sync coverage report
           --include=scripts/check_diff_coverage.py
           --fail-under=100
+      - name: Enforce OpenCode reviewer coverage
+        # Keep this executable review automation protected by the required Python 3.13 CI check.
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --no-sync coverage report
+          --include=scripts/opencode_review.py
+          --fail-under=100
       - name: Enforce interface runtime coverage
         # The complete interface/runtime slice reached 100% branch coverage in
         # #187 and is now permanently protected against regression.

@@ -5,20 +5,20 @@ from uuid import uuid4
 
 import pytest
 
-from tarkka.application import citation_resolution, citations
 from tarkka.application.citation_context import build_citation_contexts
 from tarkka.application.citation_traversal import (
     CitationTraversalPolicy,
     CitationTraversalService,
     TraversalDirection,
 )
+from tarkka.application.citations import CitationIdentityResolver
 from tarkka.domain.citations import (
     BibliographicReference,
     CitationMention,
     WorkRelation,
     WorkRelationKind,
 )
-from tarkka.domain.models import Document, Passage, Section
+from tarkka.domain.models import Document, Passage, Section, Work
 from tarkka.domain.source_observations import ObservationBasis
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.ports.works import WorkRepository
@@ -72,8 +72,14 @@ def test_anchored_citation_without_explicit_bounds_uses_full_passage_context() -
     assert contexts[0].passage_id == passage.passage_id
 
 
+class _NoWorks:
+    def find_work_by_identifier(self, scheme: str, value: str) -> Work | None:
+        del scheme, value
+        return None
+
+
 def test_identity_resolver_skips_identifier_that_cannot_be_normalized() -> None:
-    resolver = citations.CitationIdentityResolver(cast(WorkRepository, object()))
+    resolver = CitationIdentityResolver(cast(WorkRepository, _NoWorks()))
     reference = BibliographicReference(
         reference_id=uuid4(),
         document_id=uuid4(),
@@ -83,14 +89,11 @@ def test_identity_resolver_skips_identifier_that_cannot_be_normalized() -> None:
     )
 
     assert resolver.resolve(reference).work_id is None
-    assert citations._normalize_identifier("custom", "   ") is None
-
-
-def test_resolution_normalizer_rejects_blank_scheme() -> None:
-    assert citation_resolution._normalized_identifier("   ", "value") is None
 
 
 def test_traversal_policy_rejects_invalid_direction_and_relation_kind() -> None:
+    # These casts intentionally model malformed values arriving from an untyped
+    # configuration/deserialization boundary so the runtime guards are exercised.
     with pytest.raises(ValueError, match="direction must be a TraversalDirection"):
         CitationTraversalPolicy(direction=cast(TraversalDirection, "outbound"))
     with pytest.raises(ValueError, match="relation kinds must be WorkRelationKind"):

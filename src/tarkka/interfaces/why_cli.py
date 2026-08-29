@@ -14,22 +14,29 @@ from tarkka.application.claim_lineage import (
     ClaimLineage,
     ClaimLineageArtifactNotFoundError,
     ClaimLineageCitationContextNotFoundError,
+    ClaimLineageCitationRepositoryUnavailableError,
     ClaimLineageClaimNotFoundError,
     ClaimLineageDocumentNotFoundError,
     ClaimLineageEvidenceNotFoundError,
+    ClaimLineageExtractionRunNotFoundError,
     ClaimLineageMismatchError,
     ClaimLineageService,
     EvidenceLineage,
 )
-from tarkka.domain.extraction import Evidence, FigureEvidence, TableEvidence
+from tarkka.config import document_backend
+from tarkka.domain.extraction import Evidence, ExtractionRun, FigureEvidence, TableEvidence
+from tarkka.domain.verification import EvidenceRelation
+from tarkka.infrastructure.postgres.citation_context_repository import (
+    PostgresCitationContextRepository,
+)
 from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.extraction_repository import PostgresExtractionRepository
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
+from tarkka.infrastructure.postgres.verification_repository import PostgresVerificationRepository
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
-from tarkka.interfaces.main import _document_backend
-from tarkka.ports.repositories import ResearchRepository
 
 
 def _home() -> Path:
@@ -43,20 +50,71 @@ def _parse_claim_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid claim id: {raw}") from exc
 
 
-def _documents(home: Path) -> ResearchRepository:
-    if _document_backend() == "json":
-        return JsonResearchRepository(home / "catalog.json")
-    return PostgresResearchRepository(PostgresSettings.from_environment())
+class _EmptyEvidenceRelationReader:
+    """Read-only empty assessment set used when a local verification catalog does not exist."""
+
+    def page_relations(
+        self, claim_id: UUID, *, offset: int = 0, limit: int = 100
+    ) -> tuple[int, tuple[EvidenceRelation, ...]]:
+        del claim_id, offset, limit
+        return 0, ()
+
+
+def _json_service(home: Path) -> ClaimLineageService:
+    extraction_path = home / "extractions.json"
+    source = JsonExtractionRepository.open_existing(extraction_path)
+    if source is None:
+        raise FileNotFoundError(f"extraction catalog not found: {extraction_path}")
+
+    research_path = home / "catalog.json"
+    documents = JsonResearchRepository.open_existing(research_path)
+    if documents is None:
+        raise FileNotFoundError(f"research catalog not found: {research_path}")
+
+    relations = JsonVerificationRepository.open_existing(home / "verifications.json")
+    return ClaimLineageService(
+        source=source,
+        relations=relations if relations is not None else _EmptyEvidenceRelationReader(),
+        documents=documents,
+        citations=JsonCitationRepository.open_existing(home / "citations.json"),
+    )
+
+
+def _postgres_service() -> ClaimLineageService:
+    settings = PostgresSettings.from_environment()
+    return ClaimLineageService(
+        source=PostgresExtractionRepository(settings),
+        relations=PostgresVerificationRepository(settings),
+        documents=PostgresResearchRepository(settings),
+        citations=PostgresCitationContextRepository(settings),
+    )
 
 
 def _service() -> ClaimLineageService:
-    home = _home()
-    return ClaimLineageService(
-        source=JsonExtractionRepository(home / "extractions.json"),
-        relations=JsonVerificationRepository(home / "verifications.json"),
-        documents=_documents(home),
-        citations=JsonCitationRepository.open_existing(home / "citations.json"),
-    )
+    if document_backend() == "json":
+        return _json_service(_home())
+    return _postgres_service()
+
+
+def _run_payload(run: ExtractionRun) -> dict[str, object]:
+    model = run.model
+    return {
+        "run_id": str(run.run_id),
+        "document_id": str(run.document_id),
+        "extractor_name": run.extractor_name,
+        "extractor_version": run.extractor_version,
+        "contract_version": run.contract_version,
+        "model": (
+            {
+                "provider": model.provider,
+                "name": model.name,
+                "version": model.version,
+            }
+            if model is not None
+            else None
+        ),
+        "extracted_at": run.extracted_at.isoformat(),
+    }
 
 
 def _artifact_payload(item: EvidenceLineage) -> dict[str, object]:
@@ -85,6 +143,7 @@ def _evidence_payload(item: EvidenceLineage) -> dict[str, object]:
     evidence = item.evidence
     payload: dict[str, object] = {
         "evidence_id": str(evidence.evidence_id),
+        "extraction_run": _run_payload(item.run),
         "document": _document_payload(item),
         "artifact": _artifact_payload(item),
     }
@@ -159,10 +218,10 @@ def _payload(lineage: ClaimLineage, *, offset: int, limit: int) -> dict[str, obj
             "document_id": str(claim.document_id),
             "text": claim.text,
             "claim_type": claim.claim_type,
-            "run_id": str(claim.provenance.run_id),
             "confidence": claim.provenance.confidence,
             "human_review_state": claim.provenance.human_review_state.value,
             "attribution": claim.attribution.value,
+            "extraction_run": _run_payload(lineage.claim_run),
         },
         "claim_source": {
             "document": {
@@ -196,9 +255,11 @@ def _cmd_why(args: argparse.Namespace) -> int:
     except (
         ClaimLineageArtifactNotFoundError,
         ClaimLineageCitationContextNotFoundError,
+        ClaimLineageCitationRepositoryUnavailableError,
         ClaimLineageClaimNotFoundError,
         ClaimLineageDocumentNotFoundError,
         ClaimLineageEvidenceNotFoundError,
+        ClaimLineageExtractionRunNotFoundError,
         ClaimLineageMismatchError,
         OSError,
         RuntimeError,

@@ -8,6 +8,7 @@ import pytest
 
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.application.research_packages import (
+    ResearchPackageNotFoundError,
     ResearchPackageService,
     ResourceLinkNotFoundError,
 )
@@ -85,6 +86,46 @@ def test_research_package_service_progressively_lists_and_expands_resources(tmp_
     assert empty_page.resource_links == ()
     with pytest.raises(ResourceLinkNotFoundError, match="resource link not found"):
         service.resource_link(result.document.document_id, uuid4())
+
+
+def test_research_package_service_works_without_optional_observation_repository(
+    tmp_path: Path,
+) -> None:
+    result, documents, _ = _ingest_native_document(tmp_path)
+    service = ResearchPackageService(
+        documents=documents,
+        work_documents=documents,
+        observations=None,
+    )
+
+    inspection = service.inspect(result.document.document_id)
+    page = service.resource_links(result.document.document_id)
+
+    assert inspection.source_observations == ()
+    assert inspection.resource_links == ()
+    assert page.total == 0
+    assert page.resource_links == ()
+    with pytest.raises(ResourceLinkNotFoundError, match="resource link not found"):
+        service.resource_link(result.document.document_id, uuid4())
+
+
+def test_research_package_service_rejects_unknown_documents_across_operations(
+    tmp_path: Path,
+) -> None:
+    _, documents, observations = _ingest_native_document(tmp_path)
+    service = ResearchPackageService(
+        documents=documents,
+        work_documents=documents,
+        observations=observations,
+    )
+    missing_document_id = uuid4()
+
+    with pytest.raises(ResearchPackageNotFoundError, match="document not found"):
+        service.inspect(missing_document_id)
+    with pytest.raises(ResearchPackageNotFoundError, match="document not found"):
+        service.resource_links(missing_document_id)
+    with pytest.raises(ResearchPackageNotFoundError, match="document not found"):
+        service.resource_link(missing_document_id, uuid4())
 
 
 def test_resource_link_repository_queries_are_scoped_and_paged(tmp_path: Path) -> None:

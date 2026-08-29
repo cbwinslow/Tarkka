@@ -2,3 +2,4 @@ src/tarkka/application/fuzzy_identity.py
 src/tarkka/application/identity_review.py
 src/tarkka/application/work_selection.py
 src/tarkka/application/works.py
+src/tarkka/application/research_packages.py

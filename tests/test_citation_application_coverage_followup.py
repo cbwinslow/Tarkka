@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -20,7 +20,7 @@ from tarkka.domain.citations import (
 )
 from tarkka.domain.models import Document, Passage, Section, Work
 from tarkka.domain.source_observations import ObservationBasis
-from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
+from tarkka.ports.citations import CitationRepository
 from tarkka.ports.works import WorkRepository
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
@@ -72,6 +72,33 @@ def test_anchored_citation_without_explicit_bounds_uses_full_passage_context() -
     assert contexts[0].passage_id == passage.passage_id
 
 
+def test_citation_domain_rejects_blank_text_and_identifiers_before_services() -> None:
+    with pytest.raises(ValueError, match="raw_text must not be blank"):
+        CitationMention(
+            mention_id=uuid4(),
+            document_id=uuid4(),
+            raw_text="   ",
+        )
+
+    with pytest.raises(ValueError, match="identifier values must be non-blank strings"):
+        BibliographicReference(
+            reference_id=uuid4(),
+            document_id=uuid4(),
+            ordinal=0,
+            raw_text="Reference",
+            identifiers={"custom": "   "},
+        )
+
+    with pytest.raises(ValueError, match="identifier schemes must be non-blank strings"):
+        BibliographicReference(
+            reference_id=uuid4(),
+            document_id=uuid4(),
+            ordinal=0,
+            raw_text="Reference",
+            identifiers={"   ": "value"},
+        )
+
+
 class _NoWorks:
     def find_work_by_identifier(self, scheme: str, value: str) -> Work | None:
         del scheme, value
@@ -102,9 +129,39 @@ def test_traversal_policy_rejects_invalid_direction_and_relation_kind() -> None:
         )
 
 
-def test_traversal_exact_relation_cap_with_no_new_frontier_finishes_cleanly(
-    tmp_path,
-) -> None:
+class _SelfLoopTraversalRepository:
+    def __init__(self, root_work_id: UUID, relation: WorkRelation) -> None:
+        self._root_work_id = root_work_id
+        self._relation = relation
+
+    def list_relations_from(
+        self,
+        work_id: UUID,
+        *,
+        kinds: frozenset[WorkRelationKind] | None = None,
+        exclude_ids: frozenset[UUID] = frozenset(),
+        limit: int | None = None,
+    ) -> tuple[WorkRelation, ...]:
+        if work_id != self._root_work_id or self._relation.relation_id in exclude_ids:
+            return ()
+        if kinds is not None and self._relation.kind not in kinds:
+            return ()
+        relations = (self._relation,)
+        return relations if limit is None else relations[:limit]
+
+    def list_relations_to(
+        self,
+        work_id: UUID,
+        *,
+        kinds: frozenset[WorkRelationKind] | None = None,
+        exclude_ids: frozenset[UUID] = frozenset(),
+        limit: int | None = None,
+    ) -> tuple[WorkRelation, ...]:
+        del work_id, kinds, exclude_ids, limit
+        return ()
+
+
+def test_traversal_exact_relation_cap_with_no_new_frontier_finishes_cleanly() -> None:
     root = uuid4()
     relation = WorkRelation(
         relation_id=uuid4(),
@@ -114,9 +171,8 @@ def test_traversal_exact_relation_cap_with_no_new_frontier_finishes_cleanly(
         basis=ObservationBasis.NATIVE,
         source_document_id=uuid4(),
     )
-    repository = JsonCitationRepository(tmp_path / "citations.json")
-    repository.save_relation(relation)
-    service = CitationTraversalService(repository)
+    repository = _SelfLoopTraversalRepository(root, relation)
+    service = CitationTraversalService(cast(CitationRepository, repository))
 
     result = service.traverse(
         root,

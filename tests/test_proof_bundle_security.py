@@ -90,7 +90,10 @@ def test_verifier_rejects_artifact_id_not_derived_from_digest(tmp_path: Path) ->
         if observation["native_artifact_id"] is not None:
             observation["native_artifact_id"] = forged_id
 
-    with pytest.raises(ProofBundleVerificationError, match="artifact_id must be derived from sha256"):
+    with pytest.raises(
+        ProofBundleVerificationError,
+        match="artifact_id must be derived from sha256",
+    ):
         verify_proof_bundle_bytes(_manifest_archive(payload, value))
 
 

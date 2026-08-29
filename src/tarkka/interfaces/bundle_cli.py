@@ -15,7 +15,10 @@ from tarkka.application.proof_bundles import (
     ProofBundleDocumentNotFoundError,
     ProofBundleService,
 )
-from tarkka.application.research_packages import ResearchPackageNotFoundError, ResearchPackageService
+from tarkka.application.research_packages import (
+    ResearchPackageNotFoundError,
+    ResearchPackageService,
+)
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
     verify_proof_bundle,

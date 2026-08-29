@@ -98,7 +98,7 @@ def verify_proof_bundle_bytes(data: bytes) -> ProofBundleVerification:
     with archive:
         infos = archive.infolist()
         names = [info.filename for info in infos]
-        if len(names) != len(set(names)):
+        if len(names) != len(set(names))):
             raise ProofBundleVerificationError("proof bundle contains duplicate archive members")
         for info in infos:
             _validate_member_path(info.filename)
@@ -119,7 +119,9 @@ def verify_proof_bundle_bytes(data: bytes) -> ProofBundleVerification:
         artifact_bytes = _read_member(archive, manifest.artifact.path)
 
     if len(artifact_bytes) != manifest.artifact.size_bytes:
-        raise ProofBundleVerificationError("proof bundle artifact byte length does not match manifest")
+        raise ProofBundleVerificationError(
+            "proof bundle artifact byte length does not match manifest"
+        )
     actual_sha256 = hashlib.sha256(artifact_bytes).hexdigest()
     if actual_sha256 != manifest.artifact.sha256:
         raise ProofBundleVerificationError("proof bundle artifact sha256 does not match manifest")

@@ -6,6 +6,11 @@ import math
 from dataclasses import dataclass
 
 from tarkka.application.citation_traversal import CitationTraversalService
+from tarkka.application.claim_lineage import (
+    MAX_CLAIM_LINEAGE_OFFSET,
+    MAX_CLAIM_LINEAGE_PAGE_SIZE,
+    ClaimLineageService,
+)
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_packages import ResearchPackageService
@@ -117,6 +122,7 @@ class _OperationRegistration:
     service_type: (
         type[DiscoveryService]
         | type[DocumentRetrievalService]
+        | type[ClaimLineageService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -133,9 +139,6 @@ class _OperationRegistration:
 
 
 _OPERATION_REGISTRATIONS = (
-    # Each advertised operation maps to a public application-service method.
-    # Deeper handle resolution and representation expansion remain intentionally
-    # absent until their application services are implemented.
     _OperationRegistration(
         ResearchOperation("research.discover", "discover", "Find provider-backed candidates.", 24),
         DiscoveryService,
@@ -225,6 +228,36 @@ _OPERATION_REGISTRATIONS = (
             ResearchField("section_id", "uuid", True, "Stable normalized Section identifier."),
         ),
         "One exact section with source-preserving normalized passage handles and text.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.claims.lineage",
+            "explain",
+            "Inspect deterministic Claim provenance and bounded assessments.",
+            12,
+        ),
+        ClaimLineageService,
+        "inspect",
+        (
+            ResearchField("claim_id", "uuid", True, "Stable Claim extraction identifier."),
+            ResearchField(
+                "offset",
+                "integer",
+                False,
+                "Zero-based verification-assessment offset.",
+                minimum=0,
+                maximum=MAX_CLAIM_LINEAGE_OFFSET,
+            ),
+            ResearchField(
+                "limit",
+                "integer",
+                False,
+                "Maximum verification assessments to return.",
+                minimum=0,
+                maximum=MAX_CLAIM_LINEAGE_PAGE_SIZE,
+            ),
+        ),
+        "Claim extraction provenance, exact evidence/source lineage, and bounded assessments.",
     ),
     _OperationRegistration(
         ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),

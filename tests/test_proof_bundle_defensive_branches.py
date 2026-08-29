@@ -19,7 +19,9 @@ from tarkka.infrastructure.proof_bundles import (
     _zip_info,
     build_proof_bundle_bytes,
     canonical_manifest_bytes,
+    verify_proof_bundle,
     verify_proof_bundle_bytes,
+    write_proof_bundle,
 )
 from tests.test_proof_bundles import _payload
 
@@ -125,3 +127,23 @@ def test_member_offset_validator_rejects_noncanonical_layout() -> None:
 
     with pytest.raises(ProofBundleVerificationError, match="member layout is not canonical"):
         _validate_member_offsets([first, second])
+
+
+def test_atomic_publish_reports_directory_fsync_failure_after_valid_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _payload(tmp_path / "state")
+    destination = tmp_path / "research.tarkka"
+
+    def fail_directory_fsync(_: Path) -> NoReturn:
+        raise OSError("injected directory fsync failure")
+
+    monkeypatch.setattr(proof_bundle_io, "fsync_directory", fail_directory_fsync)
+
+    with pytest.raises(OSError, match="injected directory fsync failure"):
+        write_proof_bundle(destination, payload)
+
+    assert destination.is_file()
+    assert verify_proof_bundle(destination).artifact_sha256 == payload.manifest.artifact.sha256
+    assert list(tmp_path.glob(".research.tarkka.*.tmp")) == []

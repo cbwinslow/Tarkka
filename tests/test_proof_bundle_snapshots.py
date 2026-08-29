@@ -28,6 +28,8 @@ _ARTIFACT_ID = UUID("00000000-0000-0000-0000-00000000fb01")
 _DOCUMENT_ID = UUID("00000000-0000-0000-0000-00000000fb02")
 _OBSERVATION_ID = UUID("00000000-0000-0000-0000-00000000fb03")
 _LINK_ID = UUID("00000000-0000-0000-0000-00000000fb04")
+_WORK_ID = UUID("00000000-0000-0000-0000-00000000fb05")
+_WORK_DOCUMENT_LINK_ID = UUID("00000000-0000-0000-0000-00000000fb06")
 _CREATED_AT = datetime(2026, 8, 29, tzinfo=UTC)
 
 
@@ -239,6 +241,17 @@ def _postgres_connection(
                     _Cursor(
                         rows=[
                             (
+                                _WORK_DOCUMENT_LINK_ID,
+                                _WORK_ID,
+                                _ARTIFACT_ID,
+                                _DOCUMENT_ID,
+                                _CREATED_AT,
+                            )
+                        ]
+                    ),
+                    _Cursor(
+                        rows=[
+                            (
                                 _OBSERVATION_ID,
                                 "fixture",
                                 "native",
@@ -281,7 +294,9 @@ def test_postgres_snapshot_uses_one_repeatable_read_transaction() -> None:
     assert snapshot is not None
     assert snapshot.document == _document()
     assert snapshot.artifact == _artifact()
-    assert snapshot.work_documents == ()
+    assert len(snapshot.work_documents) == 1
+    assert snapshot.work_documents[0].work_id == _WORK_ID
+    assert snapshot.work_documents[0].document_id == _DOCUMENT_ID
     assert len(snapshot.source_observations) == 1
     assert snapshot.source_observations[0].native_artifact_id == _ARTIFACT_ID
     assert len(snapshot.resource_links) == 1

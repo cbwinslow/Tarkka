@@ -32,7 +32,7 @@ dev = [
 ]
 
 [project.scripts]
-tarkka = "tarkka.interfaces.main:main"
+tarkka = "tarkka.interfaces.entrypoint:main"
 tarkka-mcp = "tarkka.interfaces.mcp:main"
 
 [tool.hatch.build.targets.wheel]

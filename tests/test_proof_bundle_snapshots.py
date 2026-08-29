@@ -225,7 +225,11 @@ def _document_cursors(document: Document | None) -> list[_Cursor]:
     ]
 
 
-def _postgres_connection(*, document: Document | None, artifact_present: bool = True) -> _Connection:
+def _postgres_connection(
+    *,
+    document: Document | None,
+    artifact_present: bool = True,
+) -> _Connection:
     cursors = [_Cursor(), *_document_cursors(document)]
     if document is not None:
         cursors.append(_Cursor(row=_artifact_row() if artifact_present else None))

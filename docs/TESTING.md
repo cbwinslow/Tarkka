@@ -12,22 +12,22 @@ Small deterministic behavior with no network, database, model server, or filesys
 
 Examples:
 
-- identifier normalization
-- batching arithmetic
-- domain validation
-- serializer helpers
+- identifier normalization;
+- batching arithmetic;
+- domain validation;
+- serializer helpers.
 
 ### Contract
 
-Tests for invariants at public/domain/port boundaries. These are especially important when implementations are replaceable.
+Tests for invariants at public, domain, and port boundaries. These are especially important when implementations are replaceable.
 
 Examples:
 
-- `ExtractionBatch` evidence integrity
-- provider/adapter output shape
-- repository idempotency
-- parser postconditions
-- fail-closed validation
+- `ExtractionBatch` evidence integrity;
+- provider/adapter output shape;
+- repository idempotency;
+- parser postconditions;
+- fail-closed validation.
 
 Every replaceable port should grow a reusable contract suite so each implementation proves the same externally visible behavior.
 
@@ -37,13 +37,13 @@ Tests that compose multiple Tarkka components while remaining reproducible and u
 
 Examples:
 
-- normalized `Document` -> extractor -> repository
-- discovery snapshot -> explicit work selection
-- artifact -> parser -> document repository
+- normalized `Document` -> extractor -> repository;
+- discovery snapshot -> explicit work selection;
+- artifact -> parser -> document repository.
 
 ### Regression
 
-A focused test for every meaningful bug discovered in development or review. A regression test should reproduce the original failure before the fix and name the behavior being protected.
+Add a focused test for every meaningful bug discovered in development or review. A regression test should reproduce the original failure before the fix and name the behavior being protected.
 
 ### Property-based
 
@@ -51,30 +51,30 @@ Hypothesis-generated inputs exercise invariants that are difficult to cover with
 
 High-value candidates include:
 
-- batching always makes progress
-- every normalized passage appears in at least one request
-- request limits are respected except for a deliberately atomic oversized passage
-- identifier normalization is idempotent
-- serializers round-trip valid domain objects
-- pagination preserves ordering and bounds
-- traversal state transitions preserve invariants
-- evidence offsets are ordered and in bounds
-- URI normalization is stable across equivalent spellings
+- batching always makes progress;
+- every normalized passage appears in at least one request;
+- request limits are respected except for a deliberately atomic oversized passage;
+- identifier normalization is idempotent;
+- serializers round-trip valid domain objects;
+- pagination preserves ordering and bounds;
+- traversal state transitions preserve invariants;
+- evidence offsets are ordered and in bounds;
+- URI normalization is stable across equivalent spellings.
 
 ### Security
 
-Security tests exercise adversarial inputs and fail-closed boundaries. These should remain deterministic and run without outside services unless explicitly marked `external`.
+Security tests exercise adversarial inputs and fail-closed boundaries. These remain deterministic and run without outside services unless explicitly marked `external`.
 
 High-value areas include:
 
-- SSRF and DNS-rebinding boundaries
-- redirect validation and ambiguous headers
-- query-string and credential redaction
-- path traversal
-- malformed URLs and Unicode/IDNA edge cases
-- IPv4/IPv6 classification
-- untrusted parser/model output
-- resource exhaustion and acquisition budgets
+- SSRF and DNS-rebinding boundaries;
+- redirect validation and ambiguous headers;
+- query-string and credential redaction;
+- path traversal;
+- malformed URLs and Unicode/IDNA edge cases;
+- IPv4/IPv6 classification;
+- untrusted parser/model output;
+- resource exhaustion and acquisition budgets.
 
 ### Failure injection
 
@@ -82,34 +82,30 @@ I/O and persistence code must be tested under partial failure, not only happy-pa
 
 Examples:
 
-- artifact write succeeds but observation write fails
-- observation write succeeds but checkpoint completion fails
-- retry resumes from a durable intermediate state
-- model/provider response is malformed after partial work
-- timeout occurs between two otherwise valid operations
+- artifact write succeeds but observation write fails;
+- observation write succeeds but checkpoint completion fails;
+- retry resumes from a durable intermediate state;
+- model/provider response is malformed after partial work;
+- timeout occurs between two otherwise valid operations.
 
 Shared deterministic fault primitives belong in `tests/support/` so these scenarios are easy to reproduce consistently.
 
 ### External
 
-Network/model/database tests are opt-in and must be marked `external`. The default test suite must never require credentials, internet access, a model server, PostgreSQL, or another separately running service.
+Network, model, and database tests are opt-in and must be marked `external`. The default test suite must never require credentials, internet access, a model server, PostgreSQL, or another separately running service.
 
 ### Managed PostgreSQL integration tests
 
-`pytest-postgresql` is a development-only dependency. It connects to an existing PostgreSQL
-server, migrates a dedicated template database, then gives each marked test a disposable clone.
-It never uses `TARKKA_DATABASE_URL`, which is reserved for the application database.
+`pytest-postgresql` is a development-only dependency. It connects to an existing PostgreSQL server, migrates a dedicated template database, then gives each marked test a disposable clone. It never uses `TARKKA_DATABASE_URL`, which is reserved for the application database.
 
-Local defaults target the PostgreSQL 17 Unix socket at `/var/run/postgresql` on port `5434` as
-the local development role. Override only the test endpoint when necessary:
+Local defaults target the PostgreSQL 17 Unix socket at `/var/run/postgresql` on port `5434` as the local development role. Override only the test endpoint when necessary:
 
 ```bash
 export TARKKA_TEST_DATABASE_URL='postgresql://test_role@localhost:5434/postgres'
 uv run pytest tests/test_postgres_native_ingest.py -m 'integration and external'
 ```
 
-The test role must be allowed to create and drop databases. Keep application/production data in a
-separate database (for example `tarkka`) and never point `TARKKA_TEST_DATABASE_URL` at it.
+The test role must be allowed to create and drop databases. Keep application/production data in a separate database, for example `tarkka`, and never point `TARKKA_TEST_DATABASE_URL` at it.
 
 ## Markers
 
@@ -132,7 +128,7 @@ Markers are descriptive rather than mutually exclusive. For example, an SSRF reg
 
 ## Development environment
 
-`uv` is the canonical project/development environment manager. Install a compatible uv release and synchronize the development group:
+`uv` is the canonical project and development environment manager. Install a compatible uv release and synchronize the development group:
 
 ```bash
 uv sync --group dev
@@ -155,33 +151,47 @@ Do not install project tooling globally or maintain parallel `requirements-dev.t
 
 CI separates static quality checks from the Python compatibility matrix:
 
-- Ruff, strict mypy, and SQLFluff run once on the primary CI interpreter.
-- pytest runs on Python 3.11, 3.12, and 3.13.
-- external tests remain opt-in.
-- branch coverage is collected during the Python 3.13 test run rather than rerunning the suite in a separate coverage job.
+- Ruff, strict mypy, and SQLFluff run once on the primary CI interpreter;
+- pytest runs on Python 3.11, 3.12, and 3.13;
+- external tests remain opt-in;
+- branch coverage is collected during the Python 3.13 test run rather than rerunning the suite in the required CI job;
+- GitHub Actions configuration is audited with `zizmor`;
+- dependency changes are checked by GitHub's dependency-review workflow.
 
 SQL migrations are linted with SQLFluff using the PostgreSQL dialect configured in `pyproject.toml`.
 
 The default suite must remain deterministic and network-free after dependency installation.
 
-## Coverage
+## Coverage policy
 
 Coverage is a quality gate and diagnostic, not a substitute for meaningful assertions. A line or branch counts only when the test protects observable behavior, an invariant, a failure mode, or a contract that matters.
 
-As of 2026-08-27, Tarkka's historical repository-wide branch-coverage baseline is approximately 86%. That legacy baseline is explicit coverage debt; it is not permission for new uncovered code and must not be hidden with exclusions or low-value assertions.
+Tarkka completed its historical deterministic coverage program in August 2026. The original repository-wide branch-coverage baseline was approximately 86%; the deterministic `tarkka` + `scripts` surface is now maintained at **100% statement coverage and 100% branch coverage**.
 
-CI enforces a ratchet with two complementary rules:
+The required Python 3.13 CI job runs:
+
+```bash
+uv run --no-sync pytest -m "not external" \
+  --cov=tarkka --cov=scripts --cov-branch \
+  --cov-report=term-missing --cov-report=xml
+
+uv run --no-sync coverage report --fail-under=100
+```
+
+Because branch data is collected by the pytest invocation, `coverage report --fail-under=100` fails when any measured statement or branch outcome is missed. `Tests (Python 3.13)` is a required status for the protected `main` branch, so repository-wide deterministic coverage regressions are merge-blocking.
+
+CI keeps additional coverage defenses in place:
 
 1. every added or modified executable source line in a pull request must have **100% changed-line coverage**;
-2. critical subsystems can be promoted to **100% branch coverage** as a whole, after which the subsystem gate prevents regression.
+2. the cumulative Phase 5 executable range remains protected at 100%;
+3. historically completed high-risk subsystems and tooling retain focused 100% full-file/subsystem ratchets where they provide useful failure localization;
+4. `coverage.xml` is retained as a CI artifact for inspection.
 
-The Phase 5 agent-serving surface is the first subsystem promoted under this policy. Its capability discovery, bounded document retrieval, saved context-package domain/application/persistence paths, MCP interface, telemetry, and related ports are enforced at 100% branch coverage in CI.
+The focused ratchets are defense-in-depth and localization aids. They do not replace or weaken the repository-wide 100% gate.
 
-Repository-wide 100% branch coverage remains the target. Raise the baseline deliberately by closing one coherent subsystem at a time, prioritizing security boundaries, durable state, interfaces, and complex control flow. Do not weaken an existing subsystem gate to make unrelated work pass.
+Do not add exclusions, `pragma: no cover`, meaningless assertions, or code paths whose only purpose is to satisfy coverage. If a branch is genuinely unreachable or dead, simplify or remove the production branch. If coverage fails, add the smallest behavior-focused test that protects the missing contract or failure mode.
 
-CI reports missing lines and retains `coverage.xml` for inspection. When a coverage gate fails, add the smallest behavior-focused tests that exercise the missing contract or branch. If a branch is genuinely unreachable or represents dead code, prefer simplifying/removing the production branch rather than excluding it solely to inflate the score.
-
-Coverage alone is insufficient. Mutation testing, property tests, failure injection, contract suites, security regression tests, and review remain independent signals of test quality.
+Coverage alone is insufficient. Mutation testing, property tests, failure injection, contract suites, security regression tests, type checking, static analysis, and human/automated review remain independent quality signals.
 
 ## Failure localization
 
@@ -227,7 +237,7 @@ Every durable record should have serialization round-trip coverage. Persistence 
 - compatibility when durable schemas evolve;
 - deterministic identity after reload.
 
-The authoritative inventory of Tarkka's current persistence surfaces and their executable coverage is maintained in [`DURABLE_STATE_TEST_MATRIX.md`](DURABLE_STATE_TEST_MATRIX.md). Update that matrix whenever a new durable repository, log, or schema-versioned format is introduced.
+The authoritative inventory of Tarkka's persistence surfaces and their executable coverage is maintained in [`DURABLE_STATE_TEST_MATRIX.md`](DURABLE_STATE_TEST_MATRIX.md). Update that matrix whenever a new durable repository, log, or schema-versioned format is introduced.
 
 When migrations or durable formats are introduced, compatibility tests should protect upgrades rather than relying on manual inspection.
 
@@ -255,8 +265,8 @@ uv run --with mutmut==3.7.0 mutmut results
 
 The exact tool pin and command are recorded in `pyproject.toml`, along with mutmut's mutation scope and focused pytest selection. The current baseline deliberately targets persistence-sensitive identity logic with stable external contracts:
 
-- `src/tarkka/domain/identifiers.py`
-- `src/tarkka/infrastructure/storage/parser_identity.py`
+- `src/tarkka/domain/identifiers.py`;
+- `src/tarkka/infrastructure/storage/parser_identity.py`.
 
 The first verified baseline generated 52 mutants: 45 were killed, 6 survived, and 1 timed out. The six survivors only alter diagnostic `ValueError` message text, which is not part of the normalization contract. The timeout replaces DOI prefix removal with suffix removal and loops rather than surviving behaviorally. All generated deterministic parser-UUID mutations are killed. No mutation-score threshold is enforced yet.
 
@@ -274,7 +284,7 @@ The `Mutation Testing` GitHub Actions workflow runs weekly and can also be dispa
 
 ## Multimodal research artifacts
 
-Figures, tables, equations, and images will use the same testing discipline when introduced:
+Figures, tables, equations, and images use the same testing discipline when introduced:
 
 - artifact identity and source location are deterministic facts;
 - OCR/vision output is adapter output and must satisfy explicit contracts;
@@ -295,7 +305,10 @@ Before merging behavior changes, verify the relevant items below:
 - deterministic IDs or ordering tested when required;
 - replaceable adapter behavior covered by a reusable contract where appropriate;
 - regression test added for every bug fixed;
-- changed executable lines are 100% covered;
-- any subsystem already ratcheted to 100% branch coverage remains at 100%.
+- repository-wide deterministic statement and branch coverage remains 100%;
+- changed executable lines remain 100% covered;
+- focused subsystem/tooling ratchets remain green;
+- Ruff, strict mypy, SQLFluff, dependency review, and relevant security checks pass;
+- all meaningful automated-review findings are dispositioned and resolved.
 
-See issue #60 for the completed testing-framework foundation and focused follow-up issues for remaining improvements.
+See issue #60 for the completed testing-framework foundation. Repository-level automation cleanup and native GitHub settings are tracked separately so CI policy changes do not become mixed with unrelated feature work.

@@ -1,12 +1,13 @@
-"""Build portable proof-bundle payloads from existing canonical Tarkka state."""
+"""Build portable proof-bundle payloads from one consistent canonical-state snapshot."""
 
 from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Protocol
 from uuid import UUID
 
-from tarkka.application.research_packages import ResearchPackageService
+from tarkka.domain.models import Artifact, Document
 from tarkka.domain.proof_bundles import (
     ProofBundleArtifact,
     ProofBundleDocument,
@@ -16,8 +17,9 @@ from tarkka.domain.proof_bundles import (
     ProofBundleWorkDocumentLink,
     artifact_member_path,
 )
+from tarkka.domain.source_observations import ResourceLinkObservation, SourceObservation
+from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.ports.artifacts import ArtifactStore
-from tarkka.ports.repositories import ResearchRepository
 
 
 class ProofBundleDocumentNotFoundError(LookupError):
@@ -25,11 +27,28 @@ class ProofBundleDocumentNotFoundError(LookupError):
 
 
 class ProofBundleArtifactNotFoundError(LookupError):
-    """Raised when a Document references an Artifact missing from the research catalog."""
+    """Raised when a Document references an Artifact missing from canonical state."""
 
 
 class ProofBundleArtifactIntegrityError(RuntimeError):
-    """Raised when preserved Artifact bytes do not match their immutable catalog identity."""
+    """Raised when preserved Artifact bytes do not match their immutable identity."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProofBundleSnapshot:
+    """One self-consistent read of the canonical state needed by bundle v1."""
+
+    document: Document
+    artifact: Artifact
+    work_documents: tuple[WorkDocumentLink, ...] = ()
+    source_observations: tuple[SourceObservation, ...] = ()
+    resource_links: tuple[ResourceLinkObservation, ...] = ()
+
+
+class ProofBundleSnapshotReader(Protocol):
+    """Backend-specific consistent-read boundary used by proof-bundle creation."""
+
+    def read(self, document_id: UUID) -> ProofBundleSnapshot | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,25 +62,21 @@ class ProofBundlePayload:
 class ProofBundleService:
     """Compose an export payload without introducing new canonical research identities."""
 
-    def __init__(
-        self,
-        *,
-        documents: ResearchRepository,
-        artifacts: ArtifactStore,
-        packages: ResearchPackageService,
-    ) -> None:
-        self._documents = documents
+    def __init__(self, *, snapshots: ProofBundleSnapshotReader, artifacts: ArtifactStore) -> None:
+        self._snapshots = snapshots
         self._artifacts = artifacts
-        self._packages = packages
 
     def build(self, document_id: UUID) -> ProofBundlePayload:
-        document = self._documents.get_document(document_id)
-        if document is None:
+        snapshot = self._snapshots.read(document_id)
+        if snapshot is None:
             raise ProofBundleDocumentNotFoundError(f"document not found: {document_id}")
-        artifact = self._documents.get_artifact(document.artifact_id)
-        if artifact is None:
-            raise ProofBundleArtifactNotFoundError(
-                f"artifact not found for document {document_id}: {document.artifact_id}"
+        document = snapshot.document
+        artifact = snapshot.artifact
+        if document.document_id != document_id:
+            raise ProofBundleArtifactIntegrityError("snapshot returned a different document identity")
+        if document.artifact_id != artifact.artifact_id:
+            raise ProofBundleArtifactIntegrityError(
+                "snapshot document and artifact identities do not match"
             )
 
         artifact_bytes = self._artifacts.read_bytes(artifact)
@@ -69,12 +84,6 @@ class ProofBundleService:
         if len(artifact_bytes) != artifact.size_bytes or actual_sha256 != artifact.sha256:
             raise ProofBundleArtifactIntegrityError(
                 f"artifact bytes do not match immutable identity: {artifact.artifact_id}"
-            )
-
-        inspection = self._packages.inspect(document_id)
-        if inspection.artifact_id != artifact.artifact_id:
-            raise ProofBundleArtifactIntegrityError(
-                "research package and document resolve to different artifacts"
             )
 
         manifest = ProofBundleManifest(
@@ -104,7 +113,7 @@ class ProofBundleService:
                     document_id=link.document_id,
                     linked_at=link.linked_at.isoformat(),
                 )
-                for link in sorted(inspection.work_documents, key=lambda item: str(item.link_id))
+                for link in sorted(snapshot.work_documents, key=lambda item: str(item.link_id))
             ),
             source_observations=tuple(
                 ProofBundleSourceObservation(
@@ -119,7 +128,7 @@ class ProofBundleService:
                     observed_at=observation.observed_at.isoformat(),
                 )
                 for observation in sorted(
-                    inspection.source_observations,
+                    snapshot.source_observations,
                     key=lambda item: str(item.observation_id),
                 )
             ),
@@ -133,7 +142,7 @@ class ProofBundleService:
                     label=link.label,
                     metadata=link.metadata,
                 )
-                for link in sorted(inspection.resource_links, key=lambda item: str(item.link_id))
+                for link in sorted(snapshot.resource_links, key=lambda item: str(item.link_id))
             ),
         )
         return ProofBundlePayload(manifest=manifest, artifact_bytes=artifact_bytes)

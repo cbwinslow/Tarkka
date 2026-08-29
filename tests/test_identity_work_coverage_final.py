@@ -21,9 +21,9 @@ def _record(provider: str, provider_id: str, doi: str) -> DiscoveryRecord:
 def test_fuzzy_identity_rejects_same_canonical_doi_before_fuzzy_matching() -> None:
     matcher = FuzzyIdentityMatcher(minimum_confidence=0.0)
 
-    # Distinct DOI spellings normalize to the same strong identifier. Strong identity
-    # must therefore bypass fuzzy matching entirely.
+    # Distinct spellings of the same synthetic DOI normalize to one strong identifier.
+    # Strong identity must therefore bypass fuzzy matching entirely.
     assert matcher.compare(
-        _record("crossref", "C1", "doi:10.1000/ALPHA"),
-        _record("openalex", "W1", "https://doi.org/10.1000/alpha"),
+        _record("crossref", "C1", "doi:10.1000/FAKE-TEST"),
+        _record("openalex", "W1", "https://doi.org/10.1000/fake-test"),
     ) is None

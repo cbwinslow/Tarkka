@@ -14,6 +14,7 @@ from tarkka.application.proof_bundles import (
     ProofBundleArtifactNotFoundError,
     ProofBundleDocumentNotFoundError,
     ProofBundleService,
+    ProofBundleSnapshotReader,
 )
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleSnapshotReader
@@ -44,6 +45,7 @@ def _parse_document_id(raw: str) -> UUID:
 
 def _bundle_service() -> ProofBundleService:
     home = _home()
+    snapshots: ProofBundleSnapshotReader
     if _document_backend() == "json":
         documents = JsonResearchRepository(home / "catalog.json")
         observations = JsonSourceObservationRepository.open_existing(

@@ -112,6 +112,12 @@ class PostgresExtractionRepository:
             ).fetchone()
         return _evidence_from_row(row) if row is not None else None
 
+    def get_run(self, run_id: UUID) -> ExtractionRun | None:
+        """Return immutable extractor/model provenance for one extraction run."""
+        with self._connection() as connection:
+            row = connection.execute(_SELECT_RUN + " WHERE run_id = %s", (run_id,)).fetchone()
+        return _run_from_row(row) if row is not None else None
+
     def list_extractions(
         self,
         document_id: UUID,

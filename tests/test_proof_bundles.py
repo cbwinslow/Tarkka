@@ -155,10 +155,11 @@ def test_bundle_file_round_trip_creates_parent_directories(tmp_path: Path) -> No
     payload = _payload(tmp_path / "state")
     output = tmp_path / "nested" / "exports" / "sample.tarkka"
 
-    written = write_proof_bundle(output, payload)
+    write_result = write_proof_bundle(output, payload)
     verification = verify_proof_bundle(output)
 
-    assert written == output.stat().st_size
+    assert write_result.byte_count == output.stat().st_size
+    assert write_result.verification == verification
     assert verification.artifact_sha256 == payload.manifest.artifact.sha256
 
 

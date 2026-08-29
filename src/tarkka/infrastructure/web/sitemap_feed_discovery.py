@@ -149,11 +149,9 @@ def _parse_bounded_xml(xml: str) -> ET.Element:
     try:
         for start in range(0, len(xml), _XML_CHUNK_CHARS):
             parser.feed(xml[start : start + _XML_CHUNK_CHARS])
-        root = cast(Any, parser.close())
+        root: ET.Element = cast(Any, parser.close())
     except ET.ParseError as exc:
         raise ValueError(f"unable to parse sitemap/feed XML: {exc}") from exc
-    if not isinstance(root, ET.Element):
-        raise ValueError("unable to parse sitemap/feed XML: document has no root element")
     return root
 
 

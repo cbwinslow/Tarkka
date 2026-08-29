@@ -36,6 +36,7 @@ def test_html_discovery_validates_inputs_and_recovers_from_source_noise() -> Non
 
     html = """
     <div href="/ignored">not a link element</div>
+    <div />
     <a>missing href</a>
     <area />
     <link />

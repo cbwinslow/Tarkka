@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -16,6 +17,7 @@ from tarkka.domain.extraction import (
     EvidenceRecord,
     ExtractionBatch,
     ExtractionProvenance,
+    ExtractionRun,
     FigureEvidence,
     HumanReviewState,
     Hypothesis,
@@ -23,6 +25,7 @@ from tarkka.domain.extraction import (
     Method,
     Metric,
     Model,
+    ModelProvenance,
     ResearchExtraction,
     ResearchObjectKind,
     Result,
@@ -47,6 +50,18 @@ class JsonExtractionRepository:
         with exclusive_lock(self.path):
             if not self.path.exists():
                 self._write({"schema_version": 1, "batches": {}})
+
+    @classmethod
+    def open_existing(cls, path: Path) -> JsonExtractionRepository | None:
+        """Open an existing extraction catalog without creating files or locks."""
+        resolved = path.expanduser().resolve()
+        if not resolved.exists():
+            return None
+        if resolved.is_dir():
+            raise ValueError(f"extraction catalog path is a directory: {resolved}")
+        repository = cls.__new__(cls)
+        repository.path = resolved
+        return repository
 
     def save_batch(self, batch: ExtractionBatch) -> None:
         key = _batch_key(batch.document_id, batch.run.run_id)
@@ -96,6 +111,13 @@ class JsonExtractionRepository:
                     values.append(extraction)
         values.sort(key=lambda item: (str(item.provenance.run_id), str(item.extraction_id)))
         return tuple(values[offset : offset + limit])
+
+    def get_run(self, run_id: UUID) -> ExtractionRun | None:
+        for payload in self._read()["batches"].values():
+            run = payload["run"]
+            if run.get("run_id") == str(run_id):
+                return _run_from_dict(run)
+        return None
 
     def get_extraction(self, extraction_id: UUID) -> ResearchExtraction | None:
         for payload in self._read()["batches"].values():
@@ -170,6 +192,28 @@ def _validate_page(offset: int, limit: int) -> None:
 
 def _batch_key(document_id: UUID, run_id: UUID) -> str:
     return f"{document_id}:{run_id}"
+
+
+def _run_from_dict(raw: dict[str, Any]) -> ExtractionRun:
+    model_raw = raw.get("model")
+    model = (
+        ModelProvenance(
+            provider=model_raw["provider"],
+            name=model_raw["name"],
+            version=model_raw.get("version"),
+        )
+        if model_raw is not None
+        else None
+    )
+    return ExtractionRun(
+        run_id=UUID(raw["run_id"]),
+        document_id=UUID(raw["document_id"]),
+        extractor_name=raw["extractor_name"],
+        extractor_version=raw["extractor_version"],
+        contract_version=raw["contract_version"],
+        model=model,
+        extracted_at=datetime.fromisoformat(raw["extracted_at"]),
+    )
 
 
 def _provenance_to_dict(value: ExtractionProvenance) -> dict[str, Any]:

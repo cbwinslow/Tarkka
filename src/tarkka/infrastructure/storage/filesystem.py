@@ -10,7 +10,7 @@ def fsync_directory(path: Path) -> None:
     """Durably flush directory-entry changes after an atomic rename on POSIX."""
     if os.name != "posix":
         return
-    # O_DIRECTORY is not available everywhere; O_RDONLY is the portable fallback.
+    # Open read-only everywhere; add O_DIRECTORY when available to require a directory path.
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     descriptor = os.open(path, flags)
     try:

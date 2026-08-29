@@ -19,6 +19,9 @@ from tarkka.infrastructure.postgres.research_repository import PostgresResearchR
 from tarkka.infrastructure.postgres.source_observation_repository import (
     PostgresSourceObservationRepository,
 )
+from tarkka.infrastructure.postgres.work_document_repository import (
+    PostgresWorkDocumentRepository,
+)
 
 ConnectionFactory = Callable[[PostgresSettings], Any]
 
@@ -52,6 +55,10 @@ class PostgresProofBundleSnapshotReader:
                             "artifact not found for document "
                             f"{document_id}: {document.artifact_id}"
                         )
+                    work_documents = PostgresWorkDocumentRepository._list_document_work_links(
+                        connection,
+                        document_id,
+                    )
                     observations = (
                         PostgresSourceObservationRepository._list_observations_for_artifact(
                             connection, artifact.artifact_id
@@ -64,11 +71,10 @@ class PostgresProofBundleSnapshotReader:
                             connection, observation.observation_id
                         )
                     )
-                    # Work↔Document links are currently a local-JSON persistence capability;
-                    # PostgreSQL bundle snapshots must not silently mix in stale JSON state.
                     return ProofBundleSnapshot(
                         document=document,
                         artifact=artifact,
+                        work_documents=work_documents,
                         source_observations=observations,
                         resource_links=resource_links,
                     )

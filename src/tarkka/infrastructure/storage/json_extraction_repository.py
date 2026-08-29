@@ -36,7 +36,7 @@ from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
 class ExtractionConflictError(RuntimeError):
-    """Raised when an existing run key is reused with different content."""
+    """Raised when durable extraction identity is reused with different content."""
 
 
 class JsonExtractionRepository:
@@ -74,6 +74,14 @@ class JsonExtractionRepository:
                     return
                 raise ExtractionConflictError(
                     f"conflicting extraction batch for document/run: {key}"
+                )
+            run_id = str(batch.run.run_id)
+            if any(
+                item["run"].get("run_id") == run_id
+                for item in data["batches"].values()
+            ):
+                raise ExtractionConflictError(
+                    f"extraction run id already belongs to another batch: {run_id}"
                 )
             data["batches"][key] = payload
             self._write(data)
@@ -113,11 +121,16 @@ class JsonExtractionRepository:
         return tuple(values[offset : offset + limit])
 
     def get_run(self, run_id: UUID) -> ExtractionRun | None:
-        for payload in self._read()["batches"].values():
-            run = payload["run"]
-            if run.get("run_id") == str(run_id):
-                return _run_from_dict(run)
-        return None
+        raw_matches = [
+            payload["run"]
+            for payload in self._read()["batches"].values()
+            if payload["run"].get("run_id") == str(run_id)
+        ]
+        if len(raw_matches) > 1:
+            raise ExtractionConflictError(
+                f"ambiguous extraction run id in catalog: {run_id}"
+            )
+        return _run_from_dict(raw_matches[0]) if raw_matches else None
 
     def get_extraction(self, extraction_id: UUID) -> ResearchExtraction | None:
         for payload in self._read()["batches"].values():

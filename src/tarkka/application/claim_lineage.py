@@ -201,6 +201,8 @@ class ClaimLineageService:
         run = self._source.get_run(run_id)
         if run is None:
             raise ClaimLineageExtractionRunNotFoundError(f"extraction run not found: {run_id}")
+        if run.run_id != run_id:
+            raise ClaimLineageMismatchError("extraction run lookup returned a different run")
         if run.document_id != document_id:
             raise ClaimLineageMismatchError("extraction run belongs to a different Document")
         cache[run_id] = run
@@ -217,6 +219,8 @@ class ClaimLineageService:
         document = self._documents.get_document(document_id)
         if document is None:
             raise ClaimLineageDocumentNotFoundError(f"document not found: {document_id}")
+        if document.document_id != document_id:
+            raise ClaimLineageMismatchError("Document lookup returned a different Document")
         artifact = self._documents.get_artifact(document.artifact_id)
         if artifact is None:
             raise ClaimLineageArtifactNotFoundError(f"artifact not found: {document.artifact_id}")
@@ -277,12 +281,20 @@ class ClaimLineageService:
             return None
         if self._citations is None:
             raise ClaimLineageCitationRepositoryUnavailableError(
-                "citation repository is not configured"
+                "citation repository unavailable: not configured"
             )
         context = self._citations.get_context(document_id, context_id)
         if context is None:
             raise ClaimLineageCitationContextNotFoundError(
                 f"citation context not found: {context_id}"
+            )
+        if context.context_id != context_id:
+            raise ClaimLineageMismatchError(
+                "citation context lookup returned a different context"
+            )
+        if context.document_id != document_id:
+            raise ClaimLineageMismatchError(
+                "citation context belongs to a different Document"
             )
         return context
 

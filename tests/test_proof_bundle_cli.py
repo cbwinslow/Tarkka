@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+import tarkka.interfaces.bundle_cli as bundle_cli
 import tarkka.interfaces.entrypoint as entrypoint
 from tarkka.interfaces.bundle_cli import _parse_document_id
 from tarkka.interfaces.entrypoint import main
@@ -82,6 +83,30 @@ def test_bundle_cli_create_fails_closed_for_unknown_document(
     assert not output.exists()
 
 
+def test_bundle_cli_create_honors_postgres_backend_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("TARKKA_DOCUMENT_BACKEND", "postgres")
+    monkeypatch.delenv("TARKKA_DATABASE_URL", raising=False)
+
+    assert (
+        main(
+            [
+                "bundle",
+                "create",
+                str(uuid4()),
+                "--output",
+                str(tmp_path / "postgres.tarkka"),
+            ]
+        )
+        == 2
+    )
+    assert "TARKKA_DATABASE_URL is required" in capsys.readouterr().err
+
+
 def test_bundle_cli_verify_fails_closed_for_missing_or_invalid_bundle(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -105,7 +130,7 @@ def test_bundle_document_id_parser_rejects_invalid_values() -> None:
         _parse_document_id("not-a-uuid")
 
 
-def test_entrypoint_delegates_existing_commands_without_behavior_change(
+def test_entrypoint_delegates_explicit_existing_commands_without_behavior_change(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[list[str]] = []
@@ -114,23 +139,51 @@ def test_entrypoint_delegates_existing_commands_without_behavior_change(
         captured.append(arguments)
         return 17
 
-    monkeypatch.setattr(entrypoint, "research_main", fake_research_main)
+    monkeypatch.setattr(entrypoint.research_interface, "main", fake_research_main)
 
     assert main(["existing", "command"]) == 17
     assert captured == [["existing", "command"]]
 
 
-def test_entrypoint_uses_process_arguments_when_argv_is_omitted(
+def test_entrypoint_preserves_existing_process_argument_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_research_main() -> int:
+        calls.append("called")
+        return 7
+
+    monkeypatch.setattr(entrypoint.research_interface, "main", fake_research_main)
+    monkeypatch.setattr(sys, "argv", ["tarkka", "inspect", "doc-id"])
+
+    assert entrypoint.main() == 7
+    assert calls == ["called"]
+
+
+def test_entrypoint_dispatches_process_bundle_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[list[str]] = []
 
-    def fake_research_main(arguments: list[str]) -> int:
+    def fake_bundle_main(arguments: list[str]) -> int:
         captured.append(arguments)
-        return 0
+        return 9
 
-    monkeypatch.setattr(entrypoint, "research_main", fake_research_main)
-    monkeypatch.setattr(sys, "argv", ["tarkka", "inspect", "doc-id"])
+    monkeypatch.setattr(entrypoint, "bundle_main", fake_bundle_main)
+    monkeypatch.setattr(sys, "argv", ["tarkka", "bundle", "verify", "research.tarkka"])
 
-    assert entrypoint.main() == 0
-    assert captured == [["inspect", "doc-id"]]
+    assert entrypoint.main() == 9
+    assert captured == [["verify", "research.tarkka"]]
+
+
+def test_bundle_service_factory_defaults_to_json_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+
+    service = bundle_cli._bundle_service()
+
+    assert service.__class__.__name__ == "ProofBundleService"

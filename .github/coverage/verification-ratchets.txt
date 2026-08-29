@@ -1,0 +1,3 @@
+# Evidence-verification modules permanently held at 100% statement + branch coverage.
+src/tarkka/application/verification.py
+src/tarkka/evaluation/verification.py

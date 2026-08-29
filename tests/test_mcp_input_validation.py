@@ -8,7 +8,6 @@ import pytest
 
 pytest.importorskip("mcp", reason="MCP tests require the optional 'mcp' extra")
 
-from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.interfaces.mcp import create_server
 
 

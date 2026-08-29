@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from tarkka.application.claim_lineage import (
     ClaimAssessmentLineage,
     ClaimLineage,
     EvidenceLineage,
     SourceLineage,
 )
-from tarkka.domain.extraction import Evidence, ExtractionRun, FigureEvidence, TableEvidence
+from tarkka.domain.extraction import (
+    EquationEvidence,
+    Evidence,
+    ExtractionRun,
+    FigureEvidence,
+    TableEvidence,
+)
+from tarkka.domain.source_artifacts import Equation, Figure, Table
 
 
 def extraction_run_view(run: ExtractionRun) -> dict[str, object]:
@@ -56,7 +65,7 @@ def source_lineage_view(lineage: SourceLineage) -> dict[str, object]:
 
 
 def evidence_lineage_view(item: EvidenceLineage) -> dict[str, object]:
-    """Serialize one exact persisted Evidence record and its source lineage."""
+    """Serialize one exact persisted Evidence record and its resolved source metadata."""
     evidence = item.evidence
     payload: dict[str, object] = {
         "evidence_id": str(evidence.evidence_id),
@@ -73,8 +82,18 @@ def evidence_lineage_view(item: EvidenceLineage) -> dict[str, object]:
             text=evidence.text,
         )
     elif isinstance(evidence, FigureEvidence):
-        payload.update(source_kind="figure", figure_id=str(evidence.figure_id))
+        source = cast(Figure, item.source)
+        payload.update(
+            source_kind="figure",
+            figure_id=str(evidence.figure_id),
+            ordinal=source.ordinal,
+            page_number=source.page_number,
+            label=source.label,
+            caption=source.caption,
+            figure_type=source.figure_type,
+        )
     elif isinstance(evidence, TableEvidence):
+        source = cast(Table, item.source)
         payload.update(
             source_kind="table",
             table_id=str(evidence.table_id),
@@ -82,9 +101,25 @@ def evidence_lineage_view(item: EvidenceLineage) -> dict[str, object]:
             row_end=evidence.row_end,
             column_start=evidence.column_start,
             column_end=evidence.column_end,
+            ordinal=source.ordinal,
+            page_number=source.page_number,
+            label=source.label,
+            caption=source.caption,
+            row_count=source.row_count,
+            column_count=source.column_count,
+        )
+    elif isinstance(evidence, EquationEvidence):
+        source = cast(Equation, item.source)
+        payload.update(
+            source_kind="equation",
+            equation_id=str(evidence.equation_id),
+            ordinal=source.ordinal,
+            page_number=source.page_number,
+            label=source.label,
+            source_text=source.source_text,
         )
     else:
-        payload.update(source_kind="equation", equation_id=str(evidence.equation_id))
+        raise TypeError(f"unsupported evidence type: {type(evidence).__name__}")
     return payload
 
 
@@ -130,6 +165,8 @@ def claim_lineage_view(
     *,
     offset: int,
     limit: int,
+    evidence_offset: int = 0,
+    evidence_limit: int = 20,
 ) -> dict[str, object]:
     """Return the canonical transport-neutral Claim lineage payload."""
     claim = lineage.claim
@@ -145,6 +182,11 @@ def claim_lineage_view(
             "extraction_run": extraction_run_view(lineage.claim_run),
         },
         "claim_source": source_lineage_view(lineage.claim_source),
+        "claim_evidence_page": {
+            "offset": evidence_offset,
+            "limit": evidence_limit,
+            "total": lineage.total_claim_evidence,
+        },
         "claim_evidence": [evidence_lineage_view(item) for item in lineage.claim_evidence],
         "verification": {
             "offset": offset,

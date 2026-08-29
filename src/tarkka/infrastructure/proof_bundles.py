@@ -22,6 +22,9 @@ from tarkka.infrastructure.storage.filesystem import fsync_directory
 
 _FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 _FILE_MODE = 0o100644
+_ZIP_VERSION = 20
+_ZIP_VOLUME = 0
+_ZIP_INTERNAL_ATTR = 0
 _READ_CHUNK_BYTES = 1024 * 1024
 
 
@@ -99,7 +102,7 @@ def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWr
     """Verify a durable sibling temp file before atomically publishing the bundle."""
     data = build_proof_bundle_bytes(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    fd, temp_name = tempfile.mkstemp(prefix=".tarkka-bundle-", suffix=".tmp", dir=path.parent)
     temp_path = Path(temp_name)
     try:
         with os.fdopen(fd, "wb") as handle:
@@ -108,6 +111,7 @@ def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWr
             os.fsync(handle.fileno())
         verification = verify_proof_bundle(temp_path)
         os.replace(temp_path, path)
+        # Atomic publication succeeded; failure here means crash durability remains unproven.
         fsync_directory(path.parent)
     finally:
         temp_path.unlink(missing_ok=True)
@@ -122,12 +126,16 @@ def verify_proof_bundle(
     """Verify one bundle offline while streaming its potentially large source artifact."""
     _validate_limits(limits)
     try:
-        archive_size = path.stat().st_size
-        if archive_size > limits.max_archive_bytes:
-            raise ProofBundleVerificationError("proof bundle archive exceeds the configured limit")
-        bundle_sha256 = _sha256_stream(path.open("rb"))
-        with zipfile.ZipFile(path, mode="r") as archive:
-            return _verify_archive(archive, bundle_sha256=bundle_sha256, limits=limits)
+        with path.open("rb") as handle:
+            archive_size = os.fstat(handle.fileno()).st_size
+            if archive_size > limits.max_archive_bytes:
+                raise ProofBundleVerificationError(
+                    "proof bundle archive exceeds the configured limit"
+                )
+            bundle_sha256 = _sha256_stream(handle)
+            handle.seek(0)
+            with zipfile.ZipFile(handle, mode="r") as archive:
+                return _verify_archive(archive, bundle_sha256=bundle_sha256, limits=limits)
     except ProofBundleVerificationError:
         raise
     except zipfile.BadZipFile as exc:
@@ -239,9 +247,8 @@ def _hash_member(archive: zipfile.ZipFile, name: str) -> tuple[int, str]:
 def _sha256_stream(stream: BinaryIO) -> str:
     digest = hashlib.sha256()
     try:
-        with stream:
-            while chunk := stream.read(_READ_CHUNK_BYTES):
-                digest.update(chunk)
+        while chunk := stream.read(_READ_CHUNK_BYTES):
+            digest.update(chunk)
     except OSError as exc:
         raise ProofBundleVerificationError("unable to hash proof bundle") from exc
     return digest.hexdigest()
@@ -300,6 +307,13 @@ def _validate_member_metadata(info: zipfile.ZipInfo) -> None:
         raise ProofBundleVerificationError("proof bundle member timestamp is not canonical")
     if info.create_system != 3 or info.external_attr != _FILE_MODE << 16:
         raise ProofBundleVerificationError("proof bundle member mode is not canonical")
+    if (
+        info.create_version != _ZIP_VERSION
+        or info.extract_version != _ZIP_VERSION
+        or info.volume != _ZIP_VOLUME
+        or info.internal_attr != _ZIP_INTERNAL_ATTR
+    ):
+        raise ProofBundleVerificationError("proof bundle member version metadata is not canonical")
     if info.extra or info.comment or info.flag_bits:
         raise ProofBundleVerificationError("proof bundle member metadata is not canonical")
 
@@ -321,5 +335,9 @@ def _zip_info(name: str) -> zipfile.ZipInfo:
     info = zipfile.ZipInfo(name, date_time=_FIXED_ZIP_TIME)
     info.compress_type = zipfile.ZIP_STORED
     info.create_system = 3
+    info.create_version = _ZIP_VERSION
+    info.extract_version = _ZIP_VERSION
+    info.volume = _ZIP_VOLUME
+    info.internal_attr = _ZIP_INTERNAL_ATTR
     info.external_attr = _FILE_MODE << 16
     return info

@@ -21,7 +21,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
     EvidenceLineage,
 )
-from tarkka.domain.extraction import EquationEvidence, Evidence, FigureEvidence, TableEvidence
+from tarkka.domain.extraction import Evidence, FigureEvidence, TableEvidence
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
@@ -108,7 +108,7 @@ def _evidence_payload(item: EvidenceLineage) -> dict[str, object]:
             column_start=evidence.column_start,
             column_end=evidence.column_end,
         )
-    elif isinstance(evidence, EquationEvidence):
+    else:
         payload.update(source_kind="equation", equation_id=str(evidence.equation_id))
     return payload
 
@@ -207,7 +207,13 @@ def _cmd_why(args: argparse.Namespace) -> int:
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(_payload(lineage, offset=args.offset, limit=args.limit), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            _payload(lineage, offset=args.offset, limit=args.limit),
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

@@ -60,6 +60,41 @@ accepts:
 - `evidence_offset`: original Claim-evidence offset, `0..10000`;
 - `evidence_limit`: original Claim-evidence page size, `0..100`.
 
+A minimal MCP request is:
+
+```json
+{
+  "claim_id": "claim:00000000-0000-0000-0000-000000000008",
+  "offset": 0,
+  "limit": 1,
+  "evidence_offset": 0,
+  "evidence_limit": 2
+}
+```
+
+A successful response includes the same bounded page metadata used by the shared
+lineage view:
+
+```json
+{
+  "ok": true,
+  "lineage": {
+    "claim": {"claim_id": "00000000-0000-0000-0000-000000000008"},
+    "claim_evidence_page": {"offset": 0, "limit": 2, "total": 4},
+    "claim_evidence": [{"source_kind": "passage"}, {"source_kind": "figure"}],
+    "verification": {"offset": 0, "limit": 1, "total": 3, "assessments": []}
+  },
+  "estimated_tokens": 420
+}
+```
+
+The equivalent CLI request is:
+
+```bash
+tarkka why claim:00000000-0000-0000-0000-000000000008 \
+  --offset 0 --limit 1 --evidence-offset 0 --evidence-limit 2
+```
+
 The two page controls are independent. An agent can inspect a small original-evidence
 page without expanding every Evidence record attached to a Claim, while independently
 paging verification assessments.

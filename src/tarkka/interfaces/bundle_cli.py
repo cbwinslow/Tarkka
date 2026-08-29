@@ -15,10 +15,8 @@ from tarkka.application.proof_bundles import (
     ProofBundleDocumentNotFoundError,
     ProofBundleService,
 )
-from tarkka.application.research_packages import (
-    ResearchPackageNotFoundError,
-    ResearchPackageService,
-)
+from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleSnapshotReader
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
     verify_proof_bundle,
@@ -29,6 +27,8 @@ from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
+from tarkka.infrastructure.storage.proof_bundle_snapshot import JsonProofBundleSnapshotReader
+from tarkka.interfaces.main import _document_backend
 
 
 def _home() -> Path:
@@ -44,17 +44,20 @@ def _parse_document_id(raw: str) -> UUID:
 
 def _bundle_service() -> ProofBundleService:
     home = _home()
-    documents = JsonResearchRepository(home / "catalog.json")
-    observations = JsonSourceObservationRepository.open_existing(home / "source_observations.json")
-    packages = ResearchPackageService(
-        documents=documents,
-        work_documents=documents,
-        observations=observations,
-    )
+    if _document_backend() == "json":
+        documents = JsonResearchRepository(home / "catalog.json")
+        observations = JsonSourceObservationRepository.open_existing(
+            home / "source_observations.json"
+        )
+        snapshots = JsonProofBundleSnapshotReader(
+            documents=documents,
+            observations=observations,
+        )
+    else:
+        snapshots = PostgresProofBundleSnapshotReader(PostgresSettings.from_environment())
     return ProofBundleService(
-        documents=documents,
+        snapshots=snapshots,
         artifacts=LocalArtifactStore(home / "artifacts"),
-        packages=packages,
     )
 
 
@@ -69,7 +72,6 @@ def _cmd_create(args: argparse.Namespace) -> int:
         ProofBundleArtifactNotFoundError,
         ProofBundleDocumentNotFoundError,
         ProofBundleVerificationError,
-        ResearchPackageNotFoundError,
         OSError,
         RuntimeError,
         ValueError,

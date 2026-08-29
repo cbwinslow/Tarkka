@@ -75,6 +75,21 @@ class JsonVerificationRepository:
         values.sort(key=lambda item: str(item.relation_id))
         return tuple(values[offset : offset + limit])
 
+    def page_relations(
+        self, claim_id: UUID, *, offset: int = 0, limit: int = 100
+    ) -> tuple[int, tuple[EvidenceRelation, ...]]:
+        """Return total and page from one immutable catalog read."""
+        if offset < 0 or limit < 0:
+            raise ValueError("verification offset and limit must be non-negative")
+        data = self._read()
+        values = [
+            _from_dict(item)
+            for item in data["relations"].values()
+            if item["claim_id"] == str(claim_id)
+        ]
+        values.sort(key=lambda item: str(item.relation_id))
+        return len(values), tuple(values[offset : offset + limit])
+
     def _read(self) -> dict[str, Any]:
         try:
             decoded: Any = json.loads(self.path.read_text(encoding="utf-8"))

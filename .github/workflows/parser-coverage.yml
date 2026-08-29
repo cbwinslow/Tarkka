@@ -32,6 +32,7 @@ jobs:
           uv run --no-sync pytest -m "not external"
           --cov=tarkka --cov=scripts --cov-branch
           --cov-report=term-missing
+      # Every ratchet below reuses the .coverage data emitted by the deterministic pytest --cov run above.
       - name: Enforce completed parser ratchets
         shell: bash
         run: |

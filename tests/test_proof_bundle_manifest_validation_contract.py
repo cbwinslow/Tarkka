@@ -31,7 +31,11 @@ def _mutated_manifest(section: str, field: str, value: object) -> dict[str, Any]
         ("parser_name", " ", "proof bundle parser_name must not be blank"),
         ("parser_version", "", "proof bundle parser_version must not be blank"),
         ("normalized_at", "not-a-date", "proof bundle normalized_at must be an ISO-8601 datetime"),
-        ("normalized_at", "2026-01-01T00:00:00", "proof bundle normalized_at must include a timezone"),
+        (
+            "normalized_at",
+            "2026-01-01T00:00:00",
+            "proof bundle normalized_at must include a timezone",
+        ),
     ],
 )
 def test_document_field_validation_reports_the_intended_rule(
@@ -54,7 +58,11 @@ def test_document_field_validation_reports_the_intended_rule(
         ("path", "artifact.bin", "proof bundle artifact path must be content-addressed by sha256"),
         ("original_name", "", "proof bundle artifact original_name must not be blank"),
         ("source_uri", "", "proof bundle artifact source_uri must not be blank"),
-        ("acquired_at", "not-a-date", "proof bundle artifact acquired_at must be an ISO-8601 datetime"),
+        (
+            "acquired_at",
+            "not-a-date",
+            "proof bundle artifact acquired_at must be an ISO-8601 datetime",
+        ),
     ],
 )
 def test_artifact_field_validation_reports_the_intended_rule(
@@ -81,7 +89,11 @@ def test_artifact_field_validation_reports_the_intended_rule(
             str(UUID("00000000-0000-0000-0000-00000000ffff")),
             "proof bundle work-document link references another document",
         ),
-        ("linked_at", "bad-date", "proof bundle work-document linked_at must be an ISO-8601 datetime"),
+        (
+            "linked_at",
+            "bad-date",
+            "proof bundle work-document linked_at must be an ISO-8601 datetime",
+        ),
     ],
 )
 def test_work_document_field_validation_reports_the_intended_rule(

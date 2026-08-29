@@ -4,7 +4,7 @@ import io
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 from uuid import UUID
 
 import pytest
@@ -80,6 +80,28 @@ def test_verifier_rejects_zip_level_comment(tmp_path: Path) -> None:
         verify_proof_bundle_bytes(buffer.getvalue())
 
 
+def test_path_verifier_hashes_and_parses_the_same_open_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "research.tarkka"
+    destination.write_bytes(build_proof_bundle_bytes(_payload(tmp_path / "state")))
+    original_open = Path.open
+    opened: list[Path] = []
+
+    def tracking_open(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path == destination:
+            opened.append(path)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracking_open)
+
+    verification = verify_proof_bundle(destination)
+
+    assert verification.member_count == 2
+    assert opened == [destination]
+
+
 def test_verifier_rejects_streamed_size_disagreement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -106,6 +128,29 @@ def test_verifier_rejects_noncanonical_member_mode(tmp_path: Path) -> None:
         verify_proof_bundle_bytes(data)
 
 
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("create_version", 21),
+        ("extract_version", 21),
+        ("volume", 1),
+        ("internal_attr", 1),
+    ],
+)
+def test_verifier_rejects_noncanonical_member_version_metadata(
+    tmp_path: Path,
+    attribute: str,
+    value: int,
+) -> None:
+    def mutate(info: zipfile.ZipInfo) -> None:
+        setattr(info, attribute, value)
+
+    data = _canonical_archive_with_mutated_manifest_info(tmp_path, mutate)
+
+    with pytest.raises(ProofBundleVerificationError, match="version metadata is not canonical"):
+        verify_proof_bundle_bytes(data)
+
+
 def test_verifier_rejects_noncanonical_member_comment(tmp_path: Path) -> None:
     def mutate(info: zipfile.ZipInfo) -> None:
         info.comment = b"noncanonical"
@@ -129,6 +174,17 @@ def test_member_offset_validator_rejects_noncanonical_layout() -> None:
         _validate_member_offsets([first, second])
 
 
+def test_atomic_publish_uses_fixed_short_temp_prefix_for_long_output_name(tmp_path: Path) -> None:
+    payload = _payload(tmp_path / "state")
+    destination = tmp_path / (("x" * 240) + ".tarkka")
+
+    result = write_proof_bundle(destination, payload)
+
+    assert result.byte_count == destination.stat().st_size
+    assert verify_proof_bundle(destination).artifact_sha256 == payload.manifest.artifact.sha256
+    assert list(tmp_path.glob(".tarkka-bundle-*.tmp")) == []
+
+
 def test_atomic_publish_reports_directory_fsync_failure_after_valid_replace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -146,4 +202,4 @@ def test_atomic_publish_reports_directory_fsync_failure_after_valid_replace(
 
     assert destination.is_file()
     assert verify_proof_bundle(destination).artifact_sha256 == payload.manifest.artifact.sha256
-    assert list(tmp_path.glob(".research.tarkka.*.tmp")) == []
+    assert list(tmp_path.glob(".tarkka-bundle-*.tmp")) == []

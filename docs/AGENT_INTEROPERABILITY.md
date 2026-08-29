@@ -56,15 +56,29 @@ accepts:
 
 - `claim_id`: UUID or `claim:<uuid>` handle;
 - `offset`: verification-assessment offset, `0..10000`;
-- `limit`: verification-assessment page size, `0..100`.
+- `limit`: verification-assessment page size, `0..100`;
+- `evidence_offset`: original Claim-evidence offset, `0..10000`;
+- `evidence_limit`: original Claim-evidence page size, `0..100`.
+
+The two page controls are independent. An agent can inspect a small original-evidence
+page without expanding every Evidence record attached to a Claim, while independently
+paging verification assessments.
 
 The tool is read-only, non-destructive, idempotent, closed-world, local/offline, and
 does not invoke a model, provider, or network source.
 
 Its payload is the same transport-neutral lineage view used by `tarkka why`. It
-contains Claim extraction provenance, exact evidence locators, normalized Document
-identity, immutable Artifact identity/hash, bounded verification assessments, and
-citation context where present.
+contains Claim extraction provenance, normalized Document identity, immutable Artifact
+identity/hash, bounded original evidence, bounded verification assessments, and
+citation context where present. `claim_evidence_page` reports `offset`, `limit`, and
+`total` so clients can continue evidence expansion deterministically.
+
+Resolved source metadata is included for every supported Evidence kind. Passage
+evidence carries its exact span and text; Figure evidence carries source label,
+caption, page, ordinal, and type; Table evidence carries source label, caption, page,
+shape, ordinal, and exact cell range; Equation evidence carries source label, page,
+ordinal, and preserved source text where available. This prevents Figure/Table/Equation
+handles from becoming opaque dead ends for an agent.
 
 ## Stable machine errors
 
@@ -83,14 +97,24 @@ parse exception text:
 - `backend_unavailable`
 - `content_too_large`
 
-Unexpected programming errors are not converted into ordinary machine problems.
+`invalid_argument` is reserved for typed request-boundary failures such as invalid
+lineage pagination. Backend configuration failures and malformed persisted state are
+reported as `backend_unavailable`; durable identity contradictions remain the distinct
+`lineage_mismatch` class. Unexpected programming errors are not converted into ordinary
+machine problems.
 
 ## Output bounds
 
-Verification assessments are paginated by the application service. MCP also applies
-the same estimated-token ceiling used by bounded context expansion. If the complete
-lineage view would exceed that ceiling, the tool fails closed with
-`content_too_large` rather than returning an unexpectedly large agent payload.
+Original Claim evidence and verification assessments are independently paginated by
+the application service before source resolution. MCP then applies the same
+estimated-token ceiling used by bounded context expansion. If a bounded lineage view
+would still exceed that ceiling, the tool fails closed with `content_too_large` rather
+than returning an unexpectedly large agent payload. Clients can retry with a smaller
+`evidence_limit`, verification `limit`, or both.
+
+Claim text itself remains one atomic semantic Claim datum rather than a hidden bulk
+expansion. Original Evidence is the potentially high-cardinality collection and is
+therefore explicitly paginated before it is resolved.
 
 ## Backend coherence
 

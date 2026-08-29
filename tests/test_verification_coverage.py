@@ -120,10 +120,7 @@ class _Citations:
         limit: int | None = None,
     ) -> tuple[int, tuple[CitationContext, ...]]:
         values = self.list_contexts_for_passages(document_id, passage_ids)
-        if limit is None:
-            page = values[offset:]
-        else:
-            page = values[offset : offset + limit]
+        page = values[offset:] if limit is None else values[offset : offset + limit]
         return len(values), page
 
 

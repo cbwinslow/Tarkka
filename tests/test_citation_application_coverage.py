@@ -117,11 +117,13 @@ def test_citation_context_rejects_cross_document_and_invalid_anchor_ranges() -> 
 class _Works:
     works: dict[UUID, Work] = field(default_factory=dict)
     identifiers: dict[tuple[str, str], Work] = field(default_factory=dict)
+    lookup_calls: list[tuple[str, str]] = field(default_factory=list)
 
     def get_work(self, work_id: UUID) -> Work | None:
         return self.works.get(work_id)
 
     def find_work_by_identifier(self, scheme: str, value: str) -> Work | None:
+        self.lookup_calls.append((scheme, value))
         return self.identifiers.get((scheme, value))
 
 
@@ -167,7 +169,7 @@ class _CitationStore:
         return relation
 
 
-def test_exact_identity_resolver_hits_repository_and_normalizes_known_schemes() -> None:
+def test_exact_identity_resolver_normalizes_each_identifier_scheme_independently() -> None:
     work = Work(work_id=uuid4(), title="Matched work")
     works = _Works(
         identifiers={
@@ -177,21 +179,26 @@ def test_exact_identity_resolver_hits_repository_and_normalizes_known_schemes() 
         }
     )
     resolver = CitationIdentityResolver(cast(WorkRepository, works))
-    reference = BibliographicReference(
-        reference_id=uuid4(),
-        document_id=uuid4(),
-        ordinal=0,
-        raw_text="Reference",
-        identifiers={
-            "custom": "canonical-id",
-            "doi": "10.1000/ABC",
-            "arxiv": "2401.00001",
-        },
+    cases = (
+        ({"custom": "canonical-id"}, ("custom", "canonical-id")),
+        ({"doi": "10.1000/ABC"}, ("doi", "10.1000/abc")),
+        ({"arxiv": "2401.00001"}, ("arxiv", "2401.00001")),
     )
 
-    resolution = resolver.resolve(reference)
+    for identifiers, expected_lookup in cases:
+        works.lookup_calls.clear()
+        reference = BibliographicReference(
+            reference_id=uuid4(),
+            document_id=uuid4(),
+            ordinal=0,
+            raw_text="Reference",
+            identifiers=identifiers,
+        )
 
-    assert resolution.work_id == work.work_id
+        resolution = resolver.resolve(reference)
+
+        assert resolution.work_id == work.work_id
+        assert works.lookup_calls == [expected_lookup]
 
 
 def test_resolution_service_validates_pagination_and_allows_explicit_work_without_links() -> None:

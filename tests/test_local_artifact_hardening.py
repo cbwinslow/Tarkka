@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from tarkka.infrastructure.storage import local_artifacts
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 
 
@@ -104,15 +102,11 @@ def test_read_bytes_by_sha256_detects_corruption(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("value", [None, "", "a" * 63, "A" * 64, "g" * 64])
-def test_require_sha256_rejects_invalid_values(value: object) -> None:
-    with pytest.raises(ValueError, match="artifact SHA-256 must be lowercase hexadecimal"):
-        local_artifacts._require_sha256(value)  # type: ignore[arg-type]
-
-
-def test_fsync_directory_is_noop_off_posix(
+def test_read_bytes_by_sha256_rejects_invalid_digest(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    value: object,
 ) -> None:
-    monkeypatch.setattr(local_artifacts, "os", SimpleNamespace(name="nt"))
+    store = LocalArtifactStore(tmp_path / "artifacts")
 
-    local_artifacts._fsync_directory(tmp_path)
+    with pytest.raises(ValueError, match="artifact SHA-256 must be lowercase hexadecimal"):
+        store.read_bytes_by_sha256(value)  # type: ignore[arg-type]

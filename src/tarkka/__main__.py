@@ -1,3 +1,3 @@
-from tarkka.interfaces.main import main
+from tarkka.interfaces.entrypoint import main
 
 raise SystemExit(main())

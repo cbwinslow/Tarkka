@@ -6,9 +6,10 @@ import os
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
-from uuid import NAMESPACE_URL, uuid5
 
+from tarkka.domain.identifiers import artifact_id_from_sha256, require_sha256
 from tarkka.domain.models import Artifact
+from tarkka.infrastructure.storage.filesystem import fsync_directory
 
 
 class LocalArtifactStore:
@@ -51,7 +52,7 @@ class LocalArtifactStore:
                 with temp_path.open("rb") as handle:
                     os.fsync(handle.fileno())
                 os.replace(temp_path, destination)
-                _fsync_directory(destination.parent)
+                fsync_directory(destination.parent)
             finally:
                 temp_path.unlink(missing_ok=True)
 
@@ -99,7 +100,7 @@ class LocalArtifactStore:
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.replace(temp_path, destination)
-                _fsync_directory(destination.parent)
+                fsync_directory(destination.parent)
             finally:
                 temp_path.unlink(missing_ok=True)
 
@@ -128,7 +129,7 @@ class LocalArtifactStore:
         source_uri: str | None,
     ) -> Artifact:
         return Artifact(
-            artifact_id=uuid5(NAMESPACE_URL, f"urn:sha256:{sha256}"),
+            artifact_id=artifact_id_from_sha256(sha256),
             sha256=sha256,
             size_bytes=size,
             media_type=media_type,
@@ -148,7 +149,7 @@ class LocalArtifactStore:
 
     def read_bytes_by_sha256(self, sha256: str) -> bytes:
         """Read content-addressed bytes and verify the durable object still matches its key."""
-        _require_sha256(sha256)
+        require_sha256(sha256, field_name="artifact SHA-256")
         key = self.storage_key_for_digest(sha256)
         path = self.root.joinpath(*key.parts)
         if not path.is_file():
@@ -161,24 +162,3 @@ class LocalArtifactStore:
     def exists(self, sha256: str) -> bool:
         key = self.storage_key_for_digest(sha256)
         return self.root.joinpath(*key.parts).is_file()
-
-
-def _require_sha256(value: str) -> None:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(character not in "0123456789abcdef" for character in value)
-    ):
-        raise ValueError("artifact SHA-256 must be lowercase hexadecimal")
-
-
-def _fsync_directory(path: Path) -> None:
-    """Flush a renamed directory entry where the platform exposes POSIX directory fsync."""
-    if os.name != "posix":
-        return
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    directory_fd = os.open(path, flags)
-    try:
-        os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)

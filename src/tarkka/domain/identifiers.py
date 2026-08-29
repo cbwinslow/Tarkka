@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 _DOI_RE = re.compile(r"^10\.\d{4,9}/[-._;()/:a-z0-9]+$", re.IGNORECASE)
 _DOI_PREFIXES = ("https://doi.org/", "http://doi.org/", "doi:")
@@ -14,6 +15,20 @@ _ARXIV_PREFIXES = (
     "http://arxiv.org/pdf/",
     "arxiv:",
 )
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def require_sha256(value: object, *, field_name: str = "SHA-256") -> str:
+    """Validate a lowercase SHA-256 digest and return the input string unchanged."""
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise ValueError(f"{field_name} must be lowercase hexadecimal")
+    return value
+
+
+def artifact_id_from_sha256(sha256: str) -> UUID:
+    """Return Tarkka's canonical stable Artifact UUID for one SHA-256 digest."""
+    digest = require_sha256(sha256, field_name="artifact SHA-256")
+    return uuid5(NAMESPACE_URL, f"urn:sha256:{digest}")
 
 
 def normalize_doi(value: str) -> str:

@@ -168,7 +168,9 @@ class ProofBundleResourceLink:
         try:
             ResourceRelation(self.relation)
         except ValueError as exc:
-            raise ValueError(f"unsupported proof bundle resource relation: {self.relation}") from exc
+            raise ValueError(
+                f"unsupported proof bundle resource relation: {self.relation}"
+            ) from exc
         _require_optional_non_blank(self.media_type, "proof bundle resource media_type")
         _require_optional_non_blank(self.label, "proof bundle resource label")
         object.__setattr__(self, "metadata", _copy_json_mapping(self.metadata))

@@ -169,8 +169,6 @@ class CitationTraversalService:
         limit: int,
         exclude_ids: set[UUID],
     ) -> tuple[WorkRelation, ...]:
-        if limit <= 0:
-            return ()
         excluded = frozenset(exclude_ids)
         relations: dict[UUID, WorkRelation] = {}
         if policy.direction in {TraversalDirection.OUTBOUND, TraversalDirection.BOTH}:

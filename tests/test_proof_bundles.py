@@ -20,7 +20,7 @@ from tarkka.application.proof_bundles import (
     ProofBundleService,
     ProofBundleSnapshot,
 )
-from tarkka.domain.models import Artifact
+from tarkka.domain.models import Artifact, Document
 from tarkka.domain.proof_bundles import (
     PROOF_BUNDLE_FORMAT,
     PROOF_BUNDLE_MANIFEST_PATH,
@@ -256,8 +256,17 @@ def test_service_fails_closed_when_snapshot_artifact_identity_diverges(tmp_path:
 
 def test_service_fails_closed_when_snapshot_document_identity_diverges(tmp_path: Path) -> None:
     result, store, _, _ = _ingest_native_document(tmp_path)
+    wrong_document = Document(
+        document_id=uuid4(),
+        artifact_id=result.document.artifact_id,
+        title=result.document.title,
+        parser_name=result.document.parser_name,
+        parser_version=result.document.parser_version,
+        sections=(),
+        normalized_at=result.document.normalized_at,
+    )
     snapshot = ProofBundleSnapshot(
-        document=replace(result.document, document_id=uuid4()),
+        document=wrong_document,
         artifact=result.artifact,
     )
     service = ProofBundleService(

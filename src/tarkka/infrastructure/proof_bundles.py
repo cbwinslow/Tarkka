@@ -52,6 +52,7 @@ def canonical_manifest_bytes(manifest: ProofBundleManifest) -> bytes:
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
+            allow_nan=False,
         )
         + "\n"
     ).encode("utf-8")
@@ -99,19 +100,23 @@ def verify_proof_bundle_bytes(data: bytes) -> ProofBundleVerification:
         names = [info.filename for info in infos]
         if len(names) != len(set(names)):
             raise ProofBundleVerificationError("proof bundle contains duplicate archive members")
-        for name in names:
-            _validate_member_path(name)
+        for info in infos:
+            _validate_member_path(info.filename)
+            if info.compress_type != zipfile.ZIP_STORED:
+                raise ProofBundleVerificationError(
+                    "proof bundle archive members must use ZIP_STORED compression"
+                )
         if PROOF_BUNDLE_MANIFEST_PATH not in names:
             raise ProofBundleVerificationError("proof bundle is missing manifest.json")
 
-        manifest_bytes = archive.read(PROOF_BUNDLE_MANIFEST_PATH)
+        manifest_bytes = _read_member(archive, PROOF_BUNDLE_MANIFEST_PATH)
         manifest = _parse_manifest(manifest_bytes)
         expected_names = {PROOF_BUNDLE_MANIFEST_PATH, manifest.artifact.path}
         if set(names) != expected_names:
             raise ProofBundleVerificationError(
                 "proof bundle contains missing or unexpected archive members"
             )
-        artifact_bytes = archive.read(manifest.artifact.path)
+        artifact_bytes = _read_member(archive, manifest.artifact.path)
 
     if len(artifact_bytes) != manifest.artifact.size_bytes:
         raise ProofBundleVerificationError("proof bundle artifact byte length does not match manifest")
@@ -134,13 +139,24 @@ def verify_proof_bundle_bytes(data: bytes) -> ProofBundleVerification:
     )
 
 
+def _read_member(archive: zipfile.ZipFile, name: str) -> bytes:
+    try:
+        return archive.read(name)
+    except (KeyError, RuntimeError, zipfile.BadZipFile) as exc:
+        raise ProofBundleVerificationError(f"unable to read proof bundle member: {name}") from exc
+
+
 def _parse_manifest(data: bytes) -> ProofBundleManifest:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ProofBundleVerificationError("proof bundle manifest is not valid UTF-8") from exc
     try:
-        value = json.loads(text, object_pairs_hook=_reject_duplicate_json_keys)
+        value = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_json_constant,
+        )
     except json.JSONDecodeError as exc:
         raise ProofBundleVerificationError("proof bundle manifest is not valid JSON") from exc
     try:
@@ -158,6 +174,10 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             )
         result[key] = value
     return result
+
+
+def _reject_json_constant(value: str) -> Any:
+    raise ProofBundleVerificationError(f"proof bundle manifest contains non-finite number: {value}")
 
 
 def _validate_member_path(name: str) -> None:

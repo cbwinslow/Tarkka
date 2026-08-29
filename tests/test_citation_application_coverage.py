@@ -14,7 +14,12 @@ from tarkka.application.citation_traversal import (
     CitationTraversalService,
     TraversalDirection,
 )
-from tarkka.domain.citations import BibliographicReference, CitationMention, WorkRelation, WorkRelationKind
+from tarkka.domain.citations import (
+    BibliographicReference,
+    CitationMention,
+    WorkRelation,
+    WorkRelationKind,
+)
 from tarkka.domain.models import Document, Passage, Section, Work
 from tarkka.domain.source_observations import ObservationBasis
 from tarkka.domain.work_documents import WorkDocumentLink

@@ -1,4 +1,5 @@
 # Deterministic model/extraction modules permanently held at 100% statement + branch coverage.
+src/tarkka/domain/extraction.py
 src/tarkka/infrastructure/extraction/model_batching.py
 src/tarkka/infrastructure/extraction/model_claims.py
 src/tarkka/infrastructure/extraction/model_research.py

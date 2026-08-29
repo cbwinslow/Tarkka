@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+from uuid import NAMESPACE_URL, uuid5
+
 import pytest
 
 from tarkka.domain.identifiers import (
+    artifact_id_from_sha256,
     normalize_arxiv_id,
     normalize_doi,
     try_normalize_arxiv_id,
     try_normalize_doi,
 )
+
+
+def test_artifact_id_from_sha256_is_stable_and_content_derived() -> None:
+    digest = "a" * 64
+
+    assert artifact_id_from_sha256(digest) == uuid5(NAMESPACE_URL, f"urn:sha256:{digest}")
+    assert artifact_id_from_sha256(digest) == artifact_id_from_sha256(digest)
+    assert artifact_id_from_sha256("b" * 64) != artifact_id_from_sha256(digest)
+
+
+@pytest.mark.parametrize("value", ["", "A" * 64, "g" * 64, "a" * 63, None])
+def test_artifact_id_from_sha256_rejects_noncanonical_digests(value: object) -> None:
+    with pytest.raises(ValueError, match="lowercase hexadecimal"):
+        artifact_id_from_sha256(value)  # type: ignore[arg-type]
 
 
 def test_normalize_doi_accepts_common_and_nested_prefixes() -> None:

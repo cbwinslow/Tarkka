@@ -6,9 +6,11 @@ new Work, Artifact, Document, observation, or relation identities.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import math
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any
 from uuid import UUID
 
@@ -136,7 +138,7 @@ class ProofBundleSourceObservation:
             "native_artifact_id": (
                 str(self.native_artifact_id) if self.native_artifact_id is not None else None
             ),
-            "metadata": dict(self.metadata),
+            "metadata": _json_plain_mapping(self.metadata),
             "observed_at": self.observed_at,
         }
 
@@ -166,7 +168,7 @@ class ProofBundleResourceLink:
             "relation": self.relation,
             "media_type": self.media_type,
             "label": self.label,
-            "metadata": dict(self.metadata),
+            "metadata": _json_plain_mapping(self.metadata),
         }
 
 
@@ -196,7 +198,10 @@ class ProofBundleManifest:
         if any(link.observation_id not in observation_ids for link in self.resource_links):
             raise ValueError("proof bundle resource link references an unknown source observation")
         _require_unique((item.link_id for item in self.work_documents), "work-document link")
-        _require_unique((item.observation_id for item in self.source_observations), "source observation")
+        _require_unique(
+            (item.observation_id for item in self.source_observations),
+            "source observation",
+        )
         _require_unique((item.link_id for item in self.resource_links), "resource link")
 
     def to_dict(self) -> dict[str, object]:
@@ -270,7 +275,10 @@ def proof_bundle_manifest_from_dict(value: object) -> ProofBundleManifest:
         size_bytes=_integer(artifact_data["size_bytes"], "proof bundle artifact size_bytes"),
         media_type=_string(artifact_data["media_type"], "proof bundle artifact media_type"),
         path=_string(artifact_data["path"], "proof bundle artifact path"),
-        original_name=_optional_string(artifact_data["original_name"], "proof bundle original_name"),
+        original_name=_optional_string(
+            artifact_data["original_name"],
+            "proof bundle original_name",
+        ),
         source_uri=_optional_string(artifact_data["source_uri"], "proof bundle source_uri"),
         acquired_at=_string(artifact_data["acquired_at"], "proof bundle acquired_at"),
     )
@@ -355,7 +363,15 @@ def _resource_link_from_dict(value: object) -> ProofBundleResourceLink:
     data = _mapping(value, "proof bundle resource link")
     _require_keys(
         data,
-        {"link_id", "observation_id", "target_uri", "relation", "media_type", "label", "metadata"},
+        {
+            "link_id",
+            "observation_id",
+            "target_uri",
+            "relation",
+            "media_type",
+            "label",
+            "metadata",
+        },
         "proof bundle resource link",
     )
     return ProofBundleResourceLink(
@@ -437,21 +453,44 @@ def _require_optional_non_blank(value: str | None, field_name: str) -> None:
         _require_non_blank(value, field_name)
 
 
-def _require_unique(values: Sequence[UUID] | Any, field_name: str) -> None:
+def _require_unique(values: Iterable[UUID], field_name: str) -> None:
     materialized = tuple(values)
     if len(materialized) != len(set(materialized)):
         raise ValueError(f"proof bundle {field_name} IDs must be unique")
 
 
 def _copy_json_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
-    return {key: _copy_json_value(item) for key, item in value.items()}
+    if not isinstance(value, Mapping):
+        raise ValueError("proof bundle metadata must be an object")
+    frozen: dict[str, Any] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("proof bundle metadata keys must be non-blank strings")
+        frozen[key] = _copy_json_value(item)
+    return MappingProxyType(frozen)
 
 
 def _copy_json_value(value: Any) -> Any:
-    if value is None or isinstance(value, (str, bool, int, float)):
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("proof bundle metadata floats must be finite")
         return value
     if isinstance(value, Mapping):
         return _copy_json_mapping(value)
     if isinstance(value, (list, tuple)):
-        return [_copy_json_value(item) for item in value]
+        return tuple(_copy_json_value(item) for item in value)
     raise ValueError("proof bundle metadata must contain JSON-compatible values")
+
+
+def _json_plain_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: _json_plain_value(item) for key, item in value.items()}
+
+
+def _json_plain_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return _json_plain_mapping(value)
+    if isinstance(value, tuple):
+        return [_json_plain_value(item) for item in value]
+    return value

@@ -69,6 +69,9 @@ class UrllibJsonTransport:
         last_error: Exception | None = None
 
         attempt = 0
+        # Every iteration returns, raises on its terminal attempt, or increments
+        # attempt after scheduling a retry. The exception handlers enforce
+        # max_retries, so this loop remains explicitly bounded by retry policy.
         while True:
             remaining = deadline - self._monotonic()
             if remaining <= 0:

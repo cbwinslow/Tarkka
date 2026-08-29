@@ -111,7 +111,8 @@ def _all_fields_expression(text: str) -> str:
     clauses: list[str] = []
     for match in _QUERY_TERM_RE.finditer(normalized):
         value = (match.group(1) or match.group(2) or "").strip().replace('"', "")
-        clauses.append(f'all:"{value}"')
+        if value:
+            clauses.append(f'all:"{value}"')
     if not clauses:
         raise ValueError("arXiv search query must contain at least one term")
     return " AND ".join(clauses)

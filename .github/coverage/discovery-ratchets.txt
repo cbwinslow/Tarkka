@@ -1,7 +1,10 @@
-# Scholarly discovery modules that must remain at 100% statement + branch coverage.
+# Discovery modules that must remain at 100% statement + branch coverage.
 # Add one repository-relative source path only after deterministic coverage reaches 100%.
+src/tarkka/application/discover.py
 src/tarkka/infrastructure/discovery/arxiv.py
 src/tarkka/infrastructure/discovery/crossref.py
 src/tarkka/infrastructure/discovery/http.py
 src/tarkka/infrastructure/discovery/openalex.py
 src/tarkka/infrastructure/discovery/semantic_scholar.py
+src/tarkka/infrastructure/web/link_discovery.py
+src/tarkka/infrastructure/web/sitemap_feed_discovery.py

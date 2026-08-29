@@ -23,6 +23,8 @@ from mcp.types import ToolAnnotations
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.claim_lineage_protocol import (
     MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS as DEFAULT_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
+)
+from tarkka.application.claim_lineage_protocol import (
     agent_error,
     claim_lineage_response,
 )

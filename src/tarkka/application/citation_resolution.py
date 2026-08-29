@@ -186,8 +186,6 @@ def _resolution_id(reference_id: UUID) -> UUID:
 def _normalized_identifier(scheme: str, value: str) -> tuple[str, str] | None:
     normalized_scheme = scheme.strip().lower()
     normalized_value = value.strip()
-    if not normalized_scheme or not normalized_value:
-        return None
     if normalized_scheme == "doi":
         doi = try_normalize_doi(normalized_value)
         return ("doi", doi) if doi is not None else None

@@ -96,31 +96,32 @@ def test_sitemap_discovery_validates_inputs_size_depth_and_element_bounds(
             source_uri="https://example.test/sitemap.xml",
         )
 
-    monkeypatch.setattr(sitemap_module, "_MAX_XML_CHARS", 4)
-    with pytest.raises(ValueError, match="parser size limit"):
-        discoverer.discover(
-            observation,
-            xml="<urlset />",
-            source_uri="https://example.test/sitemap.xml",
-        )
-    monkeypatch.setattr(sitemap_module, "_MAX_XML_CHARS", 5_000_000)
+    with monkeypatch.context() as patch:
+        patch.setattr(sitemap_module, "_MAX_XML_CHARS", 4)
+        with pytest.raises(ValueError, match="parser size limit"):
+            discoverer.discover(
+                observation,
+                xml="<urlset />",
+                source_uri="https://example.test/sitemap.xml",
+            )
 
-    monkeypatch.setattr(sitemap_module, "_MAX_XML_ELEMENTS", 1)
-    with pytest.raises(ValueError, match="element limit"):
-        discoverer.discover(
-            observation,
-            xml="<urlset><url /></urlset>",
-            source_uri="https://example.test/sitemap.xml",
-        )
-    monkeypatch.setattr(sitemap_module, "_MAX_XML_ELEMENTS", 100_000)
+    with monkeypatch.context() as patch:
+        patch.setattr(sitemap_module, "_MAX_XML_ELEMENTS", 1)
+        with pytest.raises(ValueError, match="element limit"):
+            discoverer.discover(
+                observation,
+                xml="<urlset><url /></urlset>",
+                source_uri="https://example.test/sitemap.xml",
+            )
 
-    monkeypatch.setattr(sitemap_module, "_MAX_XML_DEPTH", 1)
-    with pytest.raises(ValueError, match="nesting-depth limit"):
-        discoverer.discover(
-            observation,
-            xml="<urlset><url /></urlset>",
-            source_uri="https://example.test/sitemap.xml",
-        )
+    with monkeypatch.context() as patch:
+        patch.setattr(sitemap_module, "_MAX_XML_DEPTH", 1)
+        with pytest.raises(ValueError, match="nesting-depth limit"):
+            discoverer.discover(
+                observation,
+                xml="<urlset><url /></urlset>",
+                source_uri="https://example.test/sitemap.xml",
+            )
 
 
 def test_sitemap_discovery_rejects_malformed_and_unsupported_xml() -> None:
@@ -141,10 +142,9 @@ def test_sitemap_discovery_rejects_malformed_and_unsupported_xml() -> None:
         )
 
 
-def test_urlset_and_sitemap_index_skip_missing_and_malformed_targets() -> None:
+def test_urlset_skips_missing_and_malformed_targets() -> None:
     discoverer = SitemapFeedDiscoverer()
     observation = _observation()
-
     urlset = """
     <urlset>
       <url><lastmod>2026-01-01</lastmod></url>
@@ -159,9 +159,14 @@ def test_urlset_and_sitemap_index_skip_missing_and_malformed_targets() -> None:
     )
     assert len(links) == 1
     assert links[0].target_uri == "https://example.test/paper"
+    # Ordinals preserve source position, including earlier entries that are skipped.
     assert links[0].metadata["source_ordinal"] == 2
     assert links[0].metadata["last_modified"] == "2026-02-03"
 
+
+def test_sitemap_index_skips_missing_targets() -> None:
+    discoverer = SitemapFeedDiscoverer()
+    observation = _observation()
     sitemap_index = """
     <sitemapindex>
       <sitemap><lastmod>2026-01-01</lastmod></sitemap>
@@ -176,6 +181,7 @@ def test_urlset_and_sitemap_index_skip_missing_and_malformed_targets() -> None:
     assert len(links) == 1
     assert links[0].target_uri == "https://example.test/nested.xml"
     assert links[0].media_type == "application/xml"
+    assert links[0].metadata["source_ordinal"] == 1
 
 
 def test_rss_feed_handles_missing_channel_links_and_invalid_dates() -> None:
@@ -245,6 +251,7 @@ def test_atom_feed_skips_empty_href_and_maps_all_relation_types() -> None:
     assert relations["https://example.test/dataset"] is ResourceRelation.DATASET
     assert relations["https://example.test/software"] is ResourceRelation.SOFTWARE
     assert relations["https://example.test/related"] is ResourceRelation.RELATED
+    assert [link.metadata["source_ordinal"] for link in links] == [1, 2, 3, 4, 5, 6]
     assert next(
         link for link in links if link.target_uri == "https://example.test/related"
     ).media_type == "application/test"

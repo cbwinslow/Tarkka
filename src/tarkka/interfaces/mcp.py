@@ -20,19 +20,12 @@ from uuid import UUID
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from tarkka.application.claim_lineage import (
-    ClaimLineageArtifactNotFoundError,
-    ClaimLineageCitationContextNotFoundError,
-    ClaimLineageCitationRepositoryUnavailableError,
-    ClaimLineageClaimNotFoundError,
-    ClaimLineageDocumentNotFoundError,
-    ClaimLineageEvidenceNotFoundError,
-    ClaimLineageExtractionRunNotFoundError,
-    ClaimLineageMismatchError,
-    ClaimLineageService,
+from tarkka.application.claim_lineage import ClaimLineageService
+from tarkka.application.claim_lineage_protocol import (
+    MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS as DEFAULT_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
+    agent_error,
+    claim_lineage_response,
 )
-from tarkka.application.claim_lineage_contract import claim_lineage_problem
-from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
@@ -41,8 +34,11 @@ from tarkka.application.document_retrieval import (
 )
 from tarkka.application.research_capabilities import (
     UnknownResearchOperationError,
-    research_capabilities,
     research_operation_schema,
+)
+from tarkka.application.research_capability_view import (
+    research_capabilities_view,
+    research_operation_schema_view,
 )
 from tarkka.domain.manifest import estimate_tokens
 from tarkka.domain.models import Section
@@ -62,7 +58,7 @@ _READ_ONLY = ToolAnnotations(
     open_world_hint=False,
 )
 _MAX_SECTION_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
-_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
+_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS = DEFAULT_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS
 
 
 def create_server(
@@ -122,21 +118,7 @@ def create_server(
     @instrument("research_capabilities")
     def capabilities() -> dict[str, object]:
         """Return the bounded first-stage capability index."""
-        index = research_capabilities()
-        return {
-            "ok": True,
-            "version": index.version,
-            "estimated_tokens": index.estimated_tokens,
-            "operations": [
-                {
-                    "operation_id": operation.operation_id,
-                    "family": operation.family,
-                    "summary": operation.summary,
-                    "estimated_tokens": operation.estimated_tokens,
-                }
-                for operation in index.operations
-            ],
-        }
+        return {"ok": True, **research_capabilities_view()}
 
     @server.tool(
         name="research_operation_schema",
@@ -156,33 +138,7 @@ def create_server(
             return _error(
                 "unknown_operation", str(exc), next_actions=("research_capabilities",)
             )
-        operation = schema.operation
-        return {
-            "ok": True,
-            "operation": {
-                "operation_id": operation.operation_id,
-                "family": operation.family,
-                "summary": operation.summary,
-                "estimated_tokens": operation.estimated_tokens,
-            },
-            "inputs": [
-                {
-                    "name": field.name,
-                    "value_type": field.value_type,
-                    "required": field.required,
-                    "summary": field.summary,
-                    "allowed_values": list(field.allowed_values),
-                    "item_value_type": field.item_value_type,
-                    "property_value_type": field.property_value_type,
-                    "minimum": field.minimum,
-                    "maximum": field.maximum,
-                    "required_when": field.required_when,
-                }
-                for field in schema.inputs
-            ],
-            "result_summary": schema.result_summary,
-            "estimated_tokens": schema.estimated_tokens,
-        }
+        return {"ok": True, **research_operation_schema_view(schema)}
 
     @server.tool(
         name="claim_lineage",
@@ -205,51 +161,18 @@ def create_server(
         if isinstance(parsed, dict):
             return parsed
         try:
-            inspected = lineage_service().inspect(
-                parsed,
-                offset=offset,
-                limit=limit,
-                evidence_offset=evidence_offset,
-                evidence_limit=evidence_limit,
-            )
-        except (
-            ClaimLineageArtifactNotFoundError,
-            ClaimLineageCitationContextNotFoundError,
-            ClaimLineageCitationRepositoryUnavailableError,
-            ClaimLineageClaimNotFoundError,
-            ClaimLineageDocumentNotFoundError,
-            ClaimLineageEvidenceNotFoundError,
-            ClaimLineageExtractionRunNotFoundError,
-            ClaimLineageMismatchError,
-            OSError,
-            RuntimeError,
-            ValueError,
-        ) as exc:
-            problem = claim_lineage_problem(exc)
-            return _error(problem.code, problem.message, next_actions=problem.next_actions)
-
-        payload = claim_lineage_view(
-            inspected,
+            service = lineage_service()
+        except (OSError, RuntimeError, ValueError) as exc:
+            return _error("backend_unavailable", str(exc))
+        return claim_lineage_response(
+            service,
+            parsed,
             offset=offset,
             limit=limit,
             evidence_offset=evidence_offset,
             evidence_limit=evidence_limit,
+            max_estimated_tokens=_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
         )
-        estimated_tokens = estimate_tokens(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        )
-        if estimated_tokens > _MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS:
-            return _error(
-                "content_too_large",
-                "claim lineage exceeds the configured estimated-token maximum; retry with a "
-                "smaller evidence_limit and/or verification limit",
-                next_actions=("claim_lineage",),
-            )
-        return {
-            "ok": True,
-            "lineage": payload,
-            "estimated_tokens": estimated_tokens,
-        }
 
     @server.tool(
         name="document_manifest",
@@ -403,14 +326,7 @@ def _section_estimated_tokens(section: Section) -> int:
 def _error(
     code: str, message: str, *, next_actions: tuple[str, ...] = ()
 ) -> dict[str, object]:
-    return {
-        "ok": False,
-        "error": {
-            "code": code,
-            "message": message,
-            "next_actions": list(next_actions),
-        },
-    }
+    return agent_error(code, message, next_actions=next_actions)
 
 
 def _invalid_argument_error(exc: ValueError) -> dict[str, object]:

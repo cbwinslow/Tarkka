@@ -7,7 +7,7 @@ import zipfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -18,9 +18,9 @@ from tarkka.application.proof_bundles import (
     ProofBundleDocumentNotFoundError,
     ProofBundlePayload,
     ProofBundleService,
+    ProofBundleSnapshot,
 )
-from tarkka.application.research_packages import ResearchPackageInspection, ResearchPackageService
-from tarkka.domain.models import Artifact, Document
+from tarkka.domain.models import Artifact
 from tarkka.domain.proof_bundles import (
     PROOF_BUNDLE_FORMAT,
     PROOF_BUNDLE_MANIFEST_PATH,
@@ -43,8 +43,8 @@ from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
+from tarkka.infrastructure.storage.proof_bundle_snapshot import JsonProofBundleSnapshotReader
 from tarkka.ports.artifacts import ArtifactStore
-from tarkka.ports.repositories import ResearchRepository
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
@@ -85,13 +85,11 @@ def _service(
     observations: JsonSourceObservationRepository,
 ) -> ProofBundleService:
     return ProofBundleService(
-        documents=documents,
-        artifacts=store,
-        packages=ResearchPackageService(
+        snapshots=JsonProofBundleSnapshotReader(
             documents=documents,
-            work_documents=documents,
             observations=observations,
         ),
+        artifacts=store,
     )
 
 
@@ -176,35 +174,13 @@ def test_service_fails_closed_for_unknown_document(tmp_path: Path) -> None:
         _service(store, documents, observations).build(uuid4())
 
 
-class _MissingArtifactRepository:
-    def __init__(self, document: Document) -> None:
-        self.document = document
+class _StaticSnapshotReader:
+    def __init__(self, snapshot: ProofBundleSnapshot) -> None:
+        self.snapshot = snapshot
 
-    def save_artifact(self, artifact: Artifact) -> None:
-        del artifact
-
-    def save_document(self, document: Document, manifest: Any) -> None:
-        del document, manifest
-
-    def get_artifact(self, artifact_id: UUID) -> Artifact | None:
-        del artifact_id
-        return None
-
-    def get_document(self, document_id: UUID) -> Document | None:
-        return self.document if document_id == self.document.document_id else None
-
-    def get_manifest(self, document_id: UUID) -> Any | None:
+    def read(self, document_id: object) -> ProofBundleSnapshot:
         del document_id
-        return None
-
-
-class _StaticPackageService:
-    def __init__(self, inspection: ResearchPackageInspection) -> None:
-        self.inspection = inspection
-
-    def inspect(self, document_id: UUID) -> ResearchPackageInspection:
-        assert document_id == self.inspection.document_id
-        return self.inspection
+        return self.snapshot
 
 
 class _CorruptArtifactStore:
@@ -235,58 +211,61 @@ class _CorruptArtifactStore:
         raise AssertionError(sha256)
 
 
-def test_service_fails_closed_when_catalog_artifact_is_missing(tmp_path: Path) -> None:
-    result, store, documents, observations = _ingest_native_document(tmp_path)
-    repository = cast(ResearchRepository, _MissingArtifactRepository(result.document))
-
-    service = ProofBundleService(
-        documents=repository,
-        artifacts=store,
-        packages=ResearchPackageService(
-            documents=documents,
-            work_documents=documents,
-            observations=observations,
-        ),
-    )
+def test_json_snapshot_fails_closed_when_catalog_artifact_is_missing(tmp_path: Path) -> None:
+    result, _, documents, observations = _ingest_native_document(tmp_path)
+    catalog = json.loads(documents.path.read_text(encoding="utf-8"))
+    catalog["artifacts"].pop(str(result.artifact.artifact_id))
+    documents.path.write_text(json.dumps(catalog), encoding="utf-8")
 
     with pytest.raises(ProofBundleArtifactNotFoundError, match="artifact not found"):
-        service.build(result.document.document_id)
+        JsonProofBundleSnapshotReader(
+            documents=documents,
+            observations=observations,
+        ).read(result.document.document_id)
 
 
 def test_service_fails_closed_when_artifact_bytes_are_corrupt(tmp_path: Path) -> None:
     result, _, documents, observations = _ingest_native_document(tmp_path)
 
     service = ProofBundleService(
-        documents=documents,
-        artifacts=cast(ArtifactStore, _CorruptArtifactStore()),
-        packages=ResearchPackageService(
+        snapshots=JsonProofBundleSnapshotReader(
             documents=documents,
-            work_documents=documents,
             observations=observations,
         ),
+        artifacts=cast(ArtifactStore, _CorruptArtifactStore()),
     )
 
     with pytest.raises(ProofBundleArtifactIntegrityError, match="immutable identity"):
         service.build(result.document.document_id)
 
 
-def test_service_fails_closed_when_package_artifact_identity_diverges(tmp_path: Path) -> None:
-    result, store, documents, _ = _ingest_native_document(tmp_path)
-    inspection = ResearchPackageInspection(
-        document_id=result.document.document_id,
-        artifact_id=uuid4(),
-        work_documents=(),
-        source_observations=(),
-        resource_links=(),
+def test_service_fails_closed_when_snapshot_artifact_identity_diverges(tmp_path: Path) -> None:
+    result, store, _, _ = _ingest_native_document(tmp_path)
+    snapshot = ProofBundleSnapshot(
+        document=result.document,
+        artifact=replace(result.artifact, artifact_id=uuid4()),
     )
-
     service = ProofBundleService(
-        documents=documents,
+        snapshots=_StaticSnapshotReader(snapshot),
         artifacts=store,
-        packages=cast(ResearchPackageService, _StaticPackageService(inspection)),
     )
 
-    with pytest.raises(ProofBundleArtifactIntegrityError, match="different artifacts"):
+    with pytest.raises(ProofBundleArtifactIntegrityError, match="identities do not match"):
+        service.build(result.document.document_id)
+
+
+def test_service_fails_closed_when_snapshot_document_identity_diverges(tmp_path: Path) -> None:
+    result, store, _, _ = _ingest_native_document(tmp_path)
+    snapshot = ProofBundleSnapshot(
+        document=replace(result.document, document_id=uuid4()),
+        artifact=result.artifact,
+    )
+    service = ProofBundleService(
+        snapshots=_StaticSnapshotReader(snapshot),
+        artifacts=store,
+    )
+
+    with pytest.raises(ProofBundleArtifactIntegrityError, match="different document identity"):
         service.build(result.document.document_id)
 
 
@@ -615,12 +594,13 @@ def test_verifier_rejects_invalid_zip_and_missing_manifest() -> None:
 
 
 def test_verifier_rejects_duplicate_and_unsafe_archive_members() -> None:
-    duplicate = _zip_members(
-        [
-            (PROOF_BUNDLE_MANIFEST_PATH, b"{}"),
-            (PROOF_BUNDLE_MANIFEST_PATH, b"{}"),
-        ]
-    )
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        duplicate = _zip_members(
+            [
+                (PROOF_BUNDLE_MANIFEST_PATH, b"{}"),
+                (PROOF_BUNDLE_MANIFEST_PATH, b"{}"),
+            ]
+        )
     with pytest.raises(ProofBundleVerificationError, match="duplicate archive members"):
         verify_proof_bundle_bytes(duplicate)
 
@@ -685,7 +665,7 @@ def test_verifier_rejects_missing_or_unexpected_members(tmp_path: Path) -> None:
     manifest_bytes = canonical_manifest_bytes(payload.manifest)
 
     missing_artifact = _zip_members([(PROOF_BUNDLE_MANIFEST_PATH, manifest_bytes)])
-    with pytest.raises(ProofBundleVerificationError, match="missing or unexpected"):
+    with pytest.raises(ProofBundleVerificationError, match="missing.*unexpected"):
         verify_proof_bundle_bytes(missing_artifact)
 
     unexpected = _zip_members(
@@ -695,7 +675,7 @@ def test_verifier_rejects_missing_or_unexpected_members(tmp_path: Path) -> None:
             ("extra.txt", b"extra"),
         ]
     )
-    with pytest.raises(ProofBundleVerificationError, match="missing or unexpected"):
+    with pytest.raises(ProofBundleVerificationError, match="unexpected archive members"):
         verify_proof_bundle_bytes(unexpected)
 
 
@@ -745,7 +725,7 @@ def test_verifier_rejects_noncanonical_manifest_and_zip_encoding(tmp_path: Path)
         ],
         canonical=False,
     )
-    with pytest.raises(ProofBundleVerificationError, match="ZIP encoding is not canonical"):
+    with pytest.raises(ProofBundleVerificationError, match="not canonical"):
         verify_proof_bundle_bytes(noncanonical_zip)
 
 

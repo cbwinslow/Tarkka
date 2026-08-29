@@ -1,0 +1,5 @@
+# Completed ingestion/parsing boundary modules permanently held at 100% statement + branch coverage.
+src/tarkka/application/content_routing.py
+src/tarkka/application/ingest.py
+src/tarkka/infrastructure/full_text/source_record.py
+src/tarkka/ports/parsing.py

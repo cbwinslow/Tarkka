@@ -35,6 +35,9 @@ class ProofBundleVerificationLimits:
     max_artifact_bytes: int = 1024 * 1024 * 1024
 
 
+_DEFAULT_VERIFICATION_LIMITS = ProofBundleVerificationLimits()
+
+
 @dataclass(frozen=True, slots=True)
 class ProofBundleVerification:
     bundle_sha256: str
@@ -92,7 +95,7 @@ def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> int:
 def verify_proof_bundle(
     path: Path,
     *,
-    limits: ProofBundleVerificationLimits = ProofBundleVerificationLimits(),
+    limits: ProofBundleVerificationLimits = _DEFAULT_VERIFICATION_LIMITS,
 ) -> ProofBundleVerification:
     """Verify one bundle offline while streaming its potentially large source artifact."""
     _validate_limits(limits)
@@ -114,7 +117,7 @@ def verify_proof_bundle(
 def verify_proof_bundle_bytes(
     data: bytes,
     *,
-    limits: ProofBundleVerificationLimits = ProofBundleVerificationLimits(),
+    limits: ProofBundleVerificationLimits = _DEFAULT_VERIFICATION_LIMITS,
 ) -> ProofBundleVerification:
     """Validate in-memory archive bytes with the same bounded hostile-input rules."""
     _validate_limits(limits)

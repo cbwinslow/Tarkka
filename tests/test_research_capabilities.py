@@ -101,11 +101,21 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
         "One exact section with source-preserving normalized passage handles and text."
     )
 
-    assert [field.name for field in lineage.inputs] == ["claim_id", "offset", "limit"]
+    assert [field.name for field in lineage.inputs] == [
+        "claim_id",
+        "offset",
+        "limit",
+        "evidence_offset",
+        "evidence_limit",
+    ]
     assert lineage.inputs[1].minimum == 0
     assert lineage.inputs[1].maximum == 10_000
     assert lineage.inputs[2].minimum == 0
     assert lineage.inputs[2].maximum == 100
+    assert lineage.inputs[3].minimum == 0
+    assert lineage.inputs[3].maximum == 10_000
+    assert lineage.inputs[4].minimum == 0
+    assert lineage.inputs[4].maximum == 100
     assert lineage.operation.family == "explain"
     assert lineage.result_summary == (
         "Claim extraction provenance, exact evidence/source lineage, and bounded assessments."

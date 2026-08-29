@@ -18,11 +18,17 @@ _ARXIV_PREFIXES = (
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+def require_sha256(value: object, *, field_name: str = "SHA-256") -> str:
+    """Return a canonical lowercase SHA-256 digest or fail closed."""
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise ValueError(f"{field_name} must be lowercase hexadecimal")
+    return value
+
+
 def artifact_id_from_sha256(sha256: str) -> UUID:
     """Return Tarkka's canonical stable Artifact UUID for one SHA-256 digest."""
-    if not isinstance(sha256, str) or not _SHA256_RE.fullmatch(sha256):
-        raise ValueError("artifact SHA-256 must be lowercase hexadecimal")
-    return uuid5(NAMESPACE_URL, f"urn:sha256:{sha256}")
+    digest = require_sha256(sha256, field_name="artifact SHA-256")
+    return uuid5(NAMESPACE_URL, f"urn:sha256:{digest}")
 
 
 def normalize_doi(value: str) -> str:

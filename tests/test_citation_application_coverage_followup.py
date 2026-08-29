@@ -69,7 +69,11 @@ def test_anchored_citation_without_explicit_bounds_uses_full_passage_context() -
     contexts = build_citation_contexts(document, (mention,))
 
     assert len(contexts) == 1
-    assert contexts[0].passage_id == passage.passage_id
+    context = contexts[0]
+    assert context.passage_id == passage.passage_id
+    assert context.text == passage.text
+    assert context.char_start == passage.char_start
+    assert context.char_end == passage.char_end
 
 
 def test_citation_domain_rejects_blank_text_and_identifiers_before_services() -> None:
@@ -100,13 +104,17 @@ def test_citation_domain_rejects_blank_text_and_identifiers_before_services() ->
 
 
 class _NoWorks:
+    def __init__(self) -> None:
+        self.lookup_calls: list[tuple[str, str]] = []
+
     def find_work_by_identifier(self, scheme: str, value: str) -> Work | None:
-        del scheme, value
+        self.lookup_calls.append((scheme, value))
         return None
 
 
 def test_identity_resolver_skips_identifier_that_cannot_be_normalized() -> None:
-    resolver = CitationIdentityResolver(cast(WorkRepository, _NoWorks()))
+    works = _NoWorks()
+    resolver = CitationIdentityResolver(cast(WorkRepository, works))
     reference = BibliographicReference(
         reference_id=uuid4(),
         document_id=uuid4(),
@@ -116,6 +124,7 @@ def test_identity_resolver_skips_identifier_that_cannot_be_normalized() -> None:
     )
 
     assert resolver.resolve(reference).work_id is None
+    assert works.lookup_calls == []
 
 
 def test_traversal_policy_rejects_invalid_direction_and_relation_kind() -> None:

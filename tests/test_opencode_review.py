@@ -554,3 +554,53 @@ def test_script_entrypoint_exits_with_main_result(monkeypatch: pytest.MonkeyPatc
         runpy.run_path(str(Path(reviewer.__file__).resolve()), run_name="__main__")
 
     assert exc_info.value.code == 1
+
+
+def test_request_honors_retry_after_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def fake_urlopen(_request: object, *, timeout: float) -> _FakeResponse:
+        nonlocal attempts
+        attempts += 1
+        assert timeout == 60.0
+        if attempts == 1:
+            raise HTTPError(
+                "https://example.invalid",
+                429,
+                "rate limited",
+                {"Retry-After": "4.5"},
+                None,
+            )
+        return _FakeResponse(b"ok")
+
+    monkeypatch.setattr(reviewer, "urlopen", fake_urlopen)
+    monkeypatch.setattr(reviewer.time, "sleep", delays.append)
+
+    assert _request("https://example.invalid", retries=1) == b"ok"
+    assert delays == [4.5]
+
+
+def test_request_falls_back_when_retry_after_is_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def fake_urlopen(_request: object, *, timeout: float) -> _FakeResponse:
+        nonlocal attempts
+        attempts += 1
+        assert timeout == 60.0
+        if attempts == 1:
+            raise HTTPError(
+                "https://example.invalid",
+                503,
+                "temporary",
+                {"Retry-After": "not-a-number"},
+                None,
+            )
+        return _FakeResponse(b"ok")
+
+    monkeypatch.setattr(reviewer, "urlopen", fake_urlopen)
+    monkeypatch.setattr(reviewer.time, "sleep", delays.append)
+
+    assert _request("https://example.invalid", retries=1) == b"ok"
+    assert delays == [1.0]

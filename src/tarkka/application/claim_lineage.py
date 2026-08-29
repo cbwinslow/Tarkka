@@ -224,7 +224,9 @@ class ClaimLineageService:
         if artifact is None:
             raise ClaimLineageArtifactNotFoundError(f"artifact not found: {document.artifact_id}")
         if artifact.artifact_id != document.artifact_id:
-            raise ClaimLineageMismatchError("Document artifact linkage returned a different Artifact")
+            raise ClaimLineageMismatchError(
+                "Document artifact linkage returned a different Artifact"
+            )
         if artifact.artifact_id != artifact_id_from_sha256(artifact.sha256):
             raise ClaimLineageMismatchError(
                 "Artifact ID does not match its canonical SHA-256 identity"

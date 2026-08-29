@@ -81,6 +81,7 @@ def _validate_mention_bounds(mention: CitationMention, passage: Passage) -> None
 
 
 def _overlapping_occurrence_count(text: str, needle: str) -> int:
+    # CitationMention rejects blank raw_text, so supported callers always supply a needle.
     count = 0
     cursor = 0
     while True:

@@ -12,8 +12,7 @@ CREATE TABLE tarkka.work_document_link (
     CONSTRAINT work_document_link_document_artifact_fk
         FOREIGN KEY (document_id, artifact_id)
         REFERENCES tarkka.document(document_id, artifact_id)
-        ON DELETE CASCADE,
-    CONSTRAINT work_document_link_work_document_unique UNIQUE (work_id, document_id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX work_document_link_work_idx

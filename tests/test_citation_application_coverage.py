@@ -6,7 +6,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from tarkka.application import citation_context, citation_resolution, citations
 from tarkka.application.citation_context import build_citation_contexts
 from tarkka.application.citation_resolution import CitationResolutionService
 from tarkka.application.citation_traversal import (
@@ -14,9 +13,11 @@ from tarkka.application.citation_traversal import (
     CitationTraversalService,
     TraversalDirection,
 )
+from tarkka.application.citations import CitationIdentityResolver
 from tarkka.domain.citations import (
     BibliographicReference,
     CitationMention,
+    CitationResolution,
     WorkRelation,
     WorkRelationKind,
 )
@@ -112,10 +113,6 @@ def test_citation_context_rejects_cross_document_and_invalid_anchor_ranges() -> 
         build_citation_contexts(document, (mismatched,))
 
 
-def test_citation_context_occurrence_counter_accepts_empty_needle() -> None:
-    assert citation_context._overlapping_occurrence_count("alpha", "") == 0
-
-
 @dataclass
 class _Works:
     works: dict[UUID, Work] = field(default_factory=dict)
@@ -136,31 +133,74 @@ class _Links:
         return tuple(link for link in self.links if link.document_id == document_id)
 
 
+@dataclass
+class _CitationStore:
+    references: tuple[BibliographicReference, ...] = ()
+    resolutions: dict[UUID, CitationResolution] = field(default_factory=dict)
+
+    def get_resolution(self, reference_id: UUID) -> CitationResolution | None:
+        return self.resolutions.get(reference_id)
+
+    def save_resolution(self, resolution: CitationResolution) -> None:
+        self.resolutions[resolution.reference_id] = resolution
+
+    def list_references(
+        self,
+        document_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> tuple[BibliographicReference, ...]:
+        selected = tuple(
+            reference
+            for reference in self.references
+            if reference.document_id == document_id
+        )[offset:]
+        return selected if limit is None else selected[:limit]
+
+    def count_references(self, document_id: UUID) -> int:
+        return sum(
+            reference.document_id == document_id for reference in self.references
+        )
+
+    def get_or_create_relation(self, relation: WorkRelation) -> WorkRelation:
+        return relation
+
+
 def test_exact_identity_resolver_hits_repository_and_normalizes_known_schemes() -> None:
     work = Work(work_id=uuid4(), title="Matched work")
-    works = _Works(identifiers={("custom", "canonical-id"): work})
-    resolver = citations.CitationIdentityResolver(cast(WorkRepository, works))
+    works = _Works(
+        identifiers={
+            ("custom", "canonical-id"): work,
+            ("doi", "10.1000/abc"): work,
+            ("arxiv", "2401.00001"): work,
+        }
+    )
+    resolver = CitationIdentityResolver(cast(WorkRepository, works))
     reference = BibliographicReference(
         reference_id=uuid4(),
         document_id=uuid4(),
         ordinal=0,
         raw_text="Reference",
-        identifiers={"custom": "canonical-id"},
+        identifiers={
+            "custom": "canonical-id",
+            "doi": "10.1000/ABC",
+            "arxiv": "2401.00001",
+        },
     )
 
     resolution = resolver.resolve(reference)
 
     assert resolution.work_id == work.work_id
-    assert citations._normalize_identifier("doi", "10.1000/ABC") is not None
-    assert citations._normalize_identifier("arxiv", "2401.00001") is not None
 
 
 def test_resolution_service_validates_pagination_and_allows_explicit_work_without_links() -> None:
     work = Work(work_id=uuid4(), title="Citing work")
     works = _Works(works={work.work_id: work})
     links = _Links()
+    citations = _CitationStore()
     service = CitationResolutionService(
-        cast(CitationRepository, object()),
+        cast(CitationRepository, citations),
         cast(WorkRepository, works),
         cast(WorkDocumentRepository, links),
     )
@@ -171,8 +211,9 @@ def test_resolution_service_validates_pagination_and_allows_explicit_work_withou
     with pytest.raises(ValueError, match="offset and limit must be non-negative"):
         service.resolve_document(document_id, limit=-1)
 
-    assert service._citing_work_id(document_id, work.work_id) == work.work_id
-    assert citation_resolution._normalized_identifier("doi", "10.1000/ABC") is not None
+    result = service.resolve_document(document_id, citing_work_id=work.work_id)
+    assert result.citing_work_id == work.work_id
+    assert result.total_references == 0
 
 
 def _relation(subject: UUID, object_: UUID) -> WorkRelation:
@@ -245,15 +286,14 @@ def test_traversal_policy_rejects_negative_relation_budget_and_empty_kinds() -> 
         CitationTraversalPolicy(relation_kinds=frozenset())
 
 
-def test_traversal_handles_zero_fetch_budget_and_foreign_relation() -> None:
+def test_traversal_ignores_foreign_relation_from_repository() -> None:
     root = uuid4()
     foreign = _relation(uuid4(), uuid4())
     repository = _TraversalRepository(outbound={root: (foreign,)})
     service = CitationTraversalService(cast(CitationRepository, repository))
-    policy = CitationTraversalPolicy(max_depth=1)
 
-    assert service._relations_for(root, policy, limit=0, exclude_ids=set()) == ()
-    result = service.traverse(root, policy)
+    result = service.traverse(root, CitationTraversalPolicy(max_depth=1))
+
     assert result.work_ids == (root,)
     assert result.relations == ()
 

@@ -28,6 +28,8 @@ from tarkka.ports.verification import (
 
 MAX_CLAIM_LINEAGE_OFFSET = 10_000
 MAX_CLAIM_LINEAGE_PAGE_SIZE = 100
+MAX_CLAIM_EVIDENCE_OFFSET = 10_000
+MAX_CLAIM_EVIDENCE_PAGE_SIZE = 100
 
 EvidenceSource: TypeAlias = Passage | Figure | Table | Equation
 
@@ -98,6 +100,7 @@ class ClaimLineage:
     claim: Claim
     claim_run: ExtractionRun
     claim_source: SourceLineage
+    total_claim_evidence: int
     claim_evidence: tuple[EvidenceLineage, ...]
     total_relations: int
     assessments: tuple[ClaimAssessmentLineage, ...]
@@ -125,9 +128,18 @@ class ClaimLineageService:
         *,
         offset: int = 0,
         limit: int = 20,
+        evidence_offset: int = 0,
+        evidence_limit: int = 20,
     ) -> ClaimLineage:
-        """Return bounded verification lineage plus the Claim's original extraction evidence."""
-        _validate_page(offset=offset, limit=limit)
+        """Return bounded original-evidence and verification lineage pages."""
+        _validate_page(offset=offset, limit=limit, label="claim lineage")
+        _validate_page(
+            offset=evidence_offset,
+            limit=evidence_limit,
+            label="claim evidence",
+            maximum_offset=MAX_CLAIM_EVIDENCE_OFFSET,
+            maximum_limit=MAX_CLAIM_EVIDENCE_PAGE_SIZE,
+        )
         record = self._source.get_extraction(claim_id)
         if not isinstance(record, Claim):
             raise ClaimLineageClaimNotFoundError(f"claim not found: {claim_id}")
@@ -140,6 +152,7 @@ class ClaimLineageService:
             run_cache,
         )
         claim_source = self._source_lineage(record.document_id, source_cache)
+        evidence_ids = record.evidence_ids[evidence_offset : evidence_offset + evidence_limit]
         claim_evidence = tuple(
             self._evidence_lineage(
                 evidence_id,
@@ -148,7 +161,7 @@ class ClaimLineageService:
                 expected_document_id=record.document_id,
                 expected_run_id=record.provenance.run_id,
             )
-            for evidence_id in record.evidence_ids
+            for evidence_id in evidence_ids
         )
 
         total, relation_page = self._relations.page_relations(
@@ -180,6 +193,7 @@ class ClaimLineageService:
             claim=record,
             claim_run=claim_run,
             claim_source=claim_source,
+            total_claim_evidence=len(record.evidence_ids),
             claim_evidence=claim_evidence,
             total_relations=total,
             assessments=tuple(assessments),
@@ -355,8 +369,15 @@ def _resolve_evidence_source(document: Document, evidence: EvidenceRecord) -> Ev
     return equation
 
 
-def _validate_page(*, offset: int, limit: int) -> None:
+def _validate_page(
+    *,
+    offset: int,
+    limit: int,
+    label: str,
+    maximum_offset: int = MAX_CLAIM_LINEAGE_OFFSET,
+    maximum_limit: int = MAX_CLAIM_LINEAGE_PAGE_SIZE,
+) -> None:
     if offset < 0 or limit < 0:
-        raise ValueError("claim lineage offset and limit must be non-negative")
-    if offset > MAX_CLAIM_LINEAGE_OFFSET or limit > MAX_CLAIM_LINEAGE_PAGE_SIZE:
-        raise ValueError("claim lineage pagination exceeds the configured maximum")
+        raise ValueError(f"{label} offset and limit must be non-negative")
+    if offset > maximum_offset or limit > maximum_limit:
+        raise ValueError(f"{label} pagination exceeds the configured maximum")

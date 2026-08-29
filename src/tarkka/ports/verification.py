@@ -4,7 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from tarkka.domain.citations import CitationContext, CitationMention
-from tarkka.domain.extraction import EvidenceRecord, ResearchExtraction
+from tarkka.domain.extraction import EvidenceRecord, ExtractionRun, ResearchExtraction
 from tarkka.domain.verification import EvidenceRelation
 
 
@@ -12,6 +12,12 @@ class ClaimEvidenceReader(Protocol):
     def get_extraction(self, extraction_id: UUID) -> ResearchExtraction | None: ...
 
     def get_evidence(self, evidence_id: UUID) -> EvidenceRecord | None: ...
+
+
+class ClaimLineageSourceReader(ClaimEvidenceReader, Protocol):
+    """Read exact extraction objects plus their immutable run provenance."""
+
+    def get_run(self, run_id: UUID) -> ExtractionRun | None: ...
 
 
 class CitationContextReader(Protocol):
@@ -46,7 +52,15 @@ class CitationContextReader(Protocol):
     ) -> tuple[int, tuple[CitationContext, ...]]: ...
 
 
-class EvidenceRelationRepository(Protocol):
+class EvidenceRelationReader(Protocol):
+    """Bounded, internally consistent reads over immutable evidence assessments."""
+
+    def page_relations(
+        self, claim_id: UUID, *, offset: int = 0, limit: int = 100
+    ) -> tuple[int, tuple[EvidenceRelation, ...]]: ...
+
+
+class EvidenceRelationRepository(EvidenceRelationReader, Protocol):
     """Durable immutable assessment records with bounded claim reads."""
 
     def save_relation(self, relation: EvidenceRelation) -> None: ...
@@ -58,7 +72,3 @@ class EvidenceRelationRepository(Protocol):
     def list_relations(
         self, claim_id: UUID, *, offset: int = 0, limit: int = 100
     ) -> tuple[EvidenceRelation, ...]: ...
-
-    def page_relations(
-        self, claim_id: UUID, *, offset: int = 0, limit: int = 100
-    ) -> tuple[int, tuple[EvidenceRelation, ...]]: ...

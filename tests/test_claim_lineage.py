@@ -38,6 +38,12 @@ def _id(value: int) -> UUID:
     return UUID(int=value)
 
 
+_DOCUMENT_ID = _id(1)
+_RUN_ID = _id(7)
+_CLAIM_ID = _id(8)
+_TEXT_EVIDENCE_ID = _id(10)
+
+
 class _Source:
     def __init__(self, claim: Claim | None, evidence: dict[UUID, object]) -> None:
         self.claim = claim
@@ -110,18 +116,18 @@ def _artifact(digest: str, *, artifact_id: UUID | None = None) -> Artifact:
 
 def _document(
     *,
-    document_id: UUID = _id(1),
+    document_id: UUID = _DOCUMENT_ID,
     artifact: Artifact | None = None,
     passage_text: str = "alpha beta",
     table_row_count: int | None = 2,
     table_column_count: int | None = 2,
 ) -> tuple[Document, Artifact]:
     stored_artifact = artifact or _artifact("a" * 64)
-    section_id = _id(2) if document_id == _id(1) else _id(32)
-    passage_id = _id(3) if document_id == _id(1) else _id(33)
-    figure_id = _id(4) if document_id == _id(1) else _id(34)
-    table_id = _id(5) if document_id == _id(1) else _id(35)
-    equation_id = _id(6) if document_id == _id(1) else _id(36)
+    section_id = _id(2) if document_id == _DOCUMENT_ID else _id(32)
+    passage_id = _id(3) if document_id == _DOCUMENT_ID else _id(33)
+    figure_id = _id(4) if document_id == _DOCUMENT_ID else _id(34)
+    table_id = _id(5) if document_id == _DOCUMENT_ID else _id(35)
+    equation_id = _id(6) if document_id == _DOCUMENT_ID else _id(36)
     passage = Passage(
         passage_id=passage_id,
         document_id=document_id,
@@ -162,17 +168,17 @@ def _document(
     )
 
 
-def _provenance(run_id: UUID = _id(7)) -> ExtractionProvenance:
+def _provenance(run_id: UUID = _RUN_ID) -> ExtractionProvenance:
     return ExtractionProvenance(run_id=run_id, confidence=0.9)
 
 
-def _evidence_set(document_id: UUID = _id(1)) -> dict[UUID, object]:
-    section_id = _id(2) if document_id == _id(1) else _id(32)
-    passage_id = _id(3) if document_id == _id(1) else _id(33)
-    figure_id = _id(4) if document_id == _id(1) else _id(34)
-    table_id = _id(5) if document_id == _id(1) else _id(35)
-    equation_id = _id(6) if document_id == _id(1) else _id(36)
-    base = 10 if document_id == _id(1) else 40
+def _evidence_set(document_id: UUID = _DOCUMENT_ID) -> dict[UUID, object]:
+    section_id = _id(2) if document_id == _DOCUMENT_ID else _id(32)
+    passage_id = _id(3) if document_id == _DOCUMENT_ID else _id(33)
+    figure_id = _id(4) if document_id == _DOCUMENT_ID else _id(34)
+    table_id = _id(5) if document_id == _DOCUMENT_ID else _id(35)
+    equation_id = _id(6) if document_id == _DOCUMENT_ID else _id(36)
+    base = 10 if document_id == _DOCUMENT_ID else 40
     return {
         _id(base): Evidence(
             evidence_id=_id(base),
@@ -181,7 +187,7 @@ def _evidence_set(document_id: UUID = _id(1)) -> dict[UUID, object]:
             passage_id=passage_id,
             passage_char_start=0,
             passage_char_end=5,
-            text="alpha" if document_id == _id(1) else "contr",
+            text="alpha" if document_id == _DOCUMENT_ID else "contr",
             provenance=_provenance(),
         ),
         _id(base + 1): FigureEvidence(
@@ -209,10 +215,12 @@ def _evidence_set(document_id: UUID = _id(1)) -> dict[UUID, object]:
     }
 
 
-def _claim(evidence_ids: tuple[UUID, ...] = (_id(10), _id(11), _id(12), _id(13))) -> Claim:
+def _claim(
+    evidence_ids: tuple[UUID, ...] = (_id(10), _id(11), _id(12), _id(13)),
+) -> Claim:
     return Claim(
-        extraction_id=_id(8),
-        document_id=_id(1),
+        extraction_id=_CLAIM_ID,
+        document_id=_DOCUMENT_ID,
         evidence_ids=evidence_ids,
         provenance=_provenance(),
         text="Treatment improves outcome.",
@@ -222,9 +230,9 @@ def _claim(evidence_ids: tuple[UUID, ...] = (_id(10), _id(11), _id(12), _id(13))
 def _relation(
     relation_id: int,
     *,
-    claim_id: UUID = _id(8),
+    claim_id: UUID = _CLAIM_ID,
     kind: EvidenceRelationKind = EvidenceRelationKind.SUPPORTS,
-    evidence_id: UUID | None = _id(10),
+    evidence_id: UUID | None = _TEXT_EVIDENCE_ID,
     context_id: UUID | None = None,
 ) -> EvidenceRelation:
     return EvidenceRelation(
@@ -293,7 +301,7 @@ def test_inspect_resolves_original_evidence_and_cross_document_assessments() -> 
         citations=_Citations(context),
     )
 
-    result = service.inspect(_id(8), offset=0, limit=3)
+    result = service.inspect(_CLAIM_ID, offset=0, limit=3)
 
     assert result.claim.text == "Treatment improves outcome."
     assert result.claim_source.document == document
@@ -311,7 +319,7 @@ def test_inspect_resolves_original_evidence_and_cross_document_assessments() -> 
     assert result.assessments[1].evidence.lineage.artifact == other_artifact
     assert result.assessments[2].evidence is None
     assert result.assessments[2].citation_context is None
-    assert relation_repo.calls == [(_id(8), 0, 3)]
+    assert relation_repo.calls == [(_CLAIM_ID, 0, 3)]
 
 
 def test_inspect_passes_bounded_pagination_to_relation_repository() -> None:
@@ -323,10 +331,10 @@ def test_inspect_passes_bounded_pagination_to_relation_repository() -> None:
         relations=repository,
         documents=_Documents({document.document_id: document}, {artifact.artifact_id: artifact}),
     )
-    result = service.inspect(_id(8), offset=1, limit=1)
+    result = service.inspect(_CLAIM_ID, offset=1, limit=1)
     assert len(result.assessments) == 1
     assert result.assessments[0].relation.relation_id == _id(61)
-    assert repository.calls == [(_id(8), 1, 1)]
+    assert repository.calls == [(_CLAIM_ID, 1, 1)]
 
 
 @pytest.mark.parametrize(
@@ -348,7 +356,7 @@ def test_inspect_passes_bounded_pagination_to_relation_repository() -> None:
 )
 def test_inspect_rejects_invalid_pagination(offset: int, limit: int, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        _service().inspect(_id(8), offset=offset, limit=limit)
+        _service().inspect(_CLAIM_ID, offset=offset, limit=limit)
 
 
 def test_inspect_rejects_unknown_claim() -> None:
@@ -358,13 +366,13 @@ def test_inspect_rejects_unknown_claim() -> None:
 
 def test_inspect_rejects_missing_claim_document() -> None:
     with pytest.raises(ClaimLineageDocumentNotFoundError, match="document not found"):
-        _service(documents={}).inspect(_id(8))
+        _service(documents={}).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_missing_claim_artifact() -> None:
     document, _ = _document()
     with pytest.raises(ClaimLineageArtifactNotFoundError, match="artifact not found"):
-        _service(documents={document.document_id: document}, artifacts={}).inspect(_id(8))
+        _service(documents={document.document_id: document}, artifacts={}).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_noncanonical_artifact_identity() -> None:
@@ -374,44 +382,52 @@ def test_inspect_rejects_noncanonical_artifact_identity() -> None:
         _service(
             documents={document.document_id: document},
             artifacts={bad_artifact.artifact_id: bad_artifact},
-        ).inspect(_id(8))
+        ).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_missing_claim_evidence() -> None:
     evidence = _evidence_set()
-    evidence.pop(_id(10))
+    evidence.pop(_TEXT_EVIDENCE_ID)
     with pytest.raises(ClaimLineageEvidenceNotFoundError, match="evidence not found"):
-        _service(evidence=evidence).inspect(_id(8))
+        _service(evidence=evidence).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_claim_evidence_from_different_document() -> None:
     evidence = _evidence_set()
-    evidence[_id(10)] = replace(evidence[_id(10)], document_id=_id(31))
+    evidence[_TEXT_EVIDENCE_ID] = replace(
+        evidence[_TEXT_EVIDENCE_ID], document_id=_id(31)
+    )
     with pytest.raises(ClaimLineageMismatchError, match="different Document"):
-        _service(evidence=evidence).inspect(_id(8))
+        _service(evidence=evidence).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_relation_for_different_claim() -> None:
     with pytest.raises(ClaimLineageMismatchError, match="does not belong"):
-        _service(relations=(_relation(60, claim_id=_id(999)),)).inspect(_id(8))
+        _service(relations=(_relation(60, claim_id=_id(999)),)).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_missing_assessment_evidence() -> None:
     with pytest.raises(ClaimLineageEvidenceNotFoundError, match="evidence not found"):
-        _service(relations=(_relation(60, evidence_id=_id(999)),)).inspect(_id(8))
+        _service(relations=(_relation(60, evidence_id=_id(999)),)).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_context_when_citation_repository_is_unavailable() -> None:
-    with pytest.raises(ClaimLineageCitationContextNotFoundError, match="citation context not found"):
-        _service(relations=(_relation(60, context_id=_id(50)),)).inspect(_id(8))
+    with pytest.raises(
+        ClaimLineageCitationContextNotFoundError,
+        match="citation context not found",
+    ):
+        _service(relations=(_relation(60, context_id=_id(50)),)).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_missing_citation_context() -> None:
-    with pytest.raises(ClaimLineageCitationContextNotFoundError, match="citation context not found"):
+    with pytest.raises(
+        ClaimLineageCitationContextNotFoundError,
+        match="citation context not found",
+    ):
         _service(
             relations=(_relation(60, context_id=_id(50)),),
             citations=_Citations(None),
-        ).inspect(_id(8))
+        ).inspect(_CLAIM_ID)
 
 
 def _inspect_bad_passage(evidence_item: Evidence, document: Document) -> None:
@@ -422,19 +438,19 @@ def _inspect_bad_passage(evidence_item: Evidence, document: Document) -> None:
         documents={document.document_id: document},
         artifacts={artifact.artifact_id: artifact},
     )
-    service.inspect(_id(8))
+    service.inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_missing_evidence_section() -> None:
     document, _ = _document()
-    evidence = replace(_evidence_set()[_id(10)], section_id=_id(999))
+    evidence = replace(_evidence_set()[_TEXT_EVIDENCE_ID], section_id=_id(999))
     with pytest.raises(ClaimLineageMismatchError, match="Section is missing"):
         _inspect_bad_passage(evidence, document)
 
 
 def test_inspect_rejects_missing_evidence_passage() -> None:
     document, _ = _document()
-    evidence = replace(_evidence_set()[_id(10)], passage_id=_id(999))
+    evidence = replace(_evidence_set()[_TEXT_EVIDENCE_ID], passage_id=_id(999))
     with pytest.raises(ClaimLineageMismatchError, match="Passage is missing"):
         _inspect_bad_passage(evidence, document)
 
@@ -442,8 +458,8 @@ def test_inspect_rejects_missing_evidence_passage() -> None:
 def test_inspect_rejects_evidence_span_past_passage() -> None:
     document, _ = _document()
     evidence = Evidence(
-        evidence_id=_id(10),
-        document_id=_id(1),
+        evidence_id=_TEXT_EVIDENCE_ID,
+        document_id=_DOCUMENT_ID,
         section_id=_id(2),
         passage_id=_id(3),
         passage_char_start=0,
@@ -457,7 +473,7 @@ def test_inspect_rejects_evidence_span_past_passage() -> None:
 
 def test_inspect_rejects_evidence_text_mismatch() -> None:
     document, _ = _document()
-    evidence = replace(_evidence_set()[_id(10)], text="other")
+    evidence = replace(_evidence_set()[_TEXT_EVIDENCE_ID], text="other")
     with pytest.raises(ClaimLineageMismatchError, match="text does not match"):
         _inspect_bad_passage(evidence, document)
 
@@ -472,7 +488,7 @@ def test_inspect_rejects_missing_figure() -> None:
             evidence={_id(11): _evidence_set()[_id(11)]},
             documents={document.document_id: document},
             artifacts={artifact.artifact_id: artifact},
-        ).inspect(_id(8))
+        ).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_missing_table() -> None:
@@ -485,7 +501,7 @@ def test_inspect_rejects_missing_table() -> None:
             evidence={_id(12): _evidence_set()[_id(12)]},
             documents={document.document_id: document},
             artifacts={artifact.artifact_id: artifact},
-        ).inspect(_id(8))
+        ).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_table_row_overflow() -> None:
@@ -497,7 +513,7 @@ def test_inspect_rejects_table_row_overflow() -> None:
             evidence={_id(12): _evidence_set()[_id(12)]},
             documents={document.document_id: document},
             artifacts={artifact.artifact_id: artifact},
-        ).inspect(_id(8))
+        ).inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_table_column_overflow() -> None:
@@ -509,7 +525,7 @@ def test_inspect_rejects_table_column_overflow() -> None:
             evidence={_id(12): _evidence_set()[_id(12)]},
             documents={document.document_id: document},
             artifacts={artifact.artifact_id: artifact},
-        ).inspect(_id(8))
+        ).inspect(_CLAIM_ID)
 
 
 def test_inspect_accepts_unknown_table_shape_when_source_table_exists() -> None:
@@ -520,7 +536,7 @@ def test_inspect_accepts_unknown_table_shape_when_source_table_exists() -> None:
         evidence={_id(12): _evidence_set()[_id(12)]},
         documents={document.document_id: document},
         artifacts={artifact.artifact_id: artifact},
-    ).inspect(_id(8))
+    ).inspect(_CLAIM_ID)
     assert isinstance(result.claim_evidence[0].source, Table)
 
 
@@ -534,4 +550,4 @@ def test_inspect_rejects_missing_equation() -> None:
             evidence={_id(13): _evidence_set()[_id(13)]},
             documents={document.document_id: document},
             artifacts={artifact.artifact_id: artifact},
-        ).inspect(_id(8))
+        ).inspect(_CLAIM_ID)

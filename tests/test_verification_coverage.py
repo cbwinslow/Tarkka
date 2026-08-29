@@ -34,7 +34,7 @@ from tests.test_json_extraction_repository_contract import _batch
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
 
-class _Reader:
+class FakeClaimEvidenceReader:
     def __init__(
         self,
         extractions: tuple[ResearchExtraction, ...],
@@ -50,7 +50,7 @@ class _Reader:
         return self._evidence.get(evidence_id)
 
 
-class _Relations:
+class FakeEvidenceRelationRepository:
     def __init__(self) -> None:
         self._values: dict[UUID, EvidenceRelation] = {}
 
@@ -74,7 +74,7 @@ class _Relations:
         return values[offset : offset + limit]
 
 
-class _Citations:
+class FakeCitationContextReader:
     def __init__(self, contexts: tuple[CitationContext, ...] = ()) -> None:
         self._contexts = {item.context_id: item for item in contexts}
 
@@ -131,13 +131,13 @@ class _Citations:
 
 
 def _service(
-    reader: _Reader,
+    reader: FakeClaimEvidenceReader,
     *,
-    citations: _Citations | None = None,
+    citations: FakeCitationContextReader | None = None,
 ) -> EvidenceVerificationService:
     return EvidenceVerificationService(
         source=cast(ClaimEvidenceReader, reader),
-        relations=cast(EvidenceRelationRepository, _Relations()),
+        relations=cast(EvidenceRelationRepository, FakeEvidenceRelationRepository()),
         citations=cast(CitationContextReader, citations) if citations is not None else None,
     )
 
@@ -153,15 +153,15 @@ def _claim_and_evidence() -> tuple[Claim, Evidence]:
 @pytest.mark.parametrize(("offset", "limit"), [(-1, 1), (0, -1)])
 def test_citation_candidates_reject_negative_bounds(offset: int, limit: int) -> None:
     claim, evidence = _claim_and_evidence()
-    service = _service(_Reader((claim,), (evidence,)))
+    service = _service(FakeClaimEvidenceReader((claim,), (evidence,)))
 
     with pytest.raises(ValueError, match="offset and limit must be non-negative"):
         service.citation_candidates(claim.extraction_id, offset=offset, limit=limit)
 
 
-def test_citation_candidates_fail_closed_when_claim_evidence_is_missing() -> None:
+def test_citation_candidates_fail_closed_when_source_evidence_missing() -> None:
     claim, _ = _claim_and_evidence()
-    service = _service(_Reader((claim,), ()))
+    service = _service(FakeClaimEvidenceReader((claim,), ()))
 
     with pytest.raises(EvidenceNotFoundError, match="evidence not found"):
         service.citation_candidates(claim.extraction_id)
@@ -190,8 +190,8 @@ def test_citation_candidates_keep_passage_evidence_when_figure_evidence_is_mixed
         passage_id=passage_evidence.passage_id,
     )
     service = _service(
-        _Reader((claim,), (passage_evidence, figure)),
-        citations=_Citations((context,)),
+        FakeClaimEvidenceReader((claim,), (passage_evidence, figure)),
+        citations=FakeCitationContextReader((context,)),
     )
 
     page = service.citation_candidates(claim.extraction_id)
@@ -205,20 +205,22 @@ def test_citation_candidates_keep_passage_evidence_when_figure_evidence_is_mixed
 
 def test_citation_context_rejects_missing_repository_and_context() -> None:
     claim, evidence = _claim_and_evidence()
-    service = _service(_Reader((claim,), (evidence,)))
+    service = _service(FakeClaimEvidenceReader((claim,), (evidence,)))
     context_id = uuid4()
 
     with pytest.raises(CitationRepositoryNotAvailableError, match="repository is not available"):
         service.citation_context(claim.document_id, context_id)
 
-    service = _service(_Reader((claim,), (evidence,)), citations=_Citations())
+    service = _service(
+        FakeClaimEvidenceReader((claim,), (evidence,)), citations=FakeCitationContextReader()
+    )
     with pytest.raises(CitationContextNotFoundError, match="citation context not found"):
         service.citation_context(claim.document_id, context_id)
 
 
 def test_record_fails_closed_for_missing_claim_or_exact_evidence() -> None:
     claim, evidence = _claim_and_evidence()
-    reader = _Reader((claim,), (evidence,))
+    reader = FakeClaimEvidenceReader((claim,), (evidence,))
     service = _service(reader)
 
     with pytest.raises(ClaimNotFoundError, match="claim not found"):
@@ -260,7 +262,7 @@ def test_record_fails_closed_for_missing_claim_or_exact_evidence() -> None:
 
 def test_record_with_context_fails_closed_without_citation_repository() -> None:
     claim, evidence = _claim_and_evidence()
-    service = _service(_Reader((claim,), (evidence,)))
+    service = _service(FakeClaimEvidenceReader((claim,), (evidence,)))
 
     with pytest.raises(CitationContextNotFoundError, match="citation context not found"):
         service.record(

@@ -66,6 +66,10 @@ class ClaimLineageMismatchError(ValueError):
     """Raised when durable lineage objects disagree about identity or source location."""
 
 
+class ClaimLineagePaginationError(ValueError):
+    """Raised when a bounded Claim-lineage page request is invalid."""
+
+
 @dataclass(frozen=True, slots=True)
 class SourceLineage:
     """Normalized Document and immutable Artifact underlying one evidence source."""
@@ -377,7 +381,15 @@ def _validate_page(
     maximum_offset: int = MAX_CLAIM_LINEAGE_OFFSET,
     maximum_limit: int = MAX_CLAIM_LINEAGE_PAGE_SIZE,
 ) -> None:
-    if offset < 0 or limit < 0:
-        raise ValueError(f"{label} offset and limit must be non-negative")
-    if offset > maximum_offset or limit > maximum_limit:
-        raise ValueError(f"{label} pagination exceeds the configured maximum")
+    if offset < 0:
+        raise ClaimLineagePaginationError(f"{label} offset must be non-negative")
+    if limit < 0:
+        raise ClaimLineagePaginationError(f"{label} limit must be non-negative")
+    if offset > maximum_offset:
+        raise ClaimLineagePaginationError(
+            f"{label} offset exceeds the configured maximum of {maximum_offset}"
+        )
+    if limit > maximum_limit:
+        raise ClaimLineagePaginationError(
+            f"{label} limit exceeds the configured maximum of {maximum_limit}"
+        )

@@ -17,6 +17,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineageEvidenceNotFoundError,
     ClaimLineageExtractionRunNotFoundError,
     ClaimLineageMismatchError,
+    ClaimLineagePaginationError,
     ClaimLineageService,
 )
 from tarkka.application.claim_lineage_view import claim_lineage_view
@@ -175,26 +176,52 @@ def test_mcp_claim_lineage_matches_shared_view_and_cli_contract(
     service = claim_lineage_service(home=tmp_path / "state")
     server = create_server(lineage=service)
 
-    response = _call(
-        server,
-        "claim_lineage",
-        {
-            "claim_id": f"claim:{fixture.claim.extraction_id}",
-            "offset": 0,
-            "limit": 1,
-        },
-    )
+    arguments = {
+        "claim_id": f"claim:{fixture.claim.extraction_id}",
+        "offset": 0,
+        "limit": 1,
+        "evidence_offset": 1,
+        "evidence_limit": 2,
+    }
+    response = _call(server, "claim_lineage", arguments)
     expected = claim_lineage_view(
-        service.inspect(fixture.claim.extraction_id, offset=0, limit=1),
+        service.inspect(
+            fixture.claim.extraction_id,
+            offset=0,
+            limit=1,
+            evidence_offset=1,
+            evidence_limit=2,
+        ),
         offset=0,
         limit=1,
+        evidence_offset=1,
+        evidence_limit=2,
     )
     assert response["ok"] is True
     assert response["lineage"] == expected
+    assert response["lineage"]["claim_evidence_page"] == {
+        "offset": 1,
+        "limit": 2,
+        "total": 4,
+    }
+    assert len(response["lineage"]["claim_evidence"]) == 2
     assert response["estimated_tokens"] > 0
 
     monkeypatch.setattr(why_cli, "claim_lineage_service", lambda: service)
-    assert why_cli.main([str(fixture.claim.extraction_id), "--limit", "1"]) == 0
+    assert (
+        why_cli.main(
+            [
+                str(fixture.claim.extraction_id),
+                "--limit",
+                "1",
+                "--evidence-offset",
+                "1",
+                "--evidence-limit",
+                "2",
+            ]
+        )
+        == 0
+    )
     assert json.loads(capsys.readouterr().out) == response["lineage"]
 
 
@@ -215,9 +242,17 @@ def test_mcp_claim_lineage_schema_is_discoverable_without_full_schema_in_index()
         "research_operation_schema",
         {"operation_id": "research.claims.lineage"},
     )
-    assert [field["name"] for field in schema["inputs"]] == ["claim_id", "offset", "limit"]
+    assert [field["name"] for field in schema["inputs"]] == [
+        "claim_id",
+        "offset",
+        "limit",
+        "evidence_offset",
+        "evidence_limit",
+    ]
     assert schema["inputs"][1]["maximum"] == 10_000
     assert schema["inputs"][2]["maximum"] == 100
+    assert schema["inputs"][3]["maximum"] == 10_000
+    assert schema["inputs"][4]["maximum"] == 100
 
 
 @pytest.mark.parametrize(
@@ -240,7 +275,8 @@ def test_mcp_claim_lineage_schema_is_discoverable_without_full_schema_in_index()
             "citation_context_not_found",
         ),
         (ClaimLineageMismatchError("mismatch"), "lineage_mismatch"),
-        (ValueError("bad pagination"), "invalid_argument"),
+        (ClaimLineagePaginationError("bad pagination"), "invalid_argument"),
+        (ValueError("corrupt persisted value"), "backend_unavailable"),
         (OSError("backend unavailable"), "backend_unavailable"),
         (RuntimeError("backend unavailable"), "backend_unavailable"),
     ],
@@ -272,7 +308,7 @@ def test_mcp_claim_lineage_rejects_invalid_handles_before_backend_work() -> None
         assert response["error"]["code"] == "invalid_argument"
 
 
-def test_mcp_claim_lineage_refuses_oversized_payloads(
+def test_mcp_claim_lineage_refuses_oversized_payloads_with_recoverable_paging_hint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -288,6 +324,7 @@ def test_mcp_claim_lineage_refuses_oversized_payloads(
     )
 
     assert response["error"]["code"] == "content_too_large"
+    assert "smaller evidence_limit" in response["error"]["message"]
     assert response["error"]["next_actions"] == ["claim_lineage"]
 
 

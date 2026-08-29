@@ -36,7 +36,13 @@ def _service() -> ClaimLineageService:
 
 def _cmd_why(args: argparse.Namespace) -> int:
     try:
-        lineage = _service().inspect(args.claim_id, offset=args.offset, limit=args.limit)
+        lineage = _service().inspect(
+            args.claim_id,
+            offset=args.offset,
+            limit=args.limit,
+            evidence_offset=args.evidence_offset,
+            evidence_limit=args.evidence_limit,
+        )
     except (
         ClaimLineageArtifactNotFoundError,
         ClaimLineageCitationContextNotFoundError,
@@ -54,7 +60,13 @@ def _cmd_why(args: argparse.Namespace) -> int:
         return 2
     print(
         json.dumps(
-            claim_lineage_view(lineage, offset=args.offset, limit=args.limit),
+            claim_lineage_view(
+                lineage,
+                offset=args.offset,
+                limit=args.limit,
+                evidence_offset=args.evidence_offset,
+                evidence_limit=args.evidence_limit,
+            ),
             indent=2,
             sort_keys=True,
         )
@@ -70,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("claim_id", type=_parse_claim_id)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--evidence-offset", type=int, default=0)
+    parser.add_argument("--evidence-limit", type=int, default=20)
     parser.set_defaults(func=_cmd_why)
     return parser
 

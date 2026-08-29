@@ -197,13 +197,21 @@ def create_server(
         claim_id: object,
         offset: int = 0,
         limit: int = 20,
+        evidence_offset: int = 0,
+        evidence_limit: int = 20,
     ) -> dict[str, object]:
         """Return one bounded, machine-readable Claim provenance explanation."""
         parsed = _uuid_or_error(claim_id, kind="claim")
         if isinstance(parsed, dict):
             return parsed
         try:
-            inspected = lineage_service().inspect(parsed, offset=offset, limit=limit)
+            inspected = lineage_service().inspect(
+                parsed,
+                offset=offset,
+                limit=limit,
+                evidence_offset=evidence_offset,
+                evidence_limit=evidence_limit,
+            )
         except (
             ClaimLineageArtifactNotFoundError,
             ClaimLineageCitationContextNotFoundError,
@@ -220,15 +228,21 @@ def create_server(
             problem = claim_lineage_problem(exc)
             return _error(problem.code, problem.message, next_actions=problem.next_actions)
 
-        payload = claim_lineage_view(inspected, offset=offset, limit=limit)
+        payload = claim_lineage_view(
+            inspected,
+            offset=offset,
+            limit=limit,
+            evidence_offset=evidence_offset,
+            evidence_limit=evidence_limit,
+        )
         estimated_tokens = estimate_tokens(
             json.dumps(payload, sort_keys=True, separators=(",", ":"))
         )
         if estimated_tokens > _MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS:
             return _error(
                 "content_too_large",
-                "claim lineage exceeds the configured estimated-token maximum; "
-                "retry with a smaller verification limit",
+                "claim lineage exceeds the configured estimated-token maximum; retry with a "
+                "smaller evidence_limit and/or verification limit",
                 next_actions=("claim_lineage",),
             )
         return {

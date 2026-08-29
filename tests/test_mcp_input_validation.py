@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import cast
 from uuid import uuid4
 
 import pytest
 
 pytest.importorskip("mcp", reason="MCP tests require the optional 'mcp' extra")
 
+from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.interfaces.mcp import create_server
 
 
@@ -22,10 +23,10 @@ class _UnexpectedLineageService:
 
 def test_mcp_rejects_non_integer_lineage_pagination_before_handler() -> None:
     service = _UnexpectedLineageService()
-    server = create_server(lineage=service)  # type: ignore[arg-type]
+    server = create_server(lineage=cast(ClaimLineageService, service))
 
     for name, value in (("offset", None), ("limit", "many")):
-        result: Any = asyncio.run(
+        result = asyncio.run(
             server.call_tool(
                 "claim_lineage",
                 {"claim_id": str(uuid4()), name: value},

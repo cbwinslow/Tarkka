@@ -35,6 +35,7 @@ from tarkka.domain.manifest import build_document_manifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
 from tarkka.domain.source_artifacts import Equation, Figure, Table
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
+from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
@@ -53,6 +54,7 @@ def _fixture() -> tuple[
     tuple[EvidenceRecord, ...],
     Claim,
     EvidenceRelation,
+    CitationContext,
 ]:
     digest = "a" * 64
     artifact = Artifact(
@@ -149,20 +151,31 @@ def _fixture() -> tuple[
         provenance=provenance,
         text="Alpha is reported.",
     )
+    context = CitationContext(
+        context_id=_id(30),
+        mention_id=_id(31),
+        document_id=document.document_id,
+        text="alpha",
+        char_start=0,
+        char_end=5,
+        section_id=section.section_id,
+        passage_id=passage.passage_id,
+    )
     relation = EvidenceRelation(
         relation_id=_id(20),
         claim_id=claim.extraction_id,
         kind=EvidenceRelationKind.SUPPORTS,
         evidence_id=evidence[0].evidence_id,
+        citation_context_id=context.context_id,
         verifier_name="human-review",
         verifier_version="1",
         confidence=0.8,
     )
-    return artifact, document, run, evidence, claim, relation
+    return artifact, document, run, evidence, claim, relation, context
 
 
 def _persist_local_lineage(home: Path, *, include_verification: bool = True) -> Claim:
-    artifact, document, run, evidence, claim, relation = _fixture()
+    artifact, document, run, evidence, claim, relation, context = _fixture()
     documents = JsonResearchRepository(home / "catalog.json")
     documents.save_artifact(artifact)
     documents.save_document(document, build_document_manifest(document, artifact))
@@ -175,11 +188,48 @@ def _persist_local_lineage(home: Path, *, include_verification: bool = True) -> 
         )
     )
     if include_verification:
+        JsonCitationRepository(home / "citations.json").save_context(context)
         JsonVerificationRepository(home / "verifications.json").save_relation(relation)
     return claim
 
 
-def test_why_cli_reads_complete_persisted_local_lineage_end_to_end(
+def _run_payload(run: ExtractionRun) -> dict[str, object]:
+    assert run.model is not None
+    return {
+        "run_id": str(run.run_id),
+        "document_id": str(run.document_id),
+        "extractor_name": run.extractor_name,
+        "extractor_version": run.extractor_version,
+        "contract_version": run.contract_version,
+        "model": {
+            "provider": run.model.provider,
+            "name": run.model.name,
+            "version": run.model.version,
+        },
+        "extracted_at": run.extracted_at.isoformat(),
+    }
+
+
+def _source_payload(document: Document, artifact: Artifact) -> dict[str, object]:
+    return {
+        "document": {
+            "document_id": str(document.document_id),
+            "artifact_id": str(document.artifact_id),
+            "title": document.title,
+            "parser_name": document.parser_name,
+            "parser_version": document.parser_version,
+        },
+        "artifact": {
+            "artifact_id": str(artifact.artifact_id),
+            "sha256": artifact.sha256,
+            "size_bytes": artifact.size_bytes,
+            "media_type": artifact.media_type,
+            "source_uri": artifact.source_uri,
+        },
+    }
+
+
+def test_why_cli_pins_complete_persisted_local_lineage_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -187,7 +237,7 @@ def test_why_cli_reads_complete_persisted_local_lineage_end_to_end(
     home = tmp_path / "home"
     monkeypatch.setenv("TARKKA_HOME", str(home))
     monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
-    artifact, _, run, _, claim, relation = _fixture()
+    artifact, document, run, evidence, claim, relation, context = _fixture()
     _persist_local_lineage(home)
 
     assert (
@@ -197,6 +247,8 @@ def test_why_cli_reads_complete_persisted_local_lineage_end_to_end(
         == 0
     )
     payload = json.loads(capsys.readouterr().out)
+    run_payload = _run_payload(run)
+    source_payload = _source_payload(document, artifact)
 
     assert payload["claim"] == {
         "claim_id": str(claim.extraction_id),
@@ -206,37 +258,75 @@ def test_why_cli_reads_complete_persisted_local_lineage_end_to_end(
         "confidence": claim.provenance.confidence,
         "human_review_state": claim.provenance.human_review_state.value,
         "attribution": claim.attribution.value,
-        "extraction_run": {
-            "run_id": str(run.run_id),
-            "document_id": str(run.document_id),
-            "extractor_name": "fixture-extractor",
-            "extractor_version": "2.1",
-            "contract_version": "3",
-            "model": {
-                "provider": "test-provider",
-                "name": "test-model",
-                "version": "v4",
-            },
-            "extracted_at": "2026-01-02T03:04:05+00:00",
-        },
+        "extraction_run": run_payload,
     }
-    assert payload["claim_source"]["artifact"]["sha256"] == artifact.sha256
-    assert [item["source_kind"] for item in payload["claim_evidence"]] == [
-        "passage",
-        "figure",
-        "table",
-        "equation",
+    assert payload["claim_source"] == source_payload
+    expected_evidence = [
+        {
+            "evidence_id": str(evidence[0].evidence_id),
+            "extraction_run": run_payload,
+            **source_payload,
+            "source_kind": "passage",
+            "section_id": str(document.sections[0].section_id),
+            "passage_id": str(document.sections[0].passages[0].passage_id),
+            "passage_char_start": 0,
+            "passage_char_end": 5,
+            "text": "alpha",
+        },
+        {
+            "evidence_id": str(evidence[1].evidence_id),
+            "extraction_run": run_payload,
+            **source_payload,
+            "source_kind": "figure",
+            "figure_id": str(document.figures[0].figure_id),
+        },
+        {
+            "evidence_id": str(evidence[2].evidence_id),
+            "extraction_run": run_payload,
+            **source_payload,
+            "source_kind": "table",
+            "table_id": str(document.tables[0].table_id),
+            "row_start": 0,
+            "row_end": 1,
+            "column_start": 0,
+            "column_end": 1,
+        },
+        {
+            "evidence_id": str(evidence[3].evidence_id),
+            "extraction_run": run_payload,
+            **source_payload,
+            "source_kind": "equation",
+            "equation_id": str(document.equations[0].equation_id),
+        },
     ]
-    assert all(item["extraction_run"] == payload["claim"]["extraction_run"] for item in payload["claim_evidence"])
-    assert payload["claim_evidence"][0]["text"] == "alpha"
-    assert payload["verification"]["offset"] == 0
-    assert payload["verification"]["limit"] == 1
-    assert payload["verification"]["total"] == 1
-    assert payload["verification"]["assessments"][0]["relation_id"] == str(
-        relation.relation_id
-    )
-    assert payload["verification"]["assessments"][0]["kind"] == "supports"
-    assert payload["verification"]["assessments"][0]["citation_context"] is None
+    assert payload["claim_evidence"] == expected_evidence
+    assert payload["verification"] == {
+        "offset": 0,
+        "limit": 1,
+        "total": 1,
+        "assessments": [
+            {
+                "relation_id": str(relation.relation_id),
+                "kind": "supports",
+                "verifier_name": "human-review",
+                "verifier_version": "1",
+                "confidence": 0.8,
+                "human_review_state": "unreviewed",
+                "reasoning_summary": None,
+                "created_at": relation.created_at.isoformat(),
+                "evidence": expected_evidence[0],
+                "citation_context": {
+                    "context_id": str(context.context_id),
+                    "mention_id": str(context.mention_id),
+                    "text": context.text,
+                    "section_id": str(context.section_id),
+                    "passage_id": str(context.passage_id),
+                    "char_start": 0,
+                    "char_end": 5,
+                },
+            }
+        ],
+    }
 
 
 def test_why_cli_missing_verification_catalog_is_read_only_empty_state(
@@ -275,7 +365,7 @@ def test_why_cli_missing_local_catalog_does_not_create_state(
 
 
 def _lineage_for(evidence: EvidenceRecord) -> EvidenceLineage:
-    artifact, document, run, _, _, _ = _fixture()
+    artifact, document, run, _, _, _, _ = _fixture()
     if isinstance(evidence, Evidence):
         source = document.sections[0].passages[0]
     elif isinstance(evidence, FigureEvidence):
@@ -292,25 +382,8 @@ def _lineage_for(evidence: EvidenceRecord) -> EvidenceLineage:
     )
 
 
-def test_assessment_payload_preserves_context_without_treating_it_as_evidence() -> None:
-    _, document, _, evidence, claim, relation = _fixture()
-    context = CitationContext(
-        context_id=_id(30),
-        mention_id=_id(31),
-        document_id=document.document_id,
-        text="[1]",
-        char_start=0,
-        char_end=3,
-        section_id=None,
-        passage_id=None,
-    )
-    with_context = why_cli._assessment_payload(
-        ClaimAssessmentLineage(
-            relation=relation,
-            evidence=_lineage_for(evidence[0]),
-            citation_context=context,
-        )
-    )
+def test_assessment_payload_preserves_no_evidence_without_manufacturing_source() -> None:
+    _, _, _, _, claim, _, _ = _fixture()
     no_evidence = why_cli._assessment_payload(
         ClaimAssessmentLineage(
             relation=EvidenceRelation(
@@ -326,43 +399,8 @@ def test_assessment_payload_preserves_context_without_treating_it_as_evidence() 
         )
     )
 
-    assert with_context["evidence"] is not None
-    assert with_context["citation_context"] == {
-        "context_id": str(context.context_id),
-        "mention_id": str(context.mention_id),
-        "text": "[1]",
-        "section_id": None,
-        "passage_id": None,
-        "char_start": 0,
-        "char_end": 3,
-    }
     assert no_evidence["evidence"] is None
     assert no_evidence["citation_context"] is None
-
-
-def test_assessment_payload_serializes_anchored_context_ids() -> None:
-    _, document, _, evidence, _, relation = _fixture()
-    context = CitationContext(
-        context_id=_id(30),
-        mention_id=_id(31),
-        document_id=document.document_id,
-        text="alpha",
-        char_start=0,
-        char_end=5,
-        section_id=document.sections[0].section_id,
-        passage_id=document.sections[0].passages[0].passage_id,
-    )
-    payload = why_cli._assessment_payload(
-        ClaimAssessmentLineage(
-            relation=relation,
-            evidence=_lineage_for(evidence[0]),
-            citation_context=context,
-        )
-    )
-    serialized = payload["citation_context"]
-    assert isinstance(serialized, dict)
-    assert serialized["section_id"] == str(context.section_id)
-    assert serialized["passage_id"] == str(context.passage_id)
 
 
 def test_run_payload_serializes_absent_model() -> None:

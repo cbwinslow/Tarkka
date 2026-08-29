@@ -22,6 +22,7 @@ from tarkka.infrastructure.storage.filesystem import fsync_directory
 
 _FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 _FILE_MODE = 0o100644
+# ZIP version fields encode major/minor as 10 * major + minor, so 20 means ZIP 2.0.
 _ZIP_VERSION = 20
 _ZIP_VOLUME = 0
 _ZIP_INTERNAL_ATTR = 0
@@ -132,6 +133,7 @@ def verify_proof_bundle(
                 raise ProofBundleVerificationError(
                     "proof bundle archive exceeds the configured limit"
                 )
+            # A whole-archive identity and member integrity require two sequential passes.
             bundle_sha256 = _sha256_stream(handle)
             handle.seek(0)
             with zipfile.ZipFile(handle, mode="r") as archive:
@@ -245,6 +247,7 @@ def _hash_member(archive: zipfile.ZipFile, name: str) -> tuple[int, str]:
 
 
 def _sha256_stream(stream: BinaryIO) -> str:
+    """Hash from the stream's current position without taking ownership of it."""
     digest = hashlib.sha256()
     try:
         while chunk := stream.read(_READ_CHUNK_BYTES):

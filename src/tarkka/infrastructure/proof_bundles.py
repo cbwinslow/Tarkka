@@ -1,0 +1,178 @@
+"""Deterministic ZIP encoding and offline verification for Tarkka proof bundles."""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from tarkka.application.proof_bundles import ProofBundlePayload
+from tarkka.domain.proof_bundles import (
+    PROOF_BUNDLE_MANIFEST_PATH,
+    ProofBundleManifest,
+    proof_bundle_manifest_from_dict,
+)
+
+_FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
+_FILE_MODE = 0o100644
+
+
+class ProofBundleVerificationError(ValueError):
+    """Raised when an untrusted proof bundle fails structural or integrity validation."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProofBundleVerification:
+    bundle_sha256: str
+    document_id: str
+    artifact_sha256: str
+    artifact_size_bytes: int
+    member_count: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "valid": True,
+            "bundle_sha256": self.bundle_sha256,
+            "document_id": self.document_id,
+            "artifact_sha256": self.artifact_sha256,
+            "artifact_size_bytes": self.artifact_size_bytes,
+            "member_count": self.member_count,
+        }
+
+
+def canonical_manifest_bytes(manifest: ProofBundleManifest) -> bytes:
+    """Serialize a manifest with the canonical v1 JSON representation."""
+    return (
+        json.dumps(
+            manifest.to_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
+    """Return byte-for-byte deterministic archive bytes for one validated payload."""
+    members = (
+        (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
+        (payload.manifest.artifact.path, payload.artifact_bytes),
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_STORED) as archive:
+        for name, content in members:
+            archive.writestr(_zip_info(name), content)
+    return buffer.getvalue()
+
+
+def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> int:
+    """Write a deterministic bundle and return the exact byte count persisted."""
+    data = build_proof_bundle_bytes(payload)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return len(data)
+
+
+def verify_proof_bundle(path: Path) -> ProofBundleVerification:
+    """Verify one bundle completely offline."""
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ProofBundleVerificationError(f"unable to read proof bundle: {path}") from exc
+    return verify_proof_bundle_bytes(data)
+
+
+def verify_proof_bundle_bytes(data: bytes) -> ProofBundleVerification:
+    """Validate untrusted archive bytes and return a compact verified identity summary."""
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data), mode="r")
+    except zipfile.BadZipFile as exc:
+        raise ProofBundleVerificationError("proof bundle is not a valid ZIP archive") from exc
+
+    with archive:
+        infos = archive.infolist()
+        names = [info.filename for info in infos]
+        if len(names) != len(set(names)):
+            raise ProofBundleVerificationError("proof bundle contains duplicate archive members")
+        for name in names:
+            _validate_member_path(name)
+        if PROOF_BUNDLE_MANIFEST_PATH not in names:
+            raise ProofBundleVerificationError("proof bundle is missing manifest.json")
+
+        manifest_bytes = archive.read(PROOF_BUNDLE_MANIFEST_PATH)
+        manifest = _parse_manifest(manifest_bytes)
+        expected_names = {PROOF_BUNDLE_MANIFEST_PATH, manifest.artifact.path}
+        if set(names) != expected_names:
+            raise ProofBundleVerificationError(
+                "proof bundle contains missing or unexpected archive members"
+            )
+        artifact_bytes = archive.read(manifest.artifact.path)
+
+    if len(artifact_bytes) != manifest.artifact.size_bytes:
+        raise ProofBundleVerificationError("proof bundle artifact byte length does not match manifest")
+    actual_sha256 = hashlib.sha256(artifact_bytes).hexdigest()
+    if actual_sha256 != manifest.artifact.sha256:
+        raise ProofBundleVerificationError("proof bundle artifact sha256 does not match manifest")
+    if manifest_bytes != canonical_manifest_bytes(manifest):
+        raise ProofBundleVerificationError("proof bundle manifest is not canonically encoded")
+
+    payload = ProofBundlePayload(manifest=manifest, artifact_bytes=artifact_bytes)
+    if data != build_proof_bundle_bytes(payload):
+        raise ProofBundleVerificationError("proof bundle ZIP encoding is not canonical")
+
+    return ProofBundleVerification(
+        bundle_sha256=hashlib.sha256(data).hexdigest(),
+        document_id=str(manifest.document.document_id),
+        artifact_sha256=manifest.artifact.sha256,
+        artifact_size_bytes=manifest.artifact.size_bytes,
+        member_count=len(expected_names),
+    )
+
+
+def _parse_manifest(data: bytes) -> ProofBundleManifest:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ProofBundleVerificationError("proof bundle manifest is not valid UTF-8") from exc
+    try:
+        value = json.loads(text, object_pairs_hook=_reject_duplicate_json_keys)
+    except json.JSONDecodeError as exc:
+        raise ProofBundleVerificationError("proof bundle manifest is not valid JSON") from exc
+    try:
+        return proof_bundle_manifest_from_dict(value)
+    except ValueError as exc:
+        raise ProofBundleVerificationError(str(exc)) from exc
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ProofBundleVerificationError(
+                f"proof bundle manifest contains duplicate JSON key: {key}"
+            )
+        result[key] = value
+    return result
+
+
+def _validate_member_path(name: str) -> None:
+    if not name or "\\" in name or name.startswith("/") or "//" in name:
+        raise ProofBundleVerificationError(f"unsafe proof bundle member path: {name!r}")
+    path = PurePosixPath(name)
+    if any(part in {".", ".."} for part in path.parts):
+        raise ProofBundleVerificationError(f"unsafe proof bundle member path: {name!r}")
+    if path.parts and ":" in path.parts[0]:
+        raise ProofBundleVerificationError(f"unsafe proof bundle member path: {name!r}")
+
+
+def _zip_info(name: str) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(name, date_time=_FIXED_ZIP_TIME)
+    info.compress_type = zipfile.ZIP_STORED
+    info.create_system = 3
+    info.external_attr = _FILE_MODE << 16
+    return info

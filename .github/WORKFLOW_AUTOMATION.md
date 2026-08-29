@@ -13,7 +13,8 @@ Tarkka uses GitHub automation where it removes repeatable maintenance work or st
 - zizmor audit of GitHub Actions configuration
 - pytest across Python 3.11, 3.12, and 3.13
 - branch coverage on Python 3.13
-- 80% changed-line coverage for pull requests
+- exact 100% repository-wide statement and branch coverage for the deterministic test surface
+- 100% changed-line coverage for pull requests
 - retained JUnit and coverage artifacts
 
 These deterministic checks are authoritative merge gates through the repository ruleset.
@@ -70,6 +71,8 @@ These deterministic checks are authoritative merge gates through the repository 
 - `Review dependency changes`
 - up-to-date branches before merge
 - no deletion or force-push of the protected branch
+
+The live ruleset must be checked for drift from this reference. As of 2026-08-29, live ruleset `Protect main` still omits `Review dependency changes`; #192 tracks restoring that required check through GitHub's native repository settings. Do not treat the checked-in reference as proof that the live rule has already been applied.
 
 Keep path-filtered workflows such as package and Docling validation out of the global required-status list unless they are changed to report a result on every pull request.
 

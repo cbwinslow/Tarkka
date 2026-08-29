@@ -18,6 +18,7 @@ from tarkka.domain.proof_bundles import (
     ProofBundleManifest,
     proof_bundle_manifest_from_dict,
 )
+from tarkka.infrastructure.storage.filesystem import fsync_directory
 
 _FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 _FILE_MODE = 0o100644
@@ -59,6 +60,14 @@ class ProofBundleVerification:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ProofBundleWriteResult:
+    """Result of a verified atomic proof-bundle publication."""
+
+    byte_count: int
+    verification: ProofBundleVerification
+
+
 def canonical_manifest_bytes(manifest: ProofBundleManifest) -> bytes:
     """Serialize a manifest with the canonical v1 JSON representation."""
     return (
@@ -86,7 +95,7 @@ def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
     return buffer.getvalue()
 
 
-def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> int:
+def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWriteResult:
     """Verify a durable sibling temp file before atomically publishing the bundle."""
     data = build_proof_bundle_bytes(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,12 +106,12 @@ def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> int:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        verify_proof_bundle(temp_path)
+        verification = verify_proof_bundle(temp_path)
         os.replace(temp_path, path)
-        _fsync_directory(path.parent)
+        fsync_directory(path.parent)
     finally:
         temp_path.unlink(missing_ok=True)
-    return len(data)
+    return ProofBundleWriteResult(byte_count=len(data), verification=verification)
 
 
 def verify_proof_bundle(
@@ -314,15 +323,3 @@ def _zip_info(name: str) -> zipfile.ZipInfo:
     info.create_system = 3
     info.external_attr = _FILE_MODE << 16
     return info
-
-
-def _fsync_directory(path: Path) -> None:
-    """Flush an atomic publish where the platform exposes POSIX directory fsync."""
-    if os.name != "posix":
-        return
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    descriptor = os.open(path, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)

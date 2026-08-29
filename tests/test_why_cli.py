@@ -91,6 +91,10 @@ def test_why_cli_pins_complete_persisted_local_lineage_contract(
                 "0",
                 "--limit",
                 "1",
+                "--evidence-offset",
+                "1",
+                "--evidence-limit",
+                "2",
             ]
         )
         == 0
@@ -126,6 +130,11 @@ def test_why_cli_pins_complete_persisted_local_lineage_contract(
             **source_payload,
             "source_kind": "figure",
             "figure_id": str(document.figures[0].figure_id),
+            "ordinal": 0,
+            "page_number": 2,
+            "label": "Figure 1",
+            "caption": "Alpha figure.",
+            "figure_type": "chart",
         },
         {
             "evidence_id": str(fixture.evidence[2].evidence_id),
@@ -137,6 +146,12 @@ def test_why_cli_pins_complete_persisted_local_lineage_contract(
             "row_end": 1,
             "column_start": 0,
             "column_end": 1,
+            "ordinal": 0,
+            "page_number": 3,
+            "label": "Table 1",
+            "caption": "Alpha table.",
+            "row_count": 2,
+            "column_count": 2,
         },
         {
             "evidence_id": str(fixture.evidence[3].evidence_id),
@@ -144,9 +159,14 @@ def test_why_cli_pins_complete_persisted_local_lineage_contract(
             **source_payload,
             "source_kind": "equation",
             "equation_id": str(document.equations[0].equation_id),
+            "ordinal": 0,
+            "page_number": 4,
+            "label": "Eq. 1",
+            "source_text": "x = y",
         },
     ]
-    assert payload["claim_evidence"] == expected_evidence
+    assert payload["claim_evidence_page"] == {"offset": 1, "limit": 2, "total": 4}
+    assert payload["claim_evidence"] == expected_evidence[1:3]
     assert payload["verification"] == {
         "offset": 0,
         "limit": 1,
@@ -191,6 +211,7 @@ def test_why_cli_missing_verification_catalog_is_read_only_empty_state(
     assert entrypoint.main(["why", str(fixture.claim.extraction_id)]) == 0
     payload = json.loads(capsys.readouterr().out)
 
+    assert payload["claim_evidence_page"] == {"offset": 0, "limit": 20, "total": 4}
     assert payload["verification"]["total"] == 0
     assert payload["verification"]["assessments"] == []
     assert not verification_path.exists()
@@ -297,20 +318,43 @@ def test_why_claim_id_parser_accepts_prefixed_and_plain_ids_and_rejects_invalid(
         why_cli._parse_claim_id("not-a-uuid")
 
 
-def test_why_cli_forwards_pagination_to_application_service(
+def test_why_cli_forwards_independent_pagination_to_application_service(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    captured: list[tuple[UUID, int, int]] = []
+    captured: list[tuple[UUID, int, int, int, int]] = []
 
     class FailingService:
-        def inspect(self, claim_id: UUID, *, offset: int, limit: int) -> object:
-            captured.append((claim_id, offset, limit))
+        def inspect(
+            self,
+            claim_id: UUID,
+            *,
+            offset: int,
+            limit: int,
+            evidence_offset: int,
+            evidence_limit: int,
+        ) -> object:
+            captured.append((claim_id, offset, limit, evidence_offset, evidence_limit))
             raise ClaimLineageClaimNotFoundError(f"claim not found: {claim_id}")
 
     monkeypatch.setattr(why_cli, "_service", lambda: FailingService())
-    assert why_cli.main([str(deterministic_uuid(999)), "--offset", "3", "--limit", "4"]) == 2
-    assert captured == [(deterministic_uuid(999), 3, 4)]
+    assert (
+        why_cli.main(
+            [
+                str(deterministic_uuid(999)),
+                "--offset",
+                "3",
+                "--limit",
+                "4",
+                "--evidence-offset",
+                "5",
+                "--evidence-limit",
+                "6",
+            ]
+        )
+        == 2
+    )
+    assert captured == [(deterministic_uuid(999), 3, 4, 5, 6)]
     assert "claim not found" in capsys.readouterr().err
 
 

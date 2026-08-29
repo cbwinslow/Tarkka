@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 
 from tarkka.domain.identifiers import artifact_id_from_sha256, require_sha256
 from tarkka.domain.models import Artifact
-from tarkka.infrastructure.storage.filesystem import fsync_directory as _fsync_directory
+from tarkka.infrastructure.storage.filesystem import fsync_directory
 
 
 class LocalArtifactStore:
@@ -52,7 +52,7 @@ class LocalArtifactStore:
                 with temp_path.open("rb") as handle:
                     os.fsync(handle.fileno())
                 os.replace(temp_path, destination)
-                _fsync_directory(destination.parent)
+                fsync_directory(destination.parent)
             finally:
                 temp_path.unlink(missing_ok=True)
 
@@ -100,7 +100,7 @@ class LocalArtifactStore:
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.replace(temp_path, destination)
-                _fsync_directory(destination.parent)
+                fsync_directory(destination.parent)
             finally:
                 temp_path.unlink(missing_ok=True)
 

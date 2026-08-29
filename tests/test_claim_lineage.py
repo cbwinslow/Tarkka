@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from uuid import UUID
 
@@ -47,6 +48,7 @@ _RUN_ID = _id(7)
 _OTHER_RUN_ID = _id(37)
 _CLAIM_ID = _id(8)
 _TEXT_EVIDENCE_ID = _id(10)
+_EXTRACTED_AT = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 
 
 def _locators(document_id: UUID) -> tuple[UUID, UUID, UUID, UUID, UUID]:
@@ -65,6 +67,7 @@ def _run(document_id: UUID = _DOCUMENT_ID, *, run_id: UUID | None = None) -> Ext
         document_id=document_id,
         extractor_name="fixture",
         extractor_version="1",
+        extracted_at=_EXTRACTED_AT,
     )
 
 
@@ -194,7 +197,11 @@ def _document(
     )
 
 
-def _provenance(document_id: UUID = _DOCUMENT_ID, *, run_id: UUID | None = None) -> ExtractionProvenance:
+def _provenance(
+    document_id: UUID = _DOCUMENT_ID,
+    *,
+    run_id: UUID | None = None,
+) -> ExtractionProvenance:
     return ExtractionProvenance(run_id=run_id or _run_id(document_id), confidence=0.9)
 
 
@@ -409,6 +416,31 @@ def test_inspect_rejects_missing_claim_run() -> None:
 def test_inspect_rejects_claim_run_from_different_document() -> None:
     with pytest.raises(ClaimLineageMismatchError, match="run belongs to a different Document"):
         _service(runs={_RUN_ID: _run(_OTHER_DOCUMENT_ID, run_id=_RUN_ID)}).inspect(_CLAIM_ID)
+
+
+def test_inspect_rejects_cached_run_reused_for_different_document() -> None:
+    document, artifact = _document()
+    other_artifact = _artifact("b" * 64)
+    other_document, _ = _document(
+        document_id=_OTHER_DOCUMENT_ID,
+        artifact=other_artifact,
+        passage_text="contrary finding",
+    )
+    evidence = {**_evidence_set(), **_evidence_set(_OTHER_DOCUMENT_ID)}
+    evidence[_id(40)] = replace(
+        evidence[_id(40)],
+        provenance=_provenance(_OTHER_DOCUMENT_ID, run_id=_RUN_ID),
+    )
+    service = ClaimLineageService(
+        source=_Source(_claim(), evidence, {_RUN_ID: _run()}),
+        relations=_Relations((_relation(61, evidence_id=_id(40)),)),
+        documents=_Documents(
+            {document.document_id: document, other_document.document_id: other_document},
+            {artifact.artifact_id: artifact, other_artifact.artifact_id: other_artifact},
+        ),
+    )
+    with pytest.raises(ClaimLineageMismatchError, match="run belongs to a different Document"):
+        service.inspect(_CLAIM_ID)
 
 
 def test_inspect_rejects_original_evidence_from_different_run() -> None:

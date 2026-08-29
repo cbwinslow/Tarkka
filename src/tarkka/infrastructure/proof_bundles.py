@@ -98,7 +98,7 @@ def verify_proof_bundle_bytes(data: bytes) -> ProofBundleVerification:
     with archive:
         infos = archive.infolist()
         names = [info.filename for info in infos]
-        if len(names) != len(set(names))):
+        if len(names) != len(set(names)):
             raise ProofBundleVerificationError("proof bundle contains duplicate archive members")
         for info in infos:
             _validate_member_path(info.filename)

@@ -57,7 +57,9 @@ class EvidenceRelationReader(Protocol):
 
     def page_relations(
         self, claim_id: UUID, *, offset: int = 0, limit: int = 100
-    ) -> tuple[int, tuple[EvidenceRelation, ...]]: ...
+    ) -> tuple[int, tuple[EvidenceRelation, ...]]:
+        """Return ``(total_count, page_slice)`` from one internally consistent read."""
+        ...
 
 
 class EvidenceRelationRepository(EvidenceRelationReader, Protocol):

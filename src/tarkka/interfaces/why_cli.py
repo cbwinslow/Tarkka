@@ -263,7 +263,6 @@ def _cmd_why(args: argparse.Namespace) -> int:
         ClaimLineageMismatchError,
         OSError,
         RuntimeError,
-        TypeError,
         ValueError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)

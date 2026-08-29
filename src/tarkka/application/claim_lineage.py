@@ -167,9 +167,6 @@ class ClaimLineageService:
                 if relation.evidence_id is not None
                 else None
             )
-            # Evidence may come from another source, but citation contexts are deliberately
-            # claim-document-local. PostgreSQL enforces this with the composite
-            # (citation_context_id, claim_document_id) foreign key in migration 0009.
             context = self._citation_context(record.document_id, relation.citation_context_id)
             assessments.append(
                 ClaimAssessmentLineage(
@@ -269,11 +266,18 @@ class ClaimLineageService:
         document_id: UUID,
         context_id: UUID | None,
     ) -> CitationContext | None:
+        """Resolve citation context scoped to the Claim's normalized Document.
+
+        Verification Evidence may come from another Document, but relation citation
+        context remains Claim-document-local. PostgreSQL enforces that invariant with
+        the composite ``(citation_context_id, claim_document_id)`` foreign key from
+        migration 0009.
+        """
         if context_id is None:
             return None
         if self._citations is None:
             raise ClaimLineageCitationRepositoryUnavailableError(
-                f"citation repository unavailable for context: {context_id}"
+                "citation repository is not configured"
             )
         context = self._citations.get_context(document_id, context_id)
         if context is None:

@@ -11,6 +11,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineageEvidenceNotFoundError,
     ClaimLineageExtractionRunNotFoundError,
     ClaimLineageMismatchError,
+    ClaimLineagePaginationError,
 )
 from tarkka.application.claim_lineage_contract import claim_lineage_problem
 
@@ -44,7 +45,12 @@ pytestmark = [pytest.mark.unit, pytest.mark.contract]
             (),
         ),
         (ClaimLineageMismatchError("mismatch"), "lineage_mismatch", ()),
-        (ValueError("bad page"), "invalid_argument", ("research_operation_schema",)),
+        (
+            ClaimLineagePaginationError("bad page"),
+            "invalid_argument",
+            ("research_operation_schema",),
+        ),
+        (ValueError("corrupt persisted value"), "backend_unavailable", ()),
         (OSError("disk unavailable"), "backend_unavailable", ()),
         (RuntimeError("backend unavailable"), "backend_unavailable", ()),
     ],

@@ -168,6 +168,14 @@ def create_app(
     return TarkkaHttpApp(lineage=lineage, max_estimated_tokens=max_estimated_tokens)
 
 
+def _json_schema_response(description: str, schema: dict[str, object]) -> dict[str, object]:
+    """Build one OpenAPI JSON response descriptor without transport-specific models."""
+    return {
+        "description": description,
+        "content": {"application/json": {"schema": schema}},
+    }
+
+
 def openapi_document() -> dict[str, object]:
     """Generate the deterministic OpenAPI 3.1 contract from Tarkka capability metadata."""
     lineage_schema = research_operation_schema(_LINEAGE_OPERATION_ID)
@@ -177,13 +185,11 @@ def openapi_document() -> dict[str, object]:
         for field in lineage_schema.inputs
         if field.name != "claim_id"
     ]
-    error_responses = {
-        status: {
-            "description": description,
-            "content": {
-                "application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}
-            },
-        }
+    error_responses: dict[str, object] = {
+        status: _json_schema_response(
+            description,
+            {"$ref": "#/components/schemas/ErrorEnvelope"},
+        )
         for status, description in (
             ("400", "Invalid request."),
             ("404", "Requested research object or operation was not found."),
@@ -191,6 +197,20 @@ def openapi_document() -> dict[str, object]:
             ("413", "The bounded response still exceeds the configured size ceiling."),
             ("503", "The configured durable backend is unavailable."),
         )
+    }
+    lineage_responses: dict[str, object] = {
+        "200": _json_schema_response(
+            lineage_schema.result_summary,
+            {"$ref": "#/components/schemas/ClaimLineageEnvelope"},
+        )
+    }
+    lineage_responses.update(error_responses)
+    operation_responses: dict[str, object] = {
+        "200": _json_schema_response(
+            "Selected operation schema.",
+            {"$ref": "#/components/schemas/OperationEnvelope"},
+        ),
+        "404": error_responses["404"],
     }
     return {
         "openapi": "3.1.0",
@@ -205,14 +225,10 @@ def openapi_document() -> dict[str, object]:
                     "operationId": "research_capabilities",
                     "summary": "List compact Tarkka research capabilities.",
                     "responses": {
-                        "200": {
-                            "description": "Compact capability index.",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/CapabilityEnvelope"}
-                                }
-                            },
-                        }
+                        "200": _json_schema_response(
+                            "Compact capability index.",
+                            {"$ref": "#/components/schemas/CapabilityEnvelope"},
+                        )
                     },
                 }
             },
@@ -229,17 +245,7 @@ def openapi_document() -> dict[str, object]:
                             "schema": {"type": "string", "minLength": 1},
                         }
                     ],
-                    "responses": {
-                        "200": {
-                            "description": "Selected operation schema.",
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/OperationEnvelope"}
-                                }
-                            },
-                        },
-                        "404": error_responses["404"],
-                    },
+                    "responses": operation_responses,
                 }
             },
             "/v1/claims/{claim_id}/lineage": {
@@ -258,17 +264,7 @@ def openapi_document() -> dict[str, object]:
                         },
                         *query_parameters,
                     ],
-                    "responses": {
-                        "200": {
-                            "description": lineage_schema.result_summary,
-                            "content": {
-                                "application/json": {
-                                    "schema": {"$ref": "#/components/schemas/ClaimLineageEnvelope"}
-                                }
-                            },
-                        },
-                        **error_responses,
-                    },
+                    "responses": lineage_responses,
                 }
             },
             "/openapi.json": {
@@ -276,10 +272,10 @@ def openapi_document() -> dict[str, object]:
                     "operationId": "openapi_document",
                     "summary": "Return this deterministic OpenAPI document.",
                     "responses": {
-                        "200": {
-                            "description": "OpenAPI 3.1 document.",
-                            "content": {"application/json": {"schema": {"type": "object"}}},
-                        }
+                        "200": _json_schema_response(
+                            "OpenAPI 3.1 document.",
+                            {"type": "object"},
+                        )
                     },
                 }
             },

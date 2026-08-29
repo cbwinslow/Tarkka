@@ -126,13 +126,13 @@ class ClaimLineageService:
             for evidence_id in record.evidence_ids
         )
 
-        total = self._relations.count_relations(record.extraction_id)
-        assessments: list[ClaimAssessmentLineage] = []
-        for relation in self._relations.list_relations(
+        total, relation_page = self._relations.page_relations(
             record.extraction_id,
             offset=offset,
             limit=limit,
-        ):
+        )
+        assessments: list[ClaimAssessmentLineage] = []
+        for relation in relation_page:
             if relation.claim_id != record.extraction_id:
                 raise ClaimLineageMismatchError(
                     "verification relation does not belong to the requested Claim"

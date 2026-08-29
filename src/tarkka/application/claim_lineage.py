@@ -41,8 +41,12 @@ class ClaimLineageArtifactNotFoundError(LookupError):
     """Raised when a normalized Document references a missing immutable Artifact."""
 
 
+class ClaimLineageCitationRepositoryUnavailableError(LookupError):
+    """Raised when an assessment needs citation lineage but no citation store exists."""
+
+
 class ClaimLineageCitationContextNotFoundError(LookupError):
-    """Raised when an assessment references unavailable citation context lineage."""
+    """Raised when an assessment references a missing citation context."""
 
 
 class ClaimLineageMismatchError(ValueError):
@@ -142,6 +146,9 @@ class ClaimLineageService:
                 if relation.evidence_id is not None
                 else None
             )
+            # Evidence may come from another source, but citation contexts are deliberately
+            # claim-document-local. PostgreSQL enforces this with the composite
+            # (citation_context_id, claim_document_id) foreign key in migration 0009.
             context = self._citation_context(record.document_id, relation.citation_context_id)
             assessments.append(
                 ClaimAssessmentLineage(
@@ -173,6 +180,8 @@ class ClaimLineageService:
         artifact = self._documents.get_artifact(document.artifact_id)
         if artifact is None:
             raise ClaimLineageArtifactNotFoundError(f"artifact not found: {document.artifact_id}")
+        if artifact.artifact_id != document.artifact_id:
+            raise ClaimLineageMismatchError("Document artifact linkage returned a different Artifact")
         if artifact.artifact_id != artifact_id_from_sha256(artifact.sha256):
             raise ClaimLineageMismatchError(
                 "Artifact ID does not match its canonical SHA-256 identity"
@@ -210,8 +219,8 @@ class ClaimLineageService:
         if context_id is None:
             return None
         if self._citations is None:
-            raise ClaimLineageCitationContextNotFoundError(
-                f"citation context not found: {context_id}"
+            raise ClaimLineageCitationRepositoryUnavailableError(
+                f"citation repository unavailable for context: {context_id}"
             )
         context = self._citations.get_context(document_id, context_id)
         if context is None:

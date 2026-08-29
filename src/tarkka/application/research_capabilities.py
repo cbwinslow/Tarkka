@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.claim_lineage import (
+    MAX_CLAIM_EVIDENCE_OFFSET,
+    MAX_CLAIM_EVIDENCE_PAGE_SIZE,
     MAX_CLAIM_LINEAGE_OFFSET,
     MAX_CLAIM_LINEAGE_PAGE_SIZE,
     ClaimLineageService,
@@ -255,6 +257,22 @@ _OPERATION_REGISTRATIONS = (
                 "Maximum verification assessments to return.",
                 minimum=0,
                 maximum=MAX_CLAIM_LINEAGE_PAGE_SIZE,
+            ),
+            ResearchField(
+                "evidence_offset",
+                "integer",
+                False,
+                "Zero-based original Claim-evidence offset.",
+                minimum=0,
+                maximum=MAX_CLAIM_EVIDENCE_OFFSET,
+            ),
+            ResearchField(
+                "evidence_limit",
+                "integer",
+                False,
+                "Maximum original Claim-evidence items to expand.",
+                minimum=0,
+                maximum=MAX_CLAIM_EVIDENCE_PAGE_SIZE,
             ),
         ),
         "Claim extraction provenance, exact evidence/source lineage, and bounded assessments.",

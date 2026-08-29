@@ -19,7 +19,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def require_sha256(value: object, *, field_name: str = "SHA-256") -> str:
-    """Return a canonical lowercase SHA-256 digest or fail closed."""
+    """Validate a lowercase SHA-256 digest and return the input string unchanged."""
     if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be lowercase hexadecimal")
     return value

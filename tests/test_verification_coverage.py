@@ -15,7 +15,13 @@ from tarkka.application.verification import (
     EvidenceVerificationService,
 )
 from tarkka.domain.citations import CitationContext, CitationMention
-from tarkka.domain.extraction import Claim, EvidenceRecord, FigureEvidence, ResearchExtraction
+from tarkka.domain.extraction import (
+    Claim,
+    Evidence,
+    EvidenceRecord,
+    FigureEvidence,
+    ResearchExtraction,
+)
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.evaluation.verification import GoldEvidenceRelation
 from tarkka.ports.verification import (
@@ -136,10 +142,12 @@ def _service(
     )
 
 
-def _claim_and_evidence() -> tuple[Claim, EvidenceRecord]:
+def _claim_and_evidence() -> tuple[Claim, Evidence]:
     batch = _batch()
     claim = next(item for item in batch.extractions if isinstance(item, Claim))
-    return claim, batch.evidence[0]
+    evidence = batch.evidence[0]
+    assert isinstance(evidence, Evidence)
+    return claim, evidence
 
 
 @pytest.mark.parametrize(("offset", "limit"), [(-1, 1), (0, -1)])
@@ -159,22 +167,40 @@ def test_citation_candidates_fail_closed_when_claim_evidence_is_missing() -> Non
         service.citation_candidates(claim.extraction_id)
 
 
-def test_citation_candidates_ignore_non_passage_evidence() -> None:
-    claim, _ = _claim_and_evidence()
+def test_citation_candidates_keep_passage_evidence_when_figure_evidence_is_mixed_in() -> None:
+    claim, passage_evidence = _claim_and_evidence()
     figure = FigureEvidence(
         evidence_id=uuid4(),
         document_id=claim.document_id,
         figure_id=uuid4(),
         provenance=claim.provenance,
     )
-    claim = replace(claim, evidence_ids=(figure.evidence_id,))
-    service = _service(_Reader((claim,), (figure,)), citations=_Citations())
+    claim = replace(
+        claim,
+        evidence_ids=(passage_evidence.evidence_id, figure.evidence_id),
+    )
+    context = CitationContext(
+        context_id=uuid4(),
+        mention_id=uuid4(),
+        document_id=claim.document_id,
+        text=passage_evidence.text,
+        char_start=0,
+        char_end=len(passage_evidence.text),
+        section_id=passage_evidence.section_id,
+        passage_id=passage_evidence.passage_id,
+    )
+    service = _service(
+        _Reader((claim,), (passage_evidence, figure)),
+        citations=_Citations((context,)),
+    )
 
     page = service.citation_candidates(claim.extraction_id)
 
     assert page.document_id == claim.document_id
-    assert page.total == 0
-    assert page.candidates == ()
+    assert page.total == 1
+    assert len(page.candidates) == 1
+    assert page.candidates[0].citation_context == context
+    assert page.candidates[0].evidence_ids == (passage_evidence.evidence_id,)
 
 
 def test_citation_context_rejects_missing_repository_and_context() -> None:

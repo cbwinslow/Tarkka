@@ -13,6 +13,7 @@ import tarkka.infrastructure.proof_bundles as proof_bundle_io
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
     ProofBundleVerificationLimits,
+    _fsync_directory,
     _hash_member,
     _read_member,
     _sha256_stream,
@@ -38,6 +39,16 @@ def _archive(members: list[tuple[str, bytes]], *, compression: int = zipfile.ZIP
     return buffer.getvalue()
 
 
+def _manifest_archive(payload: Any, value: dict[str, object]) -> bytes:
+    manifest = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    return _archive(
+        [
+            ("manifest.json", manifest),
+            (payload.manifest.artifact.path, payload.artifact_bytes),
+        ]
+    )
+
+
 def test_verifier_rejects_compressed_members_before_reading_payload(tmp_path: Path) -> None:
     payload = _payload(tmp_path)
     data = _archive(
@@ -58,16 +69,55 @@ def test_verifier_rejects_non_finite_json_constants(tmp_path: Path) -> None:
     source_observations = cast(list[dict[str, object]], value["source_observations"])
     metadata = cast(dict[str, object], source_observations[0]["metadata"])
     metadata["invalid_number"] = float("nan")
-    manifest = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    data = _archive(
-        [
-            ("manifest.json", manifest),
-            (payload.manifest.artifact.path, payload.artifact_bytes),
-        ]
-    )
 
     with pytest.raises(ProofBundleVerificationError, match="non-finite number: NaN"):
-        verify_proof_bundle_bytes(data)
+        verify_proof_bundle_bytes(_manifest_archive(payload, value))
+
+
+def test_verifier_rejects_artifact_id_not_derived_from_digest(tmp_path: Path) -> None:
+    payload = _payload(tmp_path)
+    value = payload.manifest.to_dict()
+    forged_id = str(uuid4())
+    artifact = cast(dict[str, object], value["artifact"])
+    document = cast(dict[str, object], value["document"])
+    work_documents = cast(list[dict[str, object]], value["work_documents"])
+    observations = cast(list[dict[str, object]], value["source_observations"])
+    artifact["artifact_id"] = forged_id
+    document["artifact_id"] = forged_id
+    for link in work_documents:
+        link["artifact_id"] = forged_id
+    for observation in observations:
+        if observation["native_artifact_id"] is not None:
+            observation["native_artifact_id"] = forged_id
+
+    with pytest.raises(ProofBundleVerificationError, match="artifact_id must be derived from sha256"):
+        verify_proof_bundle_bytes(_manifest_archive(payload, value))
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid", "message"),
+    [
+        ("basis", "trusted", "unsupported proof bundle observation basis"),
+        ("relation", "supports", "unsupported proof bundle resource relation"),
+    ],
+)
+def test_verifier_rejects_unknown_provenance_vocabulary(
+    tmp_path: Path,
+    field: str,
+    invalid: str,
+    message: str,
+) -> None:
+    payload = _payload(tmp_path)
+    value = payload.manifest.to_dict()
+    if field == "basis":
+        observations = cast(list[dict[str, object]], value["source_observations"])
+        observations[0][field] = invalid
+    else:
+        links = cast(list[dict[str, object]], value["resource_links"])
+        links[0][field] = invalid
+
+    with pytest.raises(ProofBundleVerificationError, match=message):
+        verify_proof_bundle_bytes(_manifest_archive(payload, value))
 
 
 def test_verifier_rejects_observation_lineage_for_another_artifact(tmp_path: Path) -> None:
@@ -75,16 +125,42 @@ def test_verifier_rejects_observation_lineage_for_another_artifact(tmp_path: Pat
     value = payload.manifest.to_dict()
     observations = cast(list[dict[str, object]], value["source_observations"])
     observations[0]["native_artifact_id"] = str(uuid4())
-    manifest = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    data = _archive(
-        [
-            ("manifest.json", manifest),
-            (payload.manifest.artifact.path, payload.artifact_bytes),
-        ]
-    )
 
     with pytest.raises(ProofBundleVerificationError, match="another native artifact"):
-        verify_proof_bundle_bytes(data)
+        verify_proof_bundle_bytes(_manifest_archive(payload, value))
+
+
+def test_atomic_publish_preserves_existing_bundle_when_temp_verification_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _payload(tmp_path / "state")
+    destination = tmp_path / "research.tarkka"
+    original = b"previous-valid-export"
+    destination.write_bytes(original)
+
+    def reject(_: Path, **__: object) -> Any:
+        raise ProofBundleVerificationError("injected verification failure")
+
+    monkeypatch.setattr(proof_bundle_io, "verify_proof_bundle", reject)
+
+    with pytest.raises(ProofBundleVerificationError, match="injected verification failure"):
+        write_proof_bundle(destination, payload)
+
+    assert destination.read_bytes() == original
+    assert list(tmp_path.glob(".research.tarkka.*.tmp")) == []
+
+
+def test_atomic_publish_replaces_existing_bundle_only_after_verification(tmp_path: Path) -> None:
+    payload = _payload(tmp_path / "state")
+    destination = tmp_path / "research.tarkka"
+    destination.write_bytes(b"old")
+
+    written = write_proof_bundle(destination, payload)
+
+    assert written == destination.stat().st_size
+    assert verify_proof_bundle(destination).artifact_sha256 == payload.manifest.artifact.sha256
+    assert destination.read_bytes() != b"old"
 
 
 def test_path_verification_streams_without_path_read_bytes(
@@ -246,3 +322,12 @@ def test_bundle_hash_stream_translates_read_errors() -> None:
 
     with pytest.raises(ProofBundleVerificationError, match="unable to hash proof bundle"):
         _sha256_stream(stream)
+
+
+def test_directory_fsync_is_noop_on_non_posix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(proof_bundle_io.os, "name", "nt")
+
+    _fsync_directory(tmp_path)

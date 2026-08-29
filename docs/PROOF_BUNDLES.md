@@ -21,7 +21,7 @@ manifest.json
 artifacts/sha256/<64-character-lowercase-sha256>
 ```
 
-The archive uses stored, uncompressed ZIP members with fixed metadata. Member ordering and manifest serialization are canonical, so the same persisted Tarkka state produces byte-identical bundle bytes.
+The archive uses stored, uncompressed ZIP members with fixed timestamps, Unix mode metadata, member order, and no ZIP comments or extra metadata. Manifest serialization is canonical, so identical persisted research state produces byte-identical bundle bytes.
 
 ## Create a bundle
 
@@ -29,9 +29,13 @@ The archive uses stored, uncompressed ZIP members with fixed metadata. Member or
 tarkka bundle create <document-id> --output research.tarkka
 ```
 
-Creation reads Tarkka's existing local research catalog, artifact store, Work↔Document links, source observations, and source-observed resource links. It does not call a discovery provider, model, or network service.
+Creation honors the same `TARKKA_DOCUMENT_BACKEND` selection as Tarkka's document interfaces.
 
-Before exporting, Tarkka re-hashes the preserved artifact bytes and refuses to create the bundle if either the SHA-256 digest or byte count differs from the immutable Artifact record.
+For the local JSON backend, Tarkka acquires the research-catalog and source-observation locks together in canonical path order and reads all exported state while both locks are held. This prevents an export from combining records observed at different write boundaries.
+
+For the PostgreSQL backend, Tarkka reads the Document, Artifact, source observations, and resource links through one `REPEATABLE READ READ ONLY` transaction. PostgreSQL v1 bundles intentionally omit Work↔Document links because that representation-link relation is not yet persisted in the PostgreSQL schema; Tarkka does **not** mix potentially stale JSON representation links into a PostgreSQL export.
+
+Creation does not call a discovery provider, model, or network service. Before exporting, Tarkka re-hashes the preserved artifact bytes and refuses to create the bundle if either the SHA-256 digest or byte count differs from the immutable Artifact record.
 
 The command writes the bundle and immediately verifies the resulting file before reporting success.
 
@@ -41,7 +45,17 @@ The command writes the bundle and immediately verifies the resulting file before
 tarkka bundle verify research.tarkka
 ```
 
-Verification uses only the archive bytes. It does not require a Tarkka home directory, database, network connection, API key, model, or provider.
+Verification uses only the archive file. It does not require a Tarkka home directory, database, network connection, API key, model, or provider.
+
+Path-based verification is bounded and streaming. The verifier checks archive metadata and declared member sizes before reading member payloads, then hashes the source Artifact incrementally rather than loading the entire archive or Artifact into memory.
+
+Default v1 limits are:
+
+- archive: 1 GiB;
+- manifest: 4 MiB;
+- embedded source Artifact: 1 GiB.
+
+The verification API accepts explicit limits so embedding applications can impose stricter resource budgets.
 
 A successful result includes:
 
@@ -53,7 +67,7 @@ A successful result includes:
 
 ## Manifest v1
 
-`manifest.json` is UTF-8 JSON serialized with sorted keys, no insignificant whitespace, and one trailing newline.
+`manifest.json` is UTF-8 JSON serialized with sorted keys, no insignificant whitespace, finite JSON numbers only, and one trailing newline.
 
 Top-level fields are strict and versioned:
 
@@ -101,7 +115,7 @@ The Document's `artifact_id` must equal the bundled Artifact identity.
 
 ### `work_documents`
 
-Records existing canonical Work↔Document representation links:
+Records canonical Work↔Document representation links available in the selected persistence backend:
 
 - `link_id`
 - `work_id`
@@ -125,7 +139,7 @@ Preserves the observation envelope used for provider/native/reconstructed metada
 - `metadata`
 - `observed_at`
 
-Metadata remains JSON-compatible source data. The bundle does not promote it into new canonical fields.
+Metadata is deeply validated as finite JSON-compatible data before export. Any non-null `native_artifact_id` must refer to the Artifact embedded in the same bundle; verification fails closed if a manifest claims observation provenance for another Artifact.
 
 ### `resource_links`
 
@@ -146,19 +160,20 @@ Every resource link must reference a source observation included in the same man
 The v1 verifier fails closed when any of these checks fail:
 
 1. the input is not a valid ZIP archive;
-2. any archive member is duplicated;
-3. a member path is absolute, contains traversal components, Windows separators/drives, or other noncanonical path structure;
-4. `manifest.json` is missing;
-5. the manifest is not valid UTF-8 JSON;
-6. JSON object keys are duplicated;
-7. the bundle format/schema version is unsupported;
-8. required fields are missing or unknown fields are present;
-9. internal Artifact/Document/Work/observation/resource identities are inconsistent;
-10. the archive has missing or unexpected members;
-11. embedded artifact byte length differs from the manifest;
-12. embedded artifact SHA-256 differs from the manifest;
-13. the manifest is not canonically encoded;
-14. the ZIP bytes are not the canonical deterministic encoding of the verified payload.
+2. configured archive, manifest, or source-Artifact resource limits are exceeded;
+3. any archive member is duplicated or an unexpected member is present;
+4. a member path is absolute, contains traversal components, Windows separators/drives, or other noncanonical path structure;
+5. ZIP compression, timestamp, Unix mode, flags, comments, extra metadata, order, or member layout is noncanonical;
+6. `manifest.json` is missing;
+7. the manifest is not valid UTF-8 JSON;
+8. JSON object keys are duplicated or a number is non-finite;
+9. the bundle format/schema version is unsupported;
+10. required fields are missing or unknown fields are present;
+11. internal Artifact/Document/Work/observation/resource identities are inconsistent;
+12. a source observation claims a different native Artifact;
+13. embedded Artifact byte length differs from the manifest;
+14. streamed embedded Artifact SHA-256 differs from the manifest;
+15. the manifest is not canonically encoded.
 
 Verification is intentionally stricter than ordinary ZIP interoperability. Canonical encoding makes the whole bundle content-addressable and gives downstream systems a stable byte-level identity.
 
@@ -168,7 +183,7 @@ Bundle v1 exports only deterministic preserved source/document lineage. It does 
 
 Those records will be added as explicitly versioned sections. When model-assisted state is exported, Tarkka will preserve provider/model/prompt/version metadata and the resulting observation rather than pretending a model call can be deterministically replayed.
 
-## Planned v1 extensions
+## Planned extensions
 
 Priority A under the product roadmap will build on this foundation with:
 
@@ -177,6 +192,7 @@ Priority A under the product roadmap will build on this foundation with:
 3. deterministic replay of non-model transformations;
 4. compact lineage inspection (`why`) and MCP/API bundle verification;
 5. frozen/live research-state diffing;
-6. interoperability evaluation with established provenance/research packaging standards before any mapping is standardized.
+6. PostgreSQL persistence for Work↔Document representation links;
+7. interoperability evaluation with established provenance/research packaging standards before any mapping is standardized.
 
-The archive codec and manifest contract are intentionally independent of Tarkka's JSON persistence adapter so other storage backends and third-party tools can emit or consume compatible bundles later.
+The archive codec and manifest contract are intentionally independent of Tarkka's persistence adapters so other storage backends and third-party tools can emit or consume compatible bundles later.

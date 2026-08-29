@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import TypeAlias
@@ -100,7 +101,10 @@ class TarkkaHttpApp:
             )
             return
 
-        status, payload = self._dispatch(path, scope)
+        if _claim_handle_from_path(path) is None:
+            status, payload = self._dispatch(path, scope)
+        else:
+            status, payload = await asyncio.to_thread(self._dispatch, path, scope)
         await _send_json(send, status, payload)
 
     def _dispatch(self, path: str, scope: ASGIScope) -> tuple[int, dict[str, object]]:

@@ -87,3 +87,14 @@ jobs:
               --include="$module" \
               --fail-under=100
           done < .github/coverage/ingestion-ratchets.txt
+      - name: Enforce completed citation application ratchets
+        shell: bash
+        run: |
+          while IFS= read -r module || [[ -n "$module" ]]; do
+            case "$module" in
+              ""|\#*) continue ;;
+            esac
+            uv run --no-sync coverage report \
+              --include="$module" \
+              --fail-under=100
+          done < .github/coverage/citation-application-ratchets.txt

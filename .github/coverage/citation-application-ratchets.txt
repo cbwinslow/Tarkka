@@ -1,0 +1,5 @@
+# Completed citation application modules permanently held at 100% statement + branch coverage.
+src/tarkka/application/citation_context.py
+src/tarkka/application/citations.py
+src/tarkka/application/citation_resolution.py
+src/tarkka/application/citation_traversal.py

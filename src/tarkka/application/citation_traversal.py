@@ -169,8 +169,7 @@ class CitationTraversalService:
         limit: int,
         exclude_ids: set[UUID],
     ) -> tuple[WorkRelation, ...]:
-        if limit <= 0:
-            return ()
+        # Internal callers pass positive limits; zero budgets are handled in traverse().
         excluded = frozenset(exclude_ids)
         relations: dict[UUID, WorkRelation] = {}
         if policy.direction in {TraversalDirection.OUTBOUND, TraversalDirection.BOTH}:

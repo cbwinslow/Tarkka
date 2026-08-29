@@ -96,9 +96,8 @@ class CitationIdentityResolver:
 
 
 def _normalize_identifier(scheme: str, value: str) -> str | None:
+    # BibliographicReference rejects blank identifier values before resolution.
     stripped = value.strip()
-    if not stripped:
-        return None
     if scheme == "doi":
         return try_normalize_doi(stripped)
     if scheme == "arxiv":

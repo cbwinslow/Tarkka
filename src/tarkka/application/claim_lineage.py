@@ -7,14 +7,7 @@ from typing import TypeAlias
 from uuid import UUID
 
 from tarkka.domain.citations import CitationContext
-from tarkka.domain.extraction import (
-    Claim,
-    EquationEvidence,
-    Evidence,
-    EvidenceRecord,
-    FigureEvidence,
-    TableEvidence,
-)
+from tarkka.domain.extraction import Claim, Evidence, EvidenceRecord, FigureEvidence, TableEvidence
 from tarkka.domain.identifiers import artifact_id_from_sha256
 from tarkka.domain.models import Artifact, Document, Passage
 from tarkka.domain.source_artifacts import Equation, Figure, Table
@@ -271,11 +264,8 @@ def _resolve_evidence_source(document: Document, evidence: EvidenceRecord) -> Ev
             raise ClaimLineageMismatchError("evidence column range exceeds its persisted Table")
         return table
 
-    equation_evidence = evidence
-    if not isinstance(equation_evidence, EquationEvidence):
-        raise TypeError(f"unsupported evidence type: {type(evidence).__name__}")
     equation = next(
-        (item for item in document.equations if item.equation_id == equation_evidence.equation_id),
+        (item for item in document.equations if item.equation_id == evidence.equation_id),
         None,
     )
     if equation is None:

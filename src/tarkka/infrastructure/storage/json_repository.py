@@ -36,6 +36,18 @@ class JsonResearchRepository:
                     }
                 )
 
+    @classmethod
+    def open_existing(cls, path: Path) -> JsonResearchRepository | None:
+        """Open an existing catalog without creating files or lock state."""
+        resolved = path.expanduser().resolve()
+        if not resolved.exists():
+            return None
+        if resolved.is_dir():
+            raise ValueError(f"research catalog path is a directory: {resolved}")
+        repository = cls.__new__(cls)
+        repository.path = resolved
+        return repository
+
     def _read(self) -> dict[str, Any]:
         try:
             decoded: Any = json.loads(self.path.read_text(encoding="utf-8"))

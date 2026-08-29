@@ -87,6 +87,26 @@ class PostgresVerificationRepository:
             ).fetchall()
         return tuple(_from_row(row) for row in rows)
 
+    def page_relations(
+        self, claim_id: UUID, *, offset: int = 0, limit: int = 100
+    ) -> tuple[int, tuple[EvidenceRelation, ...]]:
+        """Return total and page from one PostgreSQL statement snapshot."""
+        if offset < 0 or limit < 0:
+            raise ValueError("verification offset and limit must be non-negative")
+        with self._connection() as connection:
+            rows = connection.execute(
+                _SELECT_RELATION_PAGE,
+                (claim_id, offset, limit, claim_id),
+            ).fetchall()
+        first = cast(tuple[Any, ...], rows[0])
+        total = int(first[0])
+        relations = tuple(
+            _from_row(cast(tuple[Any, ...], row)[1:])
+            for row in rows
+            if cast(tuple[Any, ...], row)[1] is not None
+        )
+        return total, relations
+
     @staticmethod
     def _get_relation(connection: Any, relation_id: UUID) -> EvidenceRelation | None:
         row = connection.execute(
@@ -114,6 +134,31 @@ _SELECT_RELATIONS = """
 SELECT relation_id, claim_id, kind, verifier_name, verifier_version, confidence,
        human_review_state, evidence_id, citation_context_id, reasoning_summary, created_at
 FROM tarkka.evidence_relation
+"""
+
+_SELECT_RELATION_PAGE = """
+WITH relation_page AS (
+    SELECT relation_id, claim_id, kind, verifier_name, verifier_version, confidence,
+           human_review_state, evidence_id, citation_context_id, reasoning_summary, created_at
+    FROM tarkka.evidence_relation
+    WHERE claim_id = %s
+    ORDER BY relation_id
+    OFFSET %s LIMIT %s
+),
+relation_total AS (
+    SELECT count(*) AS total
+    FROM tarkka.evidence_relation
+    WHERE claim_id = %s
+)
+SELECT relation_total.total,
+       relation_page.relation_id, relation_page.claim_id, relation_page.kind,
+       relation_page.verifier_name, relation_page.verifier_version, relation_page.confidence,
+       relation_page.human_review_state, relation_page.evidence_id,
+       relation_page.citation_context_id, relation_page.reasoning_summary,
+       relation_page.created_at
+FROM relation_total
+LEFT JOIN relation_page ON TRUE
+ORDER BY relation_page.relation_id
 """
 
 

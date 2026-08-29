@@ -16,6 +16,7 @@ from tarkka.application.proof_bundles import (
     ProofBundleService,
     ProofBundleSnapshotReader,
 )
+from tarkka.config import document_backend
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleSnapshotReader
 from tarkka.infrastructure.proof_bundles import (
@@ -29,7 +30,6 @@ from tarkka.infrastructure.storage.json_source_observation_repository import (
 )
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.proof_bundle_snapshot import JsonProofBundleSnapshotReader
-from tarkka.interfaces.main import _document_backend
 
 
 def _home() -> Path:
@@ -46,7 +46,7 @@ def _parse_document_id(raw: str) -> UUID:
 def _bundle_service() -> ProofBundleService:
     home = _home()
     snapshots: ProofBundleSnapshotReader
-    if _document_backend() == "json":
+    if document_backend() == "json":
         documents = JsonResearchRepository(home / "catalog.json")
         observations = JsonSourceObservationRepository.open_existing(
             home / "source_observations.json"

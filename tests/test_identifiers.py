@@ -8,9 +8,18 @@ from tarkka.domain.identifiers import (
     artifact_id_from_sha256,
     normalize_arxiv_id,
     normalize_doi,
+    require_sha256,
     try_normalize_arxiv_id,
     try_normalize_doi,
 )
+
+
+def test_require_sha256_returns_canonical_digest_and_names_invalid_field() -> None:
+    digest = "a" * 64
+
+    assert require_sha256(digest) == digest
+    with pytest.raises(ValueError, match="fixture digest must be lowercase hexadecimal"):
+        require_sha256("not-a-digest", field_name="fixture digest")
 
 
 def test_artifact_id_from_sha256_is_stable_and_content_derived() -> None:

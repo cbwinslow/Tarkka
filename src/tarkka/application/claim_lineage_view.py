@@ -82,18 +82,18 @@ def evidence_lineage_view(item: EvidenceLineage) -> dict[str, object]:
             text=evidence.text,
         )
     elif isinstance(evidence, FigureEvidence):
-        source = cast(Figure, item.source)
+        figure_source = cast(Figure, item.source)
         payload.update(
             source_kind="figure",
             figure_id=str(evidence.figure_id),
-            ordinal=source.ordinal,
-            page_number=source.page_number,
-            label=source.label,
-            caption=source.caption,
-            figure_type=source.figure_type,
+            ordinal=figure_source.ordinal,
+            page_number=figure_source.page_number,
+            label=figure_source.label,
+            caption=figure_source.caption,
+            figure_type=figure_source.figure_type,
         )
     elif isinstance(evidence, TableEvidence):
-        source = cast(Table, item.source)
+        table_source = cast(Table, item.source)
         payload.update(
             source_kind="table",
             table_id=str(evidence.table_id),
@@ -101,22 +101,22 @@ def evidence_lineage_view(item: EvidenceLineage) -> dict[str, object]:
             row_end=evidence.row_end,
             column_start=evidence.column_start,
             column_end=evidence.column_end,
-            ordinal=source.ordinal,
-            page_number=source.page_number,
-            label=source.label,
-            caption=source.caption,
-            row_count=source.row_count,
-            column_count=source.column_count,
+            ordinal=table_source.ordinal,
+            page_number=table_source.page_number,
+            label=table_source.label,
+            caption=table_source.caption,
+            row_count=table_source.row_count,
+            column_count=table_source.column_count,
         )
     elif isinstance(evidence, EquationEvidence):
-        source = cast(Equation, item.source)
+        equation_source = cast(Equation, item.source)
         payload.update(
             source_kind="equation",
             equation_id=str(evidence.equation_id),
-            ordinal=source.ordinal,
-            page_number=source.page_number,
-            label=source.label,
-            source_text=source.source_text,
+            ordinal=equation_source.ordinal,
+            page_number=equation_source.page_number,
+            label=equation_source.label,
+            source_text=equation_source.source_text,
         )
     else:
         raise TypeError(f"unsupported evidence type: {type(evidence).__name__}")

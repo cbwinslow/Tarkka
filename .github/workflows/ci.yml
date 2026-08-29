@@ -83,6 +83,11 @@ jobs:
           --junitxml=test-results.xml
           --cov=tarkka --cov=scripts --cov-branch
           --cov-report=term-missing --cov-report=xml
+      - name: Enforce repository-wide deterministic coverage
+        # Branch data is recorded by the pytest invocation above; fail-under=100
+        # therefore blocks any missed statement or branch across tarkka + scripts.
+        if: matrix.python-version == '3.13'
+        run: uv run --no-sync coverage report --fail-under=100
       - name: Enforce Phase 5 agent-serving coverage
         if: matrix.python-version == '3.13'
         shell: bash

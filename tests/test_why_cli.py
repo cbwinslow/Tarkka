@@ -14,8 +14,6 @@ import tarkka.interfaces.why_cli as why_cli
 from tarkka.application.claim_lineage import (
     ClaimAssessmentLineage,
     ClaimLineageClaimNotFoundError,
-    EvidenceLineage,
-    SourceLineage,
 )
 from tarkka.domain.citations import CitationContext
 from tarkka.domain.extraction import (
@@ -41,6 +39,9 @@ from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 
 pytestmark = [pytest.mark.integration, pytest.mark.regression]
+
+_RUN_AT = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+_RELATION_AT = datetime(2026, 1, 3, 4, 5, 6, tzinfo=UTC)
 
 
 def _id(value: int) -> UUID:
@@ -107,7 +108,7 @@ def _fixture() -> tuple[
         extractor_version="2.1",
         contract_version="3",
         model=ModelProvenance(provider="test-provider", name="test-model", version="v4"),
-        extracted_at=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+        extracted_at=_RUN_AT,
     )
     provenance = ExtractionProvenance(run_id=run.run_id, confidence=0.9)
     evidence: tuple[EvidenceRecord, ...] = (
@@ -170,6 +171,7 @@ def _fixture() -> tuple[
         verifier_name="human-review",
         verifier_version="1",
         confidence=0.8,
+        created_at=_RELATION_AT,
     )
     return artifact, document, run, evidence, claim, relation, context
 
@@ -313,7 +315,7 @@ def test_why_cli_pins_complete_persisted_local_lineage_contract(
                 "confidence": 0.8,
                 "human_review_state": "unreviewed",
                 "reasoning_summary": None,
-                "created_at": relation.created_at.isoformat(),
+                "created_at": _RELATION_AT.isoformat(),
                 "evidence": expected_evidence[0],
                 "citation_context": {
                     "context_id": str(context.context_id),
@@ -349,7 +351,7 @@ def test_why_cli_missing_verification_catalog_is_read_only_empty_state(
     assert not verification_path.exists()
 
 
-def test_why_cli_missing_local_catalog_does_not_create_state(
+def test_why_cli_missing_extraction_catalog_does_not_create_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -359,32 +361,30 @@ def test_why_cli_missing_local_catalog_does_not_create_state(
     monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
 
     assert entrypoint.main(["why", str(_id(999))]) == 2
-
     assert "extraction catalog not found" in capsys.readouterr().err
     assert not home.exists()
 
 
-def _lineage_for(evidence: EvidenceRecord) -> EvidenceLineage:
-    artifact, document, run, _, _, _, _ = _fixture()
-    if isinstance(evidence, Evidence):
-        source = document.sections[0].passages[0]
-    elif isinstance(evidence, FigureEvidence):
-        source = document.figures[0]
-    elif isinstance(evidence, TableEvidence):
-        source = document.tables[0]
-    else:
-        source = document.equations[0]
-    return EvidenceLineage(
-        evidence=evidence,
-        run=run,
-        source=source,
-        lineage=SourceLineage(document=document, artifact=artifact),
-    )
+def test_why_cli_missing_research_catalog_does_not_create_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("TARKKA_HOME", str(home))
+    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+    JsonExtractionRepository(home / "extractions.json")
+    research_path = home / "catalog.json"
+    assert not research_path.exists()
+
+    assert entrypoint.main(["why", str(_id(999))]) == 2
+    assert "research catalog not found" in capsys.readouterr().err
+    assert not research_path.exists()
 
 
 def test_assessment_payload_preserves_no_evidence_without_manufacturing_source() -> None:
     _, _, _, _, claim, _, _ = _fixture()
-    no_evidence = why_cli._assessment_payload(
+    payload = why_cli._assessment_payload(
         ClaimAssessmentLineage(
             relation=EvidenceRelation(
                 relation_id=_id(21),
@@ -393,14 +393,14 @@ def test_assessment_payload_preserves_no_evidence_without_manufacturing_source()
                 verifier_name="human-review",
                 verifier_version="1",
                 confidence=1.0,
+                created_at=_RELATION_AT,
             ),
             evidence=None,
             citation_context=None,
         )
     )
-
-    assert no_evidence["evidence"] is None
-    assert no_evidence["citation_context"] is None
+    assert payload["evidence"] is None
+    assert payload["citation_context"] is None
 
 
 def test_run_payload_serializes_absent_model() -> None:

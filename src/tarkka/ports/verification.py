@@ -58,3 +58,7 @@ class EvidenceRelationRepository(Protocol):
     def list_relations(
         self, claim_id: UUID, *, offset: int = 0, limit: int = 100
     ) -> tuple[EvidenceRelation, ...]: ...
+
+    def page_relations(
+        self, claim_id: UUID, *, offset: int = 0, limit: int = 100
+    ) -> tuple[int, tuple[EvidenceRelation, ...]]: ...

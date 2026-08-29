@@ -8,6 +8,8 @@ import pytest
 
 pytest.importorskip("mcp", reason="MCP tests require the optional 'mcp' extra")
 
+from mcp.server.mcpserver.exceptions import ToolError
+
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.interfaces.mcp import create_server
 
@@ -26,13 +28,13 @@ def test_mcp_rejects_non_integer_lineage_pagination_before_handler() -> None:
     server = create_server(lineage=cast(ClaimLineageService, service))
 
     for name, value in (("offset", None), ("limit", "many")):
-        result = asyncio.run(
-            server.call_tool(
-                "claim_lineage",
-                {"claim_id": str(uuid4()), name: value},
+        with pytest.raises(ToolError, match="Input should be a valid integer"):
+            asyncio.run(
+                server.call_tool(
+                    "claim_lineage",
+                    {"claim_id": str(uuid4()), name: value},
+                )
             )
-        )
-        assert result.is_error is True
         assert service.called is False
 
     lineage_tool = next(

@@ -184,6 +184,7 @@ def _resolution_id(reference_id: UUID) -> UUID:
 
 
 def _normalized_identifier(scheme: str, value: str) -> tuple[str, str] | None:
+    # BibliographicReference rejects blank schemes and values before resolution.
     normalized_scheme = scheme.strip().lower()
     normalized_value = value.strip()
     if normalized_scheme == "doi":

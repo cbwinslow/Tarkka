@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -13,7 +13,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
 
 def _mutated_manifest(section: str, field: str, value: object) -> dict[str, Any]:
-    manifest = deepcopy(proof_bundle_payload().manifest.to_dict())
+    manifest = cast(dict[str, Any], deepcopy(proof_bundle_payload().manifest.to_dict()))
     section_value = manifest[section]
     if isinstance(section_value, list):
         section_value[0][field] = value

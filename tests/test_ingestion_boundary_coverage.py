@@ -168,13 +168,27 @@ def test_native_parse_result_validates_context_links_and_exact_anchor() -> None:
             contexts=(_context(document, mention, section_id=uuid4()),),
         )
 
-    result = NativeDocumentParseResult(
+    source_local = NativeDocumentParseResult(
         document=document,
         observation=observation,
         mentions=(mention,),
         contexts=(_context(document, mention),),
     )
-    assert result.contexts[0].passage_id is None
+    assert source_local.contexts[0].passage_id is None
+
+    passage_anchored_without_section = NativeDocumentParseResult(
+        document=document,
+        observation=observation,
+        mentions=(mention,),
+        contexts=(
+            _context(
+                document,
+                mention,
+                passage_id=passage.passage_id,
+            ),
+        ),
+    )
+    assert passage_anchored_without_section.contexts[0].section_id is None
 
     with pytest.raises(ValueError, match="document passages"):
         NativeDocumentParseResult(
@@ -304,7 +318,8 @@ class _NativeParser:
                 mentions=(mention,),
                 contexts=(context,),
             )
-        mention = _mention(document, raw_text="not-present")
+        raw_text = "alpha" if self.mode == "fallback" else "not-present"
+        mention = _mention(document, raw_text=raw_text)
         return NativeDocumentParseResult(
             document=document,
             observation=observation,
@@ -348,7 +363,9 @@ def test_ingest_service_reports_unsupported_acquired_document(tmp_path: Path) ->
         service.ingest(source)
 
 
-def test_native_ingest_handles_fully_covered_and_unanchored_mentions(tmp_path: Path) -> None:
+def test_native_ingest_handles_covered_generated_and_unmatchable_contexts(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "source.txt"
     source.write_text("alpha beta", encoding="utf-8")
 
@@ -356,11 +373,18 @@ def test_native_ingest_handles_fully_covered_and_unanchored_mentions(tmp_path: P
     assert covered.native_parse is not None
     assert len(covered.native_parse.contexts) == 1
 
-    unanchored = _ingest_service(
-        tmp_path / "unanchored", (_NativeParser("unanchored"),)
+    fallback = _ingest_service(
+        tmp_path / "fallback", (_NativeParser("fallback"),)
     ).ingest(source)
-    assert unanchored.native_parse is not None
-    assert unanchored.native_parse.contexts == ()
+    assert fallback.native_parse is not None
+    assert len(fallback.native_parse.contexts) == 1
+    assert fallback.native_parse.contexts[0].passage_id is not None
+
+    unmatchable = _ingest_service(
+        tmp_path / "unmatchable", (_NativeParser("unmatchable"),)
+    ).ingest(source)
+    assert unmatchable.native_parse is not None
+    assert unmatchable.native_parse.contexts == ()
 
 
 def _manifest(
@@ -416,21 +440,31 @@ def _source_record(
     )
 
 
-def test_source_record_full_text_skips_unknown_extension_and_insecure_url(
+def test_source_record_full_text_continues_past_unusable_records(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = SourceRecordFullTextResolver()
     work = Work(work_id=uuid4(), title="Fixture")
-    record = _source_record(
+    unknown_extension = _source_record(
         work.work_id,
         url="https://example.test/fulltext",
         media_type="application/x-fixture",
     )
+    valid = _source_record(
+        work.work_id,
+        url="https://example.test/fulltext.pdf",
+        media_type="application/pdf",
+    )
 
-    monkeypatch.setattr(source_record.mimetypes, "guess_extension", lambda media_type: None)
-    assert resolver.resolve(work, (), (record,)) is None
+    monkeypatch.setattr(
+        source_record.mimetypes,
+        "guess_extension",
+        lambda media_type: None if media_type == "application/x-fixture" else ".pdf",
+    )
+    resource = resolver.resolve(work, (), (unknown_extension, valid))
+    assert resource is not None
+    assert resource.source_uri == "https://example.test/fulltext.pdf"
 
-    monkeypatch.setattr(source_record.mimetypes, "guess_extension", lambda media_type: ".pdf")
     insecure = _source_record(
         work.work_id,
         url="http://example.test/fulltext.pdf",

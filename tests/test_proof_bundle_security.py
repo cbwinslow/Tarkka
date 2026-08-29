@@ -13,7 +13,6 @@ import tarkka.infrastructure.proof_bundles as proof_bundle_io
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
     ProofBundleVerificationLimits,
-    _fsync_directory,
     _hash_member,
     _read_member,
     _sha256_stream,
@@ -154,15 +153,18 @@ def test_atomic_publish_preserves_existing_bundle_when_temp_verification_fails(
     assert list(tmp_path.glob(".research.tarkka.*.tmp")) == []
 
 
-def test_atomic_publish_replaces_existing_bundle_only_after_verification(tmp_path: Path) -> None:
+def test_atomic_publish_returns_verified_result_after_replacing_destination(
+    tmp_path: Path,
+) -> None:
     payload = _payload(tmp_path / "state")
     destination = tmp_path / "research.tarkka"
     destination.write_bytes(b"old")
 
-    written = write_proof_bundle(destination, payload)
+    write_result = write_proof_bundle(destination, payload)
+    final_verification = verify_proof_bundle(destination)
 
-    assert written == destination.stat().st_size
-    assert verify_proof_bundle(destination).artifact_sha256 == payload.manifest.artifact.sha256
+    assert write_result.byte_count == destination.stat().st_size
+    assert write_result.verification == final_verification
     assert destination.read_bytes() != b"old"
 
 
@@ -325,12 +327,3 @@ def test_bundle_hash_stream_translates_read_errors() -> None:
 
     with pytest.raises(ProofBundleVerificationError, match="unable to hash proof bundle"):
         _sha256_stream(stream)
-
-
-def test_directory_fsync_is_noop_on_non_posix(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(proof_bundle_io.os, "name", "nt")
-
-    _fsync_directory(tmp_path)

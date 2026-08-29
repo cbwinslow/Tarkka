@@ -14,6 +14,9 @@ from types import MappingProxyType
 from typing import Any
 from uuid import UUID
 
+from tarkka.domain.identifiers import artifact_id_from_sha256
+from tarkka.domain.source_observations import ObservationBasis, ResourceRelation
+
 PROOF_BUNDLE_FORMAT = "tarkka-proof-bundle"
 PROOF_BUNDLE_SCHEMA_VERSION = 1
 PROOF_BUNDLE_MANIFEST_PATH = "manifest.json"
@@ -38,6 +41,8 @@ class ProofBundleArtifact:
 
     def __post_init__(self) -> None:
         _validate_sha256(self.sha256)
+        if self.artifact_id != artifact_id_from_sha256(self.sha256):
+            raise ValueError("proof bundle artifact_id must be derived from sha256")
         if self.size_bytes < 0:
             raise ValueError("proof bundle artifact size must be non-negative")
         _require_non_blank(self.media_type, "proof bundle artifact media_type")
@@ -121,6 +126,10 @@ class ProofBundleSourceObservation:
     def __post_init__(self) -> None:
         _require_non_blank(self.source_name, "proof bundle source observation name")
         _require_non_blank(self.basis, "proof bundle source observation basis")
+        try:
+            ObservationBasis(self.basis)
+        except ValueError as exc:
+            raise ValueError(f"unsupported proof bundle observation basis: {self.basis}") from exc
         _require_optional_non_blank(self.source_version, "proof bundle source version")
         _require_optional_non_blank(self.provider_record_id, "proof bundle provider record id")
         _require_optional_non_blank(self.media_type, "proof bundle source media_type")
@@ -156,6 +165,10 @@ class ProofBundleResourceLink:
     def __post_init__(self) -> None:
         _require_non_blank(self.target_uri, "proof bundle resource target_uri")
         _require_non_blank(self.relation, "proof bundle resource relation")
+        try:
+            ResourceRelation(self.relation)
+        except ValueError as exc:
+            raise ValueError(f"unsupported proof bundle resource relation: {self.relation}") from exc
         _require_optional_non_blank(self.media_type, "proof bundle resource media_type")
         _require_optional_non_blank(self.label, "proof bundle resource label")
         object.__setattr__(self, "metadata", _copy_json_mapping(self.metadata))
@@ -194,6 +207,12 @@ class ProofBundleManifest:
                 raise ValueError("proof bundle work-document link references another document")
             if link.artifact_id != self.artifact.artifact_id:
                 raise ValueError("proof bundle work-document link references another artifact")
+        if any(
+            observation.native_artifact_id is not None
+            and observation.native_artifact_id != self.artifact.artifact_id
+            for observation in self.source_observations
+        ):
+            raise ValueError("proof bundle source observation references another native artifact")
         observation_ids = {item.observation_id for item in self.source_observations}
         if any(link.observation_id not in observation_ids for link in self.resource_links):
             raise ValueError("proof bundle resource link references an unknown source observation")

@@ -102,7 +102,9 @@ class _RacingAliasRepository:
         return ()
 
     def save_source_record(self, source_record: WorkSourceRecord) -> None:
-        raise AssertionError(f"source record must not be saved after alias conflict: {source_record}")
+        raise AssertionError(
+            f"source record must not be saved after alias conflict: {source_record}"
+        )
 
     def list_source_records(self, work_id: UUID) -> tuple[WorkSourceRecord, ...]:
         del work_id

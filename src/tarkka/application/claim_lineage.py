@@ -7,7 +7,14 @@ from typing import TypeAlias
 from uuid import UUID
 
 from tarkka.domain.citations import CitationContext
-from tarkka.domain.extraction import Claim, Evidence, EvidenceRecord, FigureEvidence, TableEvidence
+from tarkka.domain.extraction import (
+    Claim,
+    Evidence,
+    EvidenceRecord,
+    ExtractionRun,
+    FigureEvidence,
+    TableEvidence,
+)
 from tarkka.domain.identifiers import artifact_id_from_sha256
 from tarkka.domain.models import Artifact, Document, Passage
 from tarkka.domain.source_artifacts import Equation, Figure, Table
@@ -15,8 +22,8 @@ from tarkka.domain.verification import EvidenceRelation
 from tarkka.ports.repositories import ResearchRepository
 from tarkka.ports.verification import (
     CitationContextReader,
-    ClaimEvidenceReader,
-    EvidenceRelationRepository,
+    ClaimLineageSourceReader,
+    EvidenceRelationReader,
 )
 
 MAX_CLAIM_LINEAGE_OFFSET = 10_000
@@ -31,6 +38,10 @@ class ClaimLineageClaimNotFoundError(LookupError):
 
 class ClaimLineageEvidenceNotFoundError(LookupError):
     """Raised when persisted Claim/assessment lineage references missing Evidence."""
+
+
+class ClaimLineageExtractionRunNotFoundError(LookupError):
+    """Raised when a Claim or Evidence record references a missing extraction run."""
 
 
 class ClaimLineageDocumentNotFoundError(LookupError):
@@ -66,6 +77,7 @@ class EvidenceLineage:
     """One exact Evidence record resolved back to its persisted source object."""
 
     evidence: EvidenceRecord
+    run: ExtractionRun
     source: EvidenceSource
     lineage: SourceLineage
 
@@ -84,6 +96,7 @@ class ClaimLineage:
     """Bounded, transport-neutral explanation of why a Claim has its current evidence state."""
 
     claim: Claim
+    claim_run: ExtractionRun
     claim_source: SourceLineage
     claim_evidence: tuple[EvidenceLineage, ...]
     total_relations: int
@@ -96,8 +109,8 @@ class ClaimLineageService:
     def __init__(
         self,
         *,
-        source: ClaimEvidenceReader,
-        relations: EvidenceRelationRepository,
+        source: ClaimLineageSourceReader,
+        relations: EvidenceRelationReader,
         documents: ResearchRepository,
         citations: CitationContextReader | None = None,
     ) -> None:
@@ -119,13 +132,21 @@ class ClaimLineageService:
         if not isinstance(record, Claim):
             raise ClaimLineageClaimNotFoundError(f"claim not found: {claim_id}")
 
-        cache: dict[UUID, SourceLineage] = {}
-        claim_source = self._source_lineage(record.document_id, cache)
+        source_cache: dict[UUID, SourceLineage] = {}
+        run_cache: dict[UUID, ExtractionRun] = {}
+        claim_run = self._extraction_run(
+            record.provenance.run_id,
+            record.document_id,
+            run_cache,
+        )
+        claim_source = self._source_lineage(record.document_id, source_cache)
         claim_evidence = tuple(
             self._evidence_lineage(
                 evidence_id,
-                cache,
+                source_cache,
+                run_cache,
                 expected_document_id=record.document_id,
+                expected_run_id=record.provenance.run_id,
             )
             for evidence_id in record.evidence_ids
         )
@@ -142,7 +163,7 @@ class ClaimLineageService:
                     "verification relation does not belong to the requested Claim"
                 )
             evidence = (
-                self._evidence_lineage(relation.evidence_id, cache)
+                self._evidence_lineage(relation.evidence_id, source_cache, run_cache)
                 if relation.evidence_id is not None
                 else None
             )
@@ -160,11 +181,33 @@ class ClaimLineageService:
 
         return ClaimLineage(
             claim=record,
+            claim_run=claim_run,
             claim_source=claim_source,
             claim_evidence=claim_evidence,
             total_relations=total,
             assessments=tuple(assessments),
         )
+
+    def _extraction_run(
+        self,
+        run_id: UUID,
+        document_id: UUID,
+        cache: dict[UUID, ExtractionRun],
+    ) -> ExtractionRun:
+        cached = cache.get(run_id)
+        if cached is not None:
+            if cached.document_id != document_id:
+                raise ClaimLineageMismatchError(
+                    "extraction run belongs to a different Document"
+                )
+            return cached
+        run = self._source.get_run(run_id)
+        if run is None:
+            raise ClaimLineageExtractionRunNotFoundError(f"extraction run not found: {run_id}")
+        if run.document_id != document_id:
+            raise ClaimLineageMismatchError("extraction run belongs to a different Document")
+        cache[run_id] = run
+        return run
 
     def _source_lineage(
         self,
@@ -193,9 +236,11 @@ class ClaimLineageService:
     def _evidence_lineage(
         self,
         evidence_id: UUID,
-        cache: dict[UUID, SourceLineage],
+        source_cache: dict[UUID, SourceLineage],
+        run_cache: dict[UUID, ExtractionRun],
         *,
         expected_document_id: UUID | None = None,
+        expected_run_id: UUID | None = None,
     ) -> EvidenceLineage:
         evidence = self._source.get_evidence(evidence_id)
         if evidence is None:
@@ -204,9 +249,15 @@ class ClaimLineageService:
             raise ClaimLineageMismatchError(
                 "Claim extraction evidence belongs to a different Document"
             )
-        lineage = self._source_lineage(evidence.document_id, cache)
+        if expected_run_id is not None and evidence.provenance.run_id != expected_run_id:
+            raise ClaimLineageMismatchError(
+                "Claim extraction evidence belongs to a different extraction run"
+            )
+        run = self._extraction_run(evidence.provenance.run_id, evidence.document_id, run_cache)
+        lineage = self._source_lineage(evidence.document_id, source_cache)
         return EvidenceLineage(
             evidence=evidence,
+            run=run,
             source=_resolve_evidence_source(lineage.document, evidence),
             lineage=lineage,
         )

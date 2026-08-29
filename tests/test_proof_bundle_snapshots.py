@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator
+from typing import Any
 from uuid import UUID
 
 import pytest

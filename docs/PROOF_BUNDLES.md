@@ -37,7 +37,7 @@ For the PostgreSQL backend, Tarkka reads the Document, Artifact, source observat
 
 Creation does not call a discovery provider, model, or network service. Before exporting, Tarkka re-hashes the preserved artifact bytes and refuses to create the bundle if either the SHA-256 digest or byte count differs from the immutable Artifact record.
 
-The command writes the bundle and immediately verifies the resulting file before reporting success.
+Publication is fail-closed. Tarkka writes a sibling temporary archive, flushes it to durable storage, verifies that exact file offline, then atomically replaces the destination and flushes the destination directory on POSIX. A failed write or verification therefore cannot publish an unverified archive or truncate a previous valid export. The create command reports the verification result produced during that publication step instead of re-reading the full bundle a second time.
 
 ## Verify a bundle offline
 
@@ -98,7 +98,7 @@ Records the immutable source Artifact identity and embedded member location:
 - `source_uri`
 - `acquired_at`
 
-`path` must be exactly `artifacts/sha256/<sha256>`.
+`path` must be exactly `artifacts/sha256/<sha256>`. The `artifact_id` must also equal Tarkka's canonical UUIDv5 derived from `urn:sha256:<sha256>`; a manifest cannot substitute an unrelated UUID while preserving the same source bytes.
 
 ### `document`
 
@@ -139,7 +139,7 @@ Preserves the observation envelope used for provider/native/reconstructed metada
 - `metadata`
 - `observed_at`
 
-Metadata is deeply validated as finite JSON-compatible data before export. Any non-null `native_artifact_id` must refer to the Artifact embedded in the same bundle; verification fails closed if a manifest claims observation provenance for another Artifact.
+`basis` is restricted to Tarkka's canonical `ObservationBasis` vocabulary (`native`, `reconstructed`, or `inferred`). Metadata is deeply validated as finite JSON-compatible data before export. Any non-null `native_artifact_id` must refer to the Artifact embedded in the same bundle; verification fails closed if a manifest claims observation provenance for another Artifact.
 
 ### `resource_links`
 
@@ -153,7 +153,7 @@ Preserves source-observed links to supplements, datasets, software, alternate re
 - `label`
 - `metadata`
 
-Every resource link must reference a source observation included in the same manifest. Targets remain observed URIs; bundle creation does not resolve or fetch them.
+`relation` is restricted to Tarkka's canonical `ResourceRelation` vocabulary. Every resource link must reference a source observation included in the same manifest. Targets remain observed URIs; bundle creation does not resolve or fetch them.
 
 ## Verification rules
 
@@ -169,11 +169,13 @@ The v1 verifier fails closed when any of these checks fail:
 8. JSON object keys are duplicated or a number is non-finite;
 9. the bundle format/schema version is unsupported;
 10. required fields are missing or unknown fields are present;
-11. internal Artifact/Document/Work/observation/resource identities are inconsistent;
-12. a source observation claims a different native Artifact;
-13. embedded Artifact byte length differs from the manifest;
-14. streamed embedded Artifact SHA-256 differs from the manifest;
-15. the manifest is not canonically encoded.
+11. the Artifact UUID does not match the canonical identity derived from its SHA-256 digest;
+12. observation basis or resource relation contains a value outside Tarkka's canonical vocabulary;
+13. internal Artifact/Document/Work/observation/resource identities are inconsistent;
+14. a source observation claims a different native Artifact;
+15. embedded Artifact byte length differs from the manifest or from the streamed byte count;
+16. streamed embedded Artifact SHA-256 differs from the manifest;
+17. the manifest is not canonically encoded.
 
 Verification is intentionally stricter than ordinary ZIP interoperability. Canonical encoding makes the whole bundle content-addressable and gives downstream systems a stable byte-level identity.
 

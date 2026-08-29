@@ -23,16 +23,15 @@ from tarkka.infrastructure.proof_bundles import (
     verify_proof_bundle_bytes,
     write_proof_bundle,
 )
-from tests.test_proof_bundles import _payload
+from tests.support.proof_bundles import proof_bundle_payload
 
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.regression]
 
 
 def _canonical_archive_with_mutated_manifest_info(
-    tmp_path: Path,
     mutate: Callable[[zipfile.ZipInfo], None],
 ) -> bytes:
-    payload = _payload(tmp_path)
+    payload = proof_bundle_payload()
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
         manifest_info = _zip_info("manifest.json")
@@ -68,8 +67,8 @@ def test_postgres_snapshot_translates_driver_failures(
     assert raised.value.__cause__ is driver_error
 
 
-def test_verifier_rejects_zip_level_comment(tmp_path: Path) -> None:
-    payload = _payload(tmp_path)
+def test_verifier_rejects_zip_level_comment() -> None:
+    payload = proof_bundle_payload()
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.comment = b"noncanonical"
@@ -85,7 +84,7 @@ def test_path_verifier_hashes_and_parses_the_same_open_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     destination = tmp_path / "research.tarkka"
-    destination.write_bytes(build_proof_bundle_bytes(_payload(tmp_path / "state")))
+    destination.write_bytes(build_proof_bundle_bytes(proof_bundle_payload()))
     original_open = Path.open
     opened: list[Path] = []
 
@@ -103,10 +102,9 @@ def test_path_verifier_hashes_and_parses_the_same_open_file(
 
 
 def test_verifier_rejects_streamed_size_disagreement(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    payload = _payload(tmp_path)
+    payload = proof_bundle_payload()
     data = build_proof_bundle_bytes(payload)
 
     def short_stream(_: zipfile.ZipFile, __: str) -> tuple[int, str]:
@@ -118,11 +116,11 @@ def test_verifier_rejects_streamed_size_disagreement(
         verify_proof_bundle_bytes(data)
 
 
-def test_verifier_rejects_noncanonical_member_mode(tmp_path: Path) -> None:
+def test_verifier_rejects_noncanonical_member_mode() -> None:
     def mutate(info: zipfile.ZipInfo) -> None:
         info.create_system = 0
 
-    data = _canonical_archive_with_mutated_manifest_info(tmp_path, mutate)
+    data = _canonical_archive_with_mutated_manifest_info(mutate)
 
     with pytest.raises(ProofBundleVerificationError, match="member mode is not canonical"):
         verify_proof_bundle_bytes(data)
@@ -138,24 +136,23 @@ def test_verifier_rejects_noncanonical_member_mode(tmp_path: Path) -> None:
     ],
 )
 def test_verifier_rejects_noncanonical_member_version_metadata(
-    tmp_path: Path,
     attribute: str,
     value: int,
 ) -> None:
     def mutate(info: zipfile.ZipInfo) -> None:
         setattr(info, attribute, value)
 
-    data = _canonical_archive_with_mutated_manifest_info(tmp_path, mutate)
+    data = _canonical_archive_with_mutated_manifest_info(mutate)
 
     with pytest.raises(ProofBundleVerificationError, match="version metadata is not canonical"):
         verify_proof_bundle_bytes(data)
 
 
-def test_verifier_rejects_noncanonical_member_comment(tmp_path: Path) -> None:
+def test_verifier_rejects_noncanonical_member_comment() -> None:
     def mutate(info: zipfile.ZipInfo) -> None:
         info.comment = b"noncanonical"
 
-    data = _canonical_archive_with_mutated_manifest_info(tmp_path, mutate)
+    data = _canonical_archive_with_mutated_manifest_info(mutate)
 
     with pytest.raises(ProofBundleVerificationError, match="member metadata is not canonical"):
         verify_proof_bundle_bytes(data)
@@ -175,7 +172,7 @@ def test_member_offset_validator_rejects_noncanonical_layout() -> None:
 
 
 def test_atomic_publish_uses_fixed_short_temp_prefix_for_long_output_name(tmp_path: Path) -> None:
-    payload = _payload(tmp_path / "state")
+    payload = proof_bundle_payload()
     destination = tmp_path / (("x" * 240) + ".tarkka")
 
     result = write_proof_bundle(destination, payload)
@@ -189,7 +186,7 @@ def test_atomic_publish_reports_directory_fsync_failure_after_valid_replace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    payload = _payload(tmp_path / "state")
+    payload = proof_bundle_payload()
     destination = tmp_path / "research.tarkka"
 
     def fail_directory_fsync(_: Path) -> NoReturn:

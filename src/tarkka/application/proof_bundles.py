@@ -73,7 +73,9 @@ class ProofBundleService:
         document = snapshot.document
         artifact = snapshot.artifact
         if document.document_id != document_id:
-            raise ProofBundleArtifactIntegrityError("snapshot returned a different document identity")
+            raise ProofBundleArtifactIntegrityError(
+                "snapshot returned a different document identity"
+            )
         if document.artifact_id != artifact.artifact_id:
             raise ProofBundleArtifactIntegrityError(
                 "snapshot document and artifact identities do not match"

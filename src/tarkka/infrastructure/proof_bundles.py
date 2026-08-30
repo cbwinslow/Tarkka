@@ -98,12 +98,9 @@ def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
         (payload.manifest.artifact.path, payload.artifact_bytes),
     ]
     if isinstance(payload.manifest, ProofBundleManifestV2):
-        members.append(
-            (
-                payload.manifest.research_state.path,
-                cast(bytes, payload.research_state_bytes),
-            )
-        )
+        state_bytes = cast(bytes, payload.research_state_bytes)
+        validate_canonical_research_state_bytes(state_bytes)
+        members.append((payload.manifest.research_state.path, state_bytes))
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_STORED) as archive:
         for name, content in members:

@@ -40,6 +40,7 @@ from tarkka.infrastructure.storage.semantic_html_parser import SemanticHtmlParse
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 
 _READ_CHUNK_BYTES = 1024 * 1024
+_MAX_PUBLIC_ERROR_CHARS = 512
 _SAFE_SUFFIX = re.compile(r"\.[A-Za-z0-9][A-Za-z0-9+_.-]{0,15}\Z")
 _MEDIA_TYPE_SUFFIXES = {
     "application/epub+zip": ".epub",
@@ -125,9 +126,10 @@ def replay_proof_bundle(path: Path, registry: ReplayParserRegistry) -> ReplayRes
         try:
             supported = registration.parser.supports(artifact)
         except (OSError, RuntimeError, UnicodeError, ValueError) as exc:
+            detail = _bounded_error_detail(exc)
             raise ReplayProblem(
                 "replay_parser_support_failed",
-                f"exact replay parser support check failed: {exc}",
+                f"exact replay parser support check failed: {detail}",
                 parser_name=parser_name,
                 parser_version=parser_version,
                 determinism=registration.determinism,
@@ -145,9 +147,10 @@ def replay_proof_bundle(path: Path, registry: ReplayParserRegistry) -> ReplayRes
         try:
             actual_document = registration.parser.parse(artifact, artifact_path)
         except (OSError, RuntimeError, UnicodeError, ValueError) as exc:
+            detail = _bounded_error_detail(exc)
             raise ReplayProblem(
                 "replay_parser_failed",
-                f"exact replay parser failed: {exc}",
+                f"exact replay parser failed: {detail}",
                 parser_name=parser_name,
                 parser_version=parser_version,
                 determinism=registration.determinism,
@@ -317,6 +320,13 @@ def _safe_artifact_suffix(artifact: Artifact) -> str:
         if _SAFE_SUFFIX.fullmatch(suffix):
             return suffix
     return _MEDIA_TYPE_SUFFIXES.get(artifact.media_type, ".bin")
+
+
+def _bounded_error_detail(exc: BaseException) -> str:
+    rendered = str(exc)
+    if len(rendered) <= _MAX_PUBLIC_ERROR_CHARS:
+        return rendered
+    return rendered[: _MAX_PUBLIC_ERROR_CHARS - 1] + "…"
 
 
 def _sha256_stream(handle: BinaryIO) -> str:

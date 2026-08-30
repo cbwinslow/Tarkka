@@ -80,6 +80,7 @@ def test_mcp_server_registers_only_read_only_initial_operations() -> None:
         "document_manifest",
         "document_sections",
         "document_section",
+        "document_replay",
     ]
     assert all(tool.annotations is not None and tool.annotations.read_only_hint for tool in tools)
     assert all(tool.annotations is not None and tool.annotations.idempotent_hint for tool in tools)

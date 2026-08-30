@@ -405,6 +405,10 @@ def _parse_manifest(
         )
     except json.JSONDecodeError as exc:
         raise ProofBundleVerificationError("proof bundle manifest is not valid JSON") from exc
+    except RecursionError as exc:
+        raise ProofBundleVerificationError(
+            "proof bundle manifest exceeds the supported nesting depth"
+        ) from exc
     try:
         return proof_bundle_manifest_from_versioned_dict(value)
     except ValueError as exc:

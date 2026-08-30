@@ -45,6 +45,12 @@ class ProofBundlePayloadReplayer(Protocol):
     def replay(self, payload: ProofBundlePayload) -> ReplayResult: ...
 
 
+class DocumentReplayer(Protocol):
+    """Transport-facing minimal contract for replaying one persisted Document."""
+
+    def replay(self, document_id: UUID) -> ReplayResult: ...
+
+
 class DocumentReplayService:
     """Snapshot one persisted Document as v3 and execute the exact replay boundary."""
 

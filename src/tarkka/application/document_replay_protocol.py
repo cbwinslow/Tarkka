@@ -8,8 +8,8 @@ from uuid import UUID
 from tarkka.application.claim_lineage_protocol import agent_error
 from tarkka.application.document_replay import (
     DocumentReplayConfigurationError,
-    DocumentReplayExecutionError,
     DocumentReplayer,
+    DocumentReplayExecutionError,
 )
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactIntegrityError,

@@ -12,7 +12,7 @@ from tarkka.application.document_research_state import (
     DocumentResearchStateLimits,
     document_research_state_view,
 )
-from tarkka.infrastructure.postgres.connection import PostgresSettings
+from tarkka.infrastructure.postgres.connection import PostgresOperationError, PostgresSettings
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleV2SnapshotReader
 from tests.support.claim_lineage import ClaimLineageFixture, claim_lineage_fixture
 
@@ -57,6 +57,17 @@ class _Connection:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _FailingConnection(_Connection):
+    def __init__(self, error: Exception) -> None:
+        super().__init__([])
+        self.error = error
+
+    def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> _Cursor:
+        del params
+        self.calls.append(sql)
+        raise self.error
 
 
 def _document_row(fixture: ClaimLineageFixture) -> tuple[Any, ...]:
@@ -262,5 +273,25 @@ def test_postgres_v2_snapshot_overflow_rolls_back_and_closes(
 
     assert _SourceReader.listed_limit == 1
     assert connection.commits == 0
+    assert connection.rollbacks == 1
+    assert connection.closed is True
+
+
+def test_postgres_v2_snapshot_translates_driver_failure_and_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = RuntimeError("driver disconnected")
+    translated = PostgresOperationError("translated")
+    connection = _FailingConnection(original)
+    monkeypatch.setattr(snapshot_module, "translate_driver_error", lambda exc: translated)
+
+    with pytest.raises(PostgresOperationError, match="translated") as raised:
+        PostgresProofBundleV2SnapshotReader(
+            _SETTINGS,
+            connection_factory=lambda _: connection,
+        ).read(UUID(int=777))
+
+    assert raised.value is translated
+    assert raised.value.__cause__ is original
     assert connection.rollbacks == 1
     assert connection.closed is True

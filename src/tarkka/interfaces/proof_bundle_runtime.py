@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 
 from tarkka.application.proof_bundles import (
     ProofBundleService,
@@ -100,7 +101,4 @@ def proof_bundle_service(
 
 def proof_bundle_v3_service() -> ProofBundleV3Service:
     """Compose the configured v3 builder without exposing a schema-version union to callers."""
-    service = proof_bundle_service(PROOF_BUNDLE_SCHEMA_VERSION_V3)
-    if not isinstance(service, ProofBundleV3Service):
-        raise RuntimeError("proof-bundle v3 runtime composition returned the wrong service")
-    return service
+    return cast(ProofBundleV3Service, proof_bundle_service(PROOF_BUNDLE_SCHEMA_VERSION_V3))

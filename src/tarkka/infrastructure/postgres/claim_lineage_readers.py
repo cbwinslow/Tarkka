@@ -36,6 +36,8 @@ from tarkka.infrastructure.postgres.extraction_repository import (
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.postgres.verification_repository import (
     _SELECT_RELATION_PAGE,
+)
+from tarkka.infrastructure.postgres.verification_repository import (
     _from_row as _relation_from_row,
 )
 

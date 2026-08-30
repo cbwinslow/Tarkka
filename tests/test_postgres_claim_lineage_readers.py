@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from tarkka.domain.extraction import Claim, ResearchObjectKind
+from tarkka.domain.extraction import ResearchObjectKind
 from tarkka.infrastructure.postgres.claim_lineage_readers import (
     PostgresClaimLineageCitationReader,
     PostgresClaimLineageDocumentReader,

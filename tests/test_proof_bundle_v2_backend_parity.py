@@ -19,8 +19,8 @@ from tests.test_postgres_proof_bundle_v2_snapshot import (
     _CitationReader,
     _DocumentReader,
     _RelationReader,
-    _SourceReader,
     _source_connection,
+    _SourceReader,
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.regression]

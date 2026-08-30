@@ -19,6 +19,8 @@ from tarkka.application.proof_bundles import (
     ProofBundleV2SnapshotReader,
 )
 from tarkka.config import document_backend
+from tarkka.domain.proof_bundle_v2 import PROOF_BUNDLE_SCHEMA_VERSION_V2
+from tarkka.domain.proof_bundles import PROOF_BUNDLE_SCHEMA_VERSION
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import (
     PostgresProofBundleSnapshotReader,
@@ -43,6 +45,8 @@ from tarkka.infrastructure.storage.proof_bundle_snapshot import (
     JsonProofBundleV2SnapshotReader,
 )
 
+_SUPPORTED_SCHEMA_VERSIONS = (PROOF_BUNDLE_SCHEMA_VERSION, PROOF_BUNDLE_SCHEMA_VERSION_V2)
+
 
 def _home() -> Path:
     return Path(os.environ.get("TARKKA_HOME", "~/.tarkka")).expanduser().resolve()
@@ -55,10 +59,15 @@ def _parse_document_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid document id: {raw}") from exc
 
 
-def _bundle_service(schema_version: int = 1) -> ProofBundleService | ProofBundleV2Service:
+def _bundle_service(
+    schema_version: int = PROOF_BUNDLE_SCHEMA_VERSION,
+) -> ProofBundleService | ProofBundleV2Service:
+    if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
+        raise ValueError(f"unsupported proof bundle schema version: {schema_version}")
+
     home = _home()
     artifacts = LocalArtifactStore(home / "artifacts")
-    if schema_version == 1:
+    if schema_version == PROOF_BUNDLE_SCHEMA_VERSION:
         snapshots: ProofBundleSnapshotReader
         if document_backend() == "json":
             documents = JsonResearchRepository(home / "catalog.json")
@@ -73,32 +82,25 @@ def _bundle_service(schema_version: int = 1) -> ProofBundleService | ProofBundle
             snapshots = PostgresProofBundleSnapshotReader(PostgresSettings.from_environment())
         return ProofBundleService(snapshots=snapshots, artifacts=artifacts)
 
-    if schema_version == 2:
-        v2_snapshots: ProofBundleV2SnapshotReader
-        if document_backend() == "json":
-            documents = JsonResearchRepository(home / "catalog.json")
-            v2_snapshots = JsonProofBundleV2SnapshotReader(
-                documents=documents,
-                observations=JsonSourceObservationRepository.open_existing(
-                    home / "source_observations.json"
-                ),
-                extractions=JsonExtractionRepository.open_existing(home / "extractions.json"),
-                verifications=JsonVerificationRepository.open_existing(
-                    home / "verifications.json"
-                ),
-                citations=JsonCitationRepository.open_existing(home / "citations.json"),
-            )
-        else:
-            v2_snapshots = PostgresProofBundleV2SnapshotReader(
-                PostgresSettings.from_environment()
-            )
-        return ProofBundleV2Service(
-            snapshots=v2_snapshots,
-            artifacts=artifacts,
-            encode_research_state=canonical_research_state_bytes,
+    v2_snapshots: ProofBundleV2SnapshotReader
+    if document_backend() == "json":
+        documents = JsonResearchRepository(home / "catalog.json")
+        v2_snapshots = JsonProofBundleV2SnapshotReader(
+            documents=documents,
+            observations=JsonSourceObservationRepository.open_existing(
+                home / "source_observations.json"
+            ),
+            extractions=JsonExtractionRepository.open_existing(home / "extractions.json"),
+            verifications=JsonVerificationRepository.open_existing(home / "verifications.json"),
+            citations=JsonCitationRepository.open_existing(home / "citations.json"),
         )
-
-    raise ValueError(f"unsupported proof bundle schema version: {schema_version}")
+    else:
+        v2_snapshots = PostgresProofBundleV2SnapshotReader(PostgresSettings.from_environment())
+    return ProofBundleV2Service(
+        snapshots=v2_snapshots,
+        artifacts=artifacts,
+        encode_research_state=canonical_research_state_bytes,
+    )
 
 
 def _cmd_create(args: argparse.Namespace) -> int:
@@ -154,9 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--schema-version",
         type=int,
-        choices=(1, 2),
-        default=1,
-        help="proof-bundle schema version to create (default: 1)",
+        choices=_SUPPORTED_SCHEMA_VERSIONS,
+        default=PROOF_BUNDLE_SCHEMA_VERSION,
+        help=(
+            "proof-bundle schema version to create "
+            f"(default: {PROOF_BUNDLE_SCHEMA_VERSION})"
+        ),
     )
     create.set_defaults(func=_cmd_create)
 

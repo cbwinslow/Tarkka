@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, cast
@@ -25,6 +26,7 @@ from tarkka.infrastructure.normalized_document_json import (
 )
 from tarkka.infrastructure.proof_bundle_v2 import (
     ProofBundleResearchStateJsonError,
+    parse_canonical_research_state_bytes,
     validate_canonical_research_state_bytes,
 )
 from tarkka.infrastructure.storage.filesystem import fsync_directory
@@ -108,8 +110,13 @@ def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
     if isinstance(payload.manifest, ProofBundleManifestV3):
         state_bytes = cast(bytes, payload.research_state_bytes)
         document_bytes = cast(bytes, payload.normalized_document_bytes)
-        validate_canonical_research_state_bytes(state_bytes)
-        parse_canonical_normalized_document_bytes(document_bytes)
+        try:
+            state_value = parse_canonical_research_state_bytes(state_bytes)
+            document_value = parse_canonical_normalized_document_bytes(document_bytes)
+        except (ProofBundleResearchStateJsonError, NormalizedDocumentJsonError) as exc:
+            raise ProofBundleVerificationError(str(exc)) from exc
+        _validate_research_state_identity(state_value, payload.manifest)
+        _validate_normalized_document_identity(document_value, payload.manifest)
         members.extend(
             (
                 (payload.manifest.research_state.path, state_bytes),
@@ -255,6 +262,7 @@ def _verify_archive(
     if actual_sha256 != manifest.artifact.sha256:
         raise ProofBundleVerificationError("proof bundle artifact sha256 does not match manifest")
 
+    state_value: Any | None = None
     if research_state is not None:
         state_bytes = _validated_json_member_bytes(
             archive,
@@ -265,11 +273,12 @@ def _verify_archive(
             label="research-state",
         )
         try:
-            validate_canonical_research_state_bytes(state_bytes)
+            state_value = parse_canonical_research_state_bytes(state_bytes)
         except ProofBundleResearchStateJsonError as exc:
             raise ProofBundleVerificationError(str(exc)) from exc
 
     if isinstance(manifest, ProofBundleManifestV3):
+        _validate_research_state_identity(state_value, manifest)
         normalized_document = manifest.normalized_document
         document_bytes = _validated_json_member_bytes(
             archive,
@@ -322,6 +331,15 @@ def _validated_json_member_bytes(
             f"proof bundle {label} sha256 does not match manifest"
         )
     return data
+
+
+def _validate_research_state_identity(value: Any, manifest: ProofBundleManifestV3) -> None:
+    if not isinstance(value, Mapping) or value.get("document_id") != str(
+        manifest.document.document_id
+    ):
+        raise ProofBundleVerificationError(
+            "proof bundle research-state document identity does not match manifest"
+        )
 
 
 def _validate_normalized_document_identity(

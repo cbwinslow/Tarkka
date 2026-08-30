@@ -1,4 +1,4 @@
-"""Canonical JSON helpers for proof-bundle v2 research-state members."""
+"""Canonical JSON helpers and materialization for proof-bundle v2 research state."""
 
 from __future__ import annotations
 
@@ -6,7 +6,8 @@ import hashlib
 import json
 from typing import Any
 
-from tarkka.domain.proof_bundle_v2 import ProofBundleResearchState
+from tarkka.application.proof_bundles import ProofBundlePayload, ProofBundleV2Draft
+from tarkka.domain.proof_bundle_v2 import ProofBundleManifestV2, ProofBundleResearchState
 
 
 class ProofBundleResearchStateJsonError(ValueError):
@@ -61,6 +62,26 @@ def research_state_descriptor(data: bytes) -> ProofBundleResearchState:
         path="research/claim-lineage.json",
         sha256=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
+    )
+
+
+def materialize_proof_bundle_v2(draft: ProofBundleV2Draft) -> ProofBundlePayload:
+    """Encode one application draft into a validated deterministic v2 payload."""
+    state_bytes = canonical_research_state_bytes(draft.research_state)
+    descriptor = research_state_descriptor(state_bytes)
+    base = draft.source_manifest
+    manifest = ProofBundleManifestV2(
+        document=base.document,
+        artifact=base.artifact,
+        research_state=descriptor,
+        work_documents=base.work_documents,
+        source_observations=base.source_observations,
+        resource_links=base.resource_links,
+    )
+    return ProofBundlePayload(
+        manifest=manifest,
+        artifact_bytes=draft.artifact_bytes,
+        research_state_bytes=state_bytes,
     )
 
 

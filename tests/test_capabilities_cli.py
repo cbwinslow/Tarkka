@@ -14,6 +14,7 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.documents.manifest",
         "research.documents.sections",
         "research.documents.section",
+        "research.documents.replay",
         "research.claims.lineage",
         "research.verify",
         "research.verify.candidates",
@@ -23,6 +24,13 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.resources.show",
     ]
     assert "inputs" not in listing
+
+    assert main(["capabilities", "show", "research.documents.replay"]) == 0
+
+    replay_schema = json.loads(capsys.readouterr().out)
+    assert replay_schema["operation"]["operation_id"] == "research.documents.replay"
+    assert [field["name"] for field in replay_schema["inputs"]] == ["document_id"]
+    assert replay_schema["estimated_tokens"] < 50
 
     assert main(["capabilities", "show", "research.verify.candidates"]) == 0
 

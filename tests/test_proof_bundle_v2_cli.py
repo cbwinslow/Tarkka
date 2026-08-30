@@ -17,7 +17,7 @@ from tarkka.domain.extraction import (
 )
 from tarkka.domain.models import Document
 from tarkka.domain.proof_bundle_v2 import PROOF_BUNDLE_RESEARCH_STATE_PATH
-from tarkka.domain.proof_bundles import PROOF_BUNDLE_MANIFEST_PATH
+from tarkka.domain.proof_bundles import PROOF_BUNDLE_MANIFEST_PATH, artifact_member_path
 from tarkka.infrastructure.proof_bundle_v2 import canonical_research_state_bytes
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.interfaces.entrypoint import main
@@ -145,7 +145,7 @@ def test_bundle_cli_v2_create_and_verify_is_deterministic_and_canonical(
     with zipfile.ZipFile(first, mode="r") as archive:
         assert archive.namelist() == [
             PROOF_BUNDLE_MANIFEST_PATH,
-            f"artifacts/{result.artifact.sha256}",
+            artifact_member_path(result.artifact.sha256),
             PROOF_BUNDLE_RESEARCH_STATE_PATH,
         ]
         manifest = json.loads(archive.read(PROOF_BUNDLE_MANIFEST_PATH))
@@ -154,7 +154,7 @@ def test_bundle_cli_v2_create_and_verify_is_deterministic_and_canonical(
 
     assert manifest["schema_version"] == 2
     assert research["document_id"] == str(result.document.document_id)
-    assert research["claims"][0]["claim"]["extraction_id"] == str(claim.extraction_id)
+    assert research["claims"][0]["claim"]["claim_id"] == str(claim.extraction_id)
     assert research_bytes == canonical_research_state_bytes(research)
 
     assert main(["bundle", "verify", str(first)]) == 0

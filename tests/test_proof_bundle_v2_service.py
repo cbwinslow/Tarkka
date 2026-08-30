@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from uuid import UUID
 
 import pytest
 
+from tarkka.application.document_research_state import (
+    DocumentResearchState,
+    document_research_state_view,
+)
 from tarkka.application.proof_bundles import (
     ProofBundleDocumentNotFoundError,
+    ProofBundleResearchStateIntegrityError,
     ProofBundleSnapshot,
     ProofBundleV2Service,
     ProofBundleV2Snapshot,
@@ -65,18 +71,17 @@ def _snapshot() -> ProofBundleV2Snapshot:
     )
     return ProofBundleV2Snapshot(
         source=ProofBundleSnapshot(document=document, artifact=artifact),
-        research_state={
-            "format": "tarkka.document-research-state",
-            "schema_version": 1,
-            "document_id": str(document.document_id),
-            "claims": [],
-        },
+        research_state=DocumentResearchState(
+            document_id=document.document_id,
+            claim_lineages=(),
+        ),
     )
 
 
 def test_v2_service_builds_deterministic_integrity_bound_payload() -> None:
+    snapshot = _snapshot()
     service = ProofBundleV2Service(
-        snapshots=_SnapshotReader(_snapshot()),
+        snapshots=_SnapshotReader(snapshot),
         artifacts=_ArtifactStore(),  # type: ignore[arg-type]
         encode_research_state=canonical_research_state_bytes,
     )
@@ -86,7 +91,10 @@ def test_v2_service_builds_deterministic_integrity_bound_payload() -> None:
 
     assert isinstance(first.manifest, ProofBundleManifestV2)
     assert first == second
-    assert first.research_state_bytes == canonical_research_state_bytes(_snapshot().research_state)
+    expected_state = document_research_state_view(snapshot.research_state)
+    assert expected_state["format"] == "tarkka.document-research-state"
+    assert expected_state["schema_version"] == 1
+    assert first.research_state_bytes == canonical_research_state_bytes(expected_state)
     assert first.manifest.research_state.sha256 == hashlib.sha256(
         first.research_state_bytes
     ).hexdigest()
@@ -105,4 +113,20 @@ def test_v2_service_rejects_unknown_document() -> None:
     )
 
     with pytest.raises(ProofBundleDocumentNotFoundError, match="document not found"):
+        service.build(_DOCUMENT_ID)
+
+
+def test_v2_service_rejects_research_state_for_another_document() -> None:
+    snapshot = _snapshot()
+    mismatched = replace(
+        snapshot,
+        research_state=DocumentResearchState(document_id=UUID(int=999), claim_lineages=()),
+    )
+    service = ProofBundleV2Service(
+        snapshots=_SnapshotReader(mismatched),
+        artifacts=_ArtifactStore(),  # type: ignore[arg-type]
+        encode_research_state=canonical_research_state_bytes,
+    )
+
+    with pytest.raises(ProofBundleResearchStateIntegrityError, match="different Document"):
         service.build(_DOCUMENT_ID)

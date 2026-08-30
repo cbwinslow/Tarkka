@@ -7,7 +7,7 @@ from uuid import UUID
 
 import pytest
 
-from tarkka.application.document_replay import DocumentReplayExecutionError, DocumentReplayer
+from tarkka.application.document_replay import DocumentReplayer, DocumentReplayExecutionError
 from tarkka.application.document_replay_protocol import document_replay_response
 from tarkka.application.proof_bundles import ProofBundleDocumentNotFoundError
 from tarkka.application.replay import (

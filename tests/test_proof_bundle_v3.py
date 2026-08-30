@@ -18,7 +18,6 @@ from tarkka.domain.proof_bundle_v2 import (
 )
 from tarkka.domain.proof_bundle_v3 import (
     PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
-    PROOF_BUNDLE_SCHEMA_VERSION_V3,
     ProofBundleManifestV3,
     ProofBundleNormalizedDocument,
     proof_bundle_manifest_v3_from_dict,

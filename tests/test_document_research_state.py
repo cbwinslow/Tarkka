@@ -24,7 +24,7 @@ from tarkka.infrastructure.storage.json_citation_repository import JsonCitationR
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
-from tests.support.claim_lineage import persist_local_claim_lineage
+from tests.support.claim_lineage import ClaimLineageFixture, persist_local_claim_lineage
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
@@ -71,7 +71,7 @@ def _service(home: Path) -> ClaimLineageService:
     )
 
 
-def _complete_lineage(tmp_path: Path) -> tuple[object, ClaimLineage]:
+def _complete_lineage(tmp_path: Path) -> tuple[ClaimLineageFixture, ClaimLineage]:
     fixture = persist_local_claim_lineage(tmp_path)
     lineage = _service(tmp_path).inspect(
         fixture.claim.extraction_id,
@@ -102,7 +102,7 @@ def test_document_research_state_is_versioned_complete_and_deterministic(tmp_pat
     state = assemble_document_research_state(
         fixture.document.document_id,
         (second_claim, fixture.claim),
-        paged,  # type: ignore[arg-type]
+        paged,
     )
     view = document_research_state_view(state)
 
@@ -119,8 +119,14 @@ def test_document_research_state_is_versioned_complete_and_deterministic(tmp_pat
     first = claims[0]
     assert isinstance(first, dict)
     assert len(first["claim_evidence"]) == len(fixture.evidence)
-    assert first["verification"]["total"] == 1
-    assert first["claim"]["extraction_run"]["model"] == {
+    verification = first["verification"]
+    claim = first["claim"]
+    assert isinstance(verification, dict)
+    assert isinstance(claim, dict)
+    assert verification["total"] == 1
+    extraction_run = claim["extraction_run"]
+    assert isinstance(extraction_run, dict)
+    assert extraction_run["model"] == {
         "provider": "test-provider",
         "name": "test-model",
         "version": "v4",
@@ -149,7 +155,7 @@ def test_document_research_state_collects_all_pages_without_truncation(
     state = assemble_document_research_state(
         fixture.document.document_id,
         (fixture.claim,),
-        service,  # type: ignore[arg-type]
+        service,
     )
 
     lineage = state.claim_lineages[0]
@@ -197,7 +203,7 @@ def test_document_research_state_rejects_claim_count_and_wrong_document(tmp_path
         assemble_document_research_state(
             fixture.document.document_id,
             (fixture.claim,),
-            service,  # type: ignore[arg-type]
+            service,
             limits=DocumentResearchStateLimits(max_claims=0),
         )
 
@@ -206,7 +212,7 @@ def test_document_research_state_rejects_claim_count_and_wrong_document(tmp_path
         assemble_document_research_state(
             fixture.document.document_id,
             (wrong,),
-            service,  # type: ignore[arg-type]
+            service,
         )
 
 
@@ -220,7 +226,7 @@ def test_document_research_state_rejects_listing_lookup_and_relation_mismatches(
         assemble_document_research_state(
             fixture.document.document_id,
             (changed_claim,),
-            service,  # type: ignore[arg-type]
+            service,
         )
 
     assessment = lineage.assessments[0]
@@ -229,7 +235,7 @@ def test_document_research_state_rejects_listing_lookup_and_relation_mismatches(
         assemble_document_research_state(
             fixture.document.document_id,
             (fixture.claim,),
-            _PagedLineageService({fixture.claim.extraction_id: duplicate}),  # type: ignore[arg-type]
+            _PagedLineageService({fixture.claim.extraction_id: duplicate}),
         )
 
     short = replace(lineage, total_relations=2)
@@ -237,7 +243,7 @@ def test_document_research_state_rejects_listing_lookup_and_relation_mismatches(
         assemble_document_research_state(
             fixture.document.document_id,
             (fixture.claim,),
-            _PagedLineageService({fixture.claim.extraction_id: short}),  # type: ignore[arg-type]
+            _PagedLineageService({fixture.claim.extraction_id: short}),
         )
 
 
@@ -249,7 +255,7 @@ def test_document_research_state_rejects_evidence_and_relation_overflow(tmp_path
         assemble_document_research_state(
             fixture.document.document_id,
             (fixture.claim,),
-            service,  # type: ignore[arg-type]
+            service,
             limits=DocumentResearchStateLimits(max_claim_evidence_per_claim=3),
         )
 
@@ -258,7 +264,7 @@ def test_document_research_state_rejects_evidence_and_relation_overflow(tmp_path
         assemble_document_research_state(
             fixture.document.document_id,
             (fixture.claim,),
-            _PagedLineageService({fixture.claim.extraction_id: relation_heavy}),  # type: ignore[arg-type]
+            _PagedLineageService({fixture.claim.extraction_id: relation_heavy}),
             limits=DocumentResearchStateLimits(max_relations_per_claim=1),
         )
 
@@ -274,5 +280,5 @@ def test_document_research_state_rejects_incomplete_evidence_identity_pages(tmp_
         assemble_document_research_state(
             fixture.document.document_id,
             (fixture.claim,),
-            _PagedLineageService({fixture.claim.extraction_id: wrong_evidence_order}),  # type: ignore[arg-type]
+            _PagedLineageService({fixture.claim.extraction_id: wrong_evidence_order}),
         )

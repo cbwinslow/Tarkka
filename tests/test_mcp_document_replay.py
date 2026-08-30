@@ -9,8 +9,8 @@ import pytest
 pytest.importorskip("mcp", reason="MCP tests require the optional 'mcp' extra")
 
 from tarkka.application.document_replay import (
-    DocumentReplayExecutionError,
     DocumentReplayer,
+    DocumentReplayExecutionError,
 )
 from tarkka.application.document_replay_protocol import document_replay_response
 from tarkka.application.replay import (

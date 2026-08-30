@@ -47,6 +47,10 @@ def parse_canonical_normalized_document_bytes(data: bytes) -> Mapping[str, objec
         raise NormalizedDocumentJsonError(
             "proof bundle normalized-document member is not valid JSON"
         ) from exc
+    except RecursionError as exc:
+        raise NormalizedDocumentJsonError(
+            "proof bundle normalized-document member exceeds the supported nesting depth"
+        ) from exc
     root = _validate_normalized_document(value)
     if data != _canonical_json_bytes(root):
         raise NormalizedDocumentJsonError(
@@ -118,6 +122,7 @@ def _validate_normalized_document(value: object) -> Mapping[str, object]:
     sections = _list(root["sections"], "normalized document sections")
     section_ids: set[str] = set()
     section_ordinals: set[int] = set()
+    section_parents: dict[str, str | None] = {}
     passage_ids: set[str] = set()
     for section in sections:
         item = _mapping(section, "normalized document section")
@@ -132,39 +137,67 @@ def _validate_normalized_document(value: object) -> Mapping[str, object]:
         if level < 1:
             raise NormalizedDocumentJsonError("normalized document section level must be >= 1")
         _string(item["title"], "normalized document section title")
-        parent = item["parent_section_id"]
-        if parent is not None:
-            _uuid(parent, "normalized document parent_section_id")
+        parent_value = item["parent_section_id"]
+        parent_id = (
+            _uuid(parent_value, "normalized document parent_section_id")
+            if parent_value is not None
+            else None
+        )
         if section_id in section_ids or ordinal in section_ordinals:
             raise NormalizedDocumentJsonError(
                 "normalized document section IDs and ordinals must be unique"
             )
         section_ids.add(section_id)
         section_ordinals.add(ordinal)
+        section_parents[section_id] = parent_id
+
+        passage_ordinals: set[int] = set()
         for passage in _list(item["passages"], "normalized document passages"):
-            passage_id = _validate_passage(passage)
+            passage_id, passage_ordinal = _validate_passage(passage)
             if passage_id in passage_ids:
                 raise NormalizedDocumentJsonError("normalized document passage IDs must be unique")
+            if passage_ordinal in passage_ordinals:
+                raise NormalizedDocumentJsonError(
+                    "normalized document passage ordinals must be unique within each section"
+                )
             passage_ids.add(passage_id)
+            passage_ordinals.add(passage_ordinal)
 
-    for section in sections:
-        item = _mapping(section, "normalized document section")
-        parent = item["parent_section_id"]
-        if (
-            parent is not None
-            and _string(parent, "normalized document parent_section_id") not in section_ids
-        ):
-            raise NormalizedDocumentJsonError(
-                "normalized document parent section must refer to a preserved section"
-            )
-
+    _validate_section_hierarchy(section_parents)
     _validate_artifact_list(root["figures"], kind="figure")
     _validate_artifact_list(root["tables"], kind="table")
     _validate_artifact_list(root["equations"], kind="equation")
     return root
 
 
-def _validate_passage(value: object) -> str:
+def _validate_section_hierarchy(parents: Mapping[str, str | None]) -> None:
+    """Require every parent to exist and the parent graph to be acyclic in linear time."""
+    resolved: set[str] = set()
+    for section_id in parents:
+        if section_id in resolved:
+            continue
+        chain: list[str] = []
+        seen: set[str] = set()
+        current = section_id
+        while current not in resolved:
+            if current in seen:
+                raise NormalizedDocumentJsonError(
+                    "normalized document section parents must be acyclic"
+                )
+            seen.add(current)
+            chain.append(current)
+            parent = parents[current]
+            if parent is None:
+                break
+            if parent not in parents:
+                raise NormalizedDocumentJsonError(
+                    "normalized document parent section must refer to a preserved section"
+                )
+            current = parent
+        resolved.update(chain)
+
+
+def _validate_passage(value: object) -> tuple[str, int]:
     item = _mapping(value, "normalized document passage")
     _exact_keys(
         item,
@@ -172,7 +205,7 @@ def _validate_passage(value: object) -> str:
         "normalized document passage",
     )
     passage_id = _uuid(item["passage_id"], "normalized document passage_id")
-    _non_negative_integer(item["ordinal"], "normalized document passage ordinal")
+    ordinal = _non_negative_integer(item["ordinal"], "normalized document passage ordinal")
     text = _string(item["text"], "normalized document passage text")
     char_start = _non_negative_integer(
         item["char_start"], "normalized document passage char_start"
@@ -182,7 +215,7 @@ def _validate_passage(value: object) -> str:
         raise NormalizedDocumentJsonError(
             "normalized document passage range must match text length"
         )
-    return passage_id
+    return passage_id, ordinal
 
 
 def _validate_artifact_list(value: object, *, kind: str) -> None:
@@ -317,10 +350,13 @@ def _optional_positive_integer(value: object, field_name: str) -> None:
 def _uuid(value: object, field_name: str) -> str:
     text = _string(value, field_name)
     try:
-        UUID(text)
+        parsed = UUID(text)
     except ValueError as exc:
         raise NormalizedDocumentJsonError(f"{field_name} must be a UUID") from exc
-    return text
+    canonical = str(parsed)
+    if text != canonical:
+        raise NormalizedDocumentJsonError(f"{field_name} must be a canonical lowercase UUID")
+    return canonical
 
 
 def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

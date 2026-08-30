@@ -19,9 +19,9 @@ from tarkka.domain.identifiers import artifact_id_from_sha256
 from tarkka.domain.models import Artifact, Document, Passage
 from tarkka.domain.source_artifacts import Equation, Figure, Table
 from tarkka.domain.verification import EvidenceRelation
-from tarkka.ports.repositories import ResearchRepository
 from tarkka.ports.verification import (
     CitationContextReader,
+    ClaimLineageDocumentReader,
     ClaimLineageSourceReader,
     EvidenceRelationReader,
 )
@@ -51,7 +51,7 @@ class ClaimLineageDocumentNotFoundError(LookupError):
 
 
 class ClaimLineageArtifactNotFoundError(LookupError):
-    """Raised when a normalized Document references a missing immutable Artifact."""
+    """Raised when a normalized Document references an Artifact missing from canonical state."""
 
 
 class ClaimLineageCitationRepositoryUnavailableError(LookupError):
@@ -118,7 +118,7 @@ class ClaimLineageService:
         *,
         source: ClaimLineageSourceReader,
         relations: EvidenceRelationReader,
-        documents: ResearchRepository,
+        documents: ClaimLineageDocumentReader,
         citations: CitationContextReader | None = None,
     ) -> None:
         self._source = source

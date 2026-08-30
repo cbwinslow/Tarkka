@@ -23,11 +23,11 @@ def canonical_research_state_bytes(value: object) -> bytes:
             separators=(",", ":"),
             allow_nan=False,
         )
-    except (TypeError, ValueError) as exc:
+        return (text + "\n").encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise ProofBundleResearchStateJsonError(
             "proof bundle research-state value is not JSON-compatible"
         ) from exc
-    return (text + "\n").encode("utf-8")
 
 
 def validate_canonical_research_state_bytes(data: bytes) -> None:

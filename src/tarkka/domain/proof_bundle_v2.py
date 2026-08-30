@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tarkka.domain.identifiers import require_sha256
 from tarkka.domain.proof_bundles import (
@@ -22,6 +22,9 @@ from tarkka.domain.proof_bundles import (
     ProofBundleWorkDocumentLink,
     proof_bundle_manifest_from_dict,
 )
+
+if TYPE_CHECKING:
+    from tarkka.domain.proof_bundle_v3 import ProofBundleManifestV3
 
 PROOF_BUNDLE_SCHEMA_VERSION_V2 = 2
 PROOF_BUNDLE_RESEARCH_STATE_PATH = "research/claim-lineage.json"
@@ -126,11 +129,30 @@ def proof_bundle_manifest_v2_from_dict(value: object) -> ProofBundleManifestV2:
 
 def proof_bundle_manifest_from_versioned_dict(
     value: object,
-) -> ProofBundleManifest | ProofBundleManifestV2:
-    """Dispatch untrusted manifest data to the frozen v1 parser or explicit v2 parser."""
-    if isinstance(value, Mapping) and value.get("schema_version") == PROOF_BUNDLE_SCHEMA_VERSION_V2:
-        return proof_bundle_manifest_v2_from_dict(value)
+) -> ProofBundleManifest | ProofBundleManifestV2 | ProofBundleManifestV3:
+    """Dispatch untrusted manifest data to frozen v1/v2 parsers or explicit newer versions."""
+    if isinstance(value, Mapping):
+        schema_version = value.get("schema_version")
+        if schema_version == PROOF_BUNDLE_SCHEMA_VERSION_V2:
+            return proof_bundle_manifest_v2_from_dict(value)
+        if schema_version == 3:
+            return _proof_bundle_manifest_v3_or_frozen(value)
     return proof_bundle_manifest_from_dict(value)
+
+
+def _proof_bundle_manifest_v3_or_frozen(
+    value: Mapping[str, Any],
+) -> ProofBundleManifest | ProofBundleManifestV3:
+    """Parse a structurally v3 manifest or preserve the frozen older-version rejection path."""
+    # A version number alone must never reinterpret an older manifest shape. The v3 parser is
+    # selected only when its defining member descriptor is present; otherwise the frozen v1
+    # parser rejects the unsupported version as it always has.
+    if "normalized_document" not in value:
+        return proof_bundle_manifest_from_dict(value)
+
+    from tarkka.domain.proof_bundle_v3 import proof_bundle_manifest_v3_from_dict
+
+    return proof_bundle_manifest_v3_from_dict(value)
 
 
 def _v1_manifest(manifest: ProofBundleManifestV2) -> ProofBundleManifest:

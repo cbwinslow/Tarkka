@@ -11,14 +11,22 @@ on:
       - "src/tarkka/domain/discovery.py"
       - "src/tarkka/domain/models.py"
       - "src/tarkka/domain/extraction.py"
+      - "src/tarkka/domain/proof_bundle_v2.py"
+      - "src/tarkka/domain/proof_bundle_v3.py"
       - "src/tarkka/application/ingest.py"
+      - "src/tarkka/application/normalized_document_view.py"
+      - "src/tarkka/application/proof_bundles.py"
       - "src/tarkka/ports/citations.py"
       - "src/tarkka/domain/work_identity.py"
       - "src/tarkka/interfaces/cli.py"
       - "src/tarkka/interfaces/main.py"
+      - "src/tarkka/interfaces/bundle_cli.py"
       - "src/tarkka/ports/works.py"
       - "src/tarkka/ports/extraction.py"
       - "src/tarkka/infrastructure/postgres/**"
+      - "src/tarkka/infrastructure/normalized_document_json.py"
+      - "src/tarkka/infrastructure/proof_bundle_v2.py"
+      - "src/tarkka/infrastructure/proof_bundles.py"
       - "tests/contracts/work_repository.py"
       - "tests/contracts/research_repository.py"
       - "tests/contracts/extraction_repository.py"
@@ -39,6 +47,7 @@ on:
       - "tests/test_postgres_acquisition_recorder_unit.py"
       - "tests/test_postgres_source_observation_repository_unit.py"
       - "tests/test_postgres_proof_bundle_v2_integration.py"
+      - "tests/test_postgres_proof_bundle_v3_integration.py"
       - "tests/test_work_cli_backend.py"
   push:
     branches: [main]
@@ -50,14 +59,22 @@ on:
       - "src/tarkka/domain/discovery.py"
       - "src/tarkka/domain/models.py"
       - "src/tarkka/domain/extraction.py"
+      - "src/tarkka/domain/proof_bundle_v2.py"
+      - "src/tarkka/domain/proof_bundle_v3.py"
       - "src/tarkka/application/ingest.py"
+      - "src/tarkka/application/normalized_document_view.py"
+      - "src/tarkka/application/proof_bundles.py"
       - "src/tarkka/ports/citations.py"
       - "src/tarkka/domain/work_identity.py"
       - "src/tarkka/interfaces/cli.py"
       - "src/tarkka/interfaces/main.py"
+      - "src/tarkka/interfaces/bundle_cli.py"
       - "src/tarkka/ports/works.py"
       - "src/tarkka/ports/extraction.py"
       - "src/tarkka/infrastructure/postgres/**"
+      - "src/tarkka/infrastructure/normalized_document_json.py"
+      - "src/tarkka/infrastructure/proof_bundle_v2.py"
+      - "src/tarkka/infrastructure/proof_bundles.py"
       - "tests/contracts/work_repository.py"
       - "tests/contracts/research_repository.py"
       - "tests/contracts/extraction_repository.py"
@@ -78,6 +95,7 @@ on:
       - "tests/test_postgres_acquisition_recorder_unit.py"
       - "tests/test_postgres_source_observation_repository_unit.py"
       - "tests/test_postgres_proof_bundle_v2_integration.py"
+      - "tests/test_postgres_proof_bundle_v3_integration.py"
       - "tests/test_work_cli_backend.py"
 
 concurrency:
@@ -136,6 +154,7 @@ jobs:
           tests/test_postgres_extraction_repository_contract.py
           tests/test_postgres_native_ingest.py
           tests/test_postgres_proof_bundle_v2_integration.py
+          tests/test_postgres_proof_bundle_v3_integration.py
           --junitxml=postgres-work-repository-results.xml
       - name: Retain PostgreSQL contract results
         if: ${{ !cancelled() }}

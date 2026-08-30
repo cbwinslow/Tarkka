@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, cast
@@ -17,9 +18,15 @@ from tarkka.domain.proof_bundle_v2 import (
     ProofBundleManifestV2,
     proof_bundle_manifest_from_versioned_dict,
 )
+from tarkka.domain.proof_bundle_v3 import ProofBundleManifestV3
 from tarkka.domain.proof_bundles import PROOF_BUNDLE_MANIFEST_PATH, ProofBundleManifest
+from tarkka.infrastructure.normalized_document_json import (
+    NormalizedDocumentJsonError,
+    parse_canonical_normalized_document_bytes,
+)
 from tarkka.infrastructure.proof_bundle_v2 import (
     ProofBundleResearchStateJsonError,
+    parse_canonical_research_state_bytes,
     validate_canonical_research_state_bytes,
 )
 from tarkka.infrastructure.storage.filesystem import fsync_directory
@@ -45,6 +52,7 @@ class ProofBundleVerificationLimits:
     max_manifest_bytes: int = 4 * 1024 * 1024
     max_artifact_bytes: int = 1024 * 1024 * 1024
     max_research_state_bytes: int = 64 * 1024 * 1024
+    max_normalized_document_bytes: int = 64 * 1024 * 1024
 
 
 _DEFAULT_VERIFICATION_LIMITS = ProofBundleVerificationLimits()
@@ -77,7 +85,9 @@ class ProofBundleWriteResult:
     verification: ProofBundleVerification
 
 
-def canonical_manifest_bytes(manifest: ProofBundleManifest | ProofBundleManifestV2) -> bytes:
+def canonical_manifest_bytes(
+    manifest: ProofBundleManifest | ProofBundleManifestV2 | ProofBundleManifestV3,
+) -> bytes:
     """Serialize a versioned manifest with Tarkka's canonical JSON representation."""
     return (
         json.dumps(
@@ -97,7 +107,23 @@ def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
         (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
         (payload.manifest.artifact.path, payload.artifact_bytes),
     ]
-    if isinstance(payload.manifest, ProofBundleManifestV2):
+    if isinstance(payload.manifest, ProofBundleManifestV3):
+        state_bytes = cast(bytes, payload.research_state_bytes)
+        document_bytes = cast(bytes, payload.normalized_document_bytes)
+        try:
+            state_value = parse_canonical_research_state_bytes(state_bytes)
+            document_value = parse_canonical_normalized_document_bytes(document_bytes)
+        except (ProofBundleResearchStateJsonError, NormalizedDocumentJsonError) as exc:
+            raise ProofBundleVerificationError(str(exc)) from exc
+        _validate_research_state_identity(state_value, payload.manifest)
+        _validate_normalized_document_identity(document_value, payload.manifest)
+        members.extend(
+            (
+                (payload.manifest.research_state.path, state_bytes),
+                (payload.manifest.normalized_document.path, document_bytes),
+            )
+        )
+    elif isinstance(payload.manifest, ProofBundleManifestV2):
         state_bytes = cast(bytes, payload.research_state_bytes)
         validate_canonical_research_state_bytes(state_bytes)
         members.append((payload.manifest.research_state.path, state_bytes))
@@ -187,7 +213,7 @@ def _verify_archive(
     names = [info.filename for info in infos]
     if len(names) != len(set(names)):
         raise ProofBundleVerificationError("proof bundle contains duplicate archive members")
-    if len(infos) > 3:
+    if len(infos) > 4:
         raise ProofBundleVerificationError("proof bundle contains unexpected archive members")
     if archive.comment:
         raise ProofBundleVerificationError("proof bundle ZIP comment is not canonical")
@@ -204,9 +230,14 @@ def _verify_archive(
     manifest = _parse_manifest(manifest_bytes)
 
     expected_names = [PROOF_BUNDLE_MANIFEST_PATH, manifest.artifact.path]
-    if isinstance(manifest, ProofBundleManifestV2):
+    if isinstance(manifest, ProofBundleManifestV3):
+        research_state = manifest.research_state
+        expected_names.extend((research_state.path, manifest.normalized_document.path))
+    elif isinstance(manifest, ProofBundleManifestV2):
         research_state = manifest.research_state
         expected_names.append(research_state.path)
+        if len(infos) > 3:
+            raise ProofBundleVerificationError("proof bundle contains unexpected archive members")
     else:
         research_state = None
         if len(infos) > 2:
@@ -215,6 +246,7 @@ def _verify_archive(
         raise ProofBundleVerificationError(
             "proof bundle contains missing, unexpected, or noncanonical archive members"
         )
+
     artifact_info = archive.getinfo(manifest.artifact.path)
     if artifact_info.file_size > limits.max_artifact_bytes:
         raise ProofBundleVerificationError("proof bundle artifact exceeds the configured limit")
@@ -230,25 +262,37 @@ def _verify_archive(
     if actual_sha256 != manifest.artifact.sha256:
         raise ProofBundleVerificationError("proof bundle artifact sha256 does not match manifest")
 
+    state_value: Any | None = None
     if research_state is not None:
-        state_info = archive.getinfo(research_state.path)
-        if state_info.file_size > limits.max_research_state_bytes:
-            raise ProofBundleVerificationError(
-                "proof bundle research-state member exceeds the configured limit"
-            )
-        state_bytes = _read_member(archive, research_state.path)
-        if len(state_bytes) != research_state.size_bytes:
-            raise ProofBundleVerificationError(
-                "proof bundle research-state byte length does not match manifest"
-            )
-        if hashlib.sha256(state_bytes).hexdigest() != research_state.sha256:
-            raise ProofBundleVerificationError(
-                "proof bundle research-state sha256 does not match manifest"
-            )
+        state_bytes = _validated_json_member_bytes(
+            archive,
+            path=research_state.path,
+            expected_size=research_state.size_bytes,
+            expected_sha256=research_state.sha256,
+            maximum_size=limits.max_research_state_bytes,
+            label="research-state",
+        )
         try:
-            validate_canonical_research_state_bytes(state_bytes)
+            state_value = parse_canonical_research_state_bytes(state_bytes)
         except ProofBundleResearchStateJsonError as exc:
             raise ProofBundleVerificationError(str(exc)) from exc
+
+    if isinstance(manifest, ProofBundleManifestV3):
+        _validate_research_state_identity(state_value, manifest)
+        normalized_document = manifest.normalized_document
+        document_bytes = _validated_json_member_bytes(
+            archive,
+            path=normalized_document.path,
+            expected_size=normalized_document.size_bytes,
+            expected_sha256=normalized_document.sha256,
+            maximum_size=limits.max_normalized_document_bytes,
+            label="normalized-document",
+        )
+        try:
+            document_value = parse_canonical_normalized_document_bytes(document_bytes)
+        except NormalizedDocumentJsonError as exc:
+            raise ProofBundleVerificationError(str(exc)) from exc
+        _validate_normalized_document_identity(document_value, manifest)
 
     if manifest_bytes != canonical_manifest_bytes(manifest):
         raise ProofBundleVerificationError("proof bundle manifest is not canonically encoded")
@@ -261,6 +305,58 @@ def _verify_archive(
         artifact_size_bytes=manifest.artifact.size_bytes,
         member_count=len(expected_names),
     )
+
+
+def _validated_json_member_bytes(
+    archive: zipfile.ZipFile,
+    *,
+    path: str,
+    expected_size: int,
+    expected_sha256: str,
+    maximum_size: int,
+    label: str,
+) -> bytes:
+    info = archive.getinfo(path)
+    if info.file_size > maximum_size:
+        raise ProofBundleVerificationError(
+            f"proof bundle {label} member exceeds the configured limit"
+        )
+    data = _read_member(archive, path)
+    if len(data) != expected_size:
+        raise ProofBundleVerificationError(
+            f"proof bundle {label} byte length does not match manifest"
+        )
+    if hashlib.sha256(data).hexdigest() != expected_sha256:
+        raise ProofBundleVerificationError(
+            f"proof bundle {label} sha256 does not match manifest"
+        )
+    return data
+
+
+def _validate_research_state_identity(value: Any, manifest: ProofBundleManifestV3) -> None:
+    if not isinstance(value, Mapping) or value.get("document_id") != str(
+        manifest.document.document_id
+    ):
+        raise ProofBundleVerificationError(
+            "proof bundle research-state document identity does not match manifest"
+        )
+
+
+def _validate_normalized_document_identity(
+    value: Any,
+    manifest: ProofBundleManifestV3,
+) -> None:
+    expected = {
+        "document_id": str(manifest.document.document_id),
+        "artifact_id": str(manifest.document.artifact_id),
+        "title": manifest.document.title,
+        "parser_name": manifest.document.parser_name,
+        "parser_version": manifest.document.parser_version,
+    }
+    if any(value[field] != expected_value for field, expected_value in expected.items()):
+        raise ProofBundleVerificationError(
+            "proof bundle normalized-document identity does not match manifest"
+        )
 
 
 def _read_member(archive: zipfile.ZipFile, name: str) -> bytes:
@@ -294,7 +390,9 @@ def _sha256_stream(stream: BinaryIO) -> str:
     return digest.hexdigest()
 
 
-def _parse_manifest(data: bytes) -> ProofBundleManifest | ProofBundleManifestV2:
+def _parse_manifest(
+    data: bytes,
+) -> ProofBundleManifest | ProofBundleManifestV2 | ProofBundleManifestV3:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -307,6 +405,10 @@ def _parse_manifest(data: bytes) -> ProofBundleManifest | ProofBundleManifestV2:
         )
     except json.JSONDecodeError as exc:
         raise ProofBundleVerificationError("proof bundle manifest is not valid JSON") from exc
+    except RecursionError as exc:
+        raise ProofBundleVerificationError(
+            "proof bundle manifest exceeds the supported nesting depth"
+        ) from exc
     try:
         return proof_bundle_manifest_from_versioned_dict(value)
     except ValueError as exc:
@@ -372,6 +474,7 @@ def _validate_limits(limits: ProofBundleVerificationLimits) -> None:
         limits.max_manifest_bytes,
         limits.max_artifact_bytes,
         limits.max_research_state_bytes,
+        limits.max_normalized_document_bytes,
     ) <= 0:
         raise ValueError("proof bundle verification limits must be positive")
 

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from tarkka.domain.citations import CitationContext, CitationMention
 from tarkka.domain.extraction import EvidenceRecord, ExtractionRun, ResearchExtraction
+from tarkka.domain.models import Artifact, Document
 from tarkka.domain.verification import EvidenceRelation
 
 
@@ -18,6 +19,14 @@ class ClaimLineageSourceReader(ClaimEvidenceReader, Protocol):
     """Read exact extraction objects plus their immutable run provenance."""
 
     def get_run(self, run_id: UUID) -> ExtractionRun | None: ...
+
+
+class ClaimLineageDocumentReader(Protocol):
+    """Read only the normalized source identities needed by Claim lineage."""
+
+    def get_artifact(self, artifact_id: UUID) -> Artifact | None: ...
+
+    def get_document(self, document_id: UUID) -> Document | None: ...
 
 
 class CitationContextReader(Protocol):

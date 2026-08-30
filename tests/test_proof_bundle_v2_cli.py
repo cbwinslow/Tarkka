@@ -244,7 +244,7 @@ def test_bundle_cli_rejects_unsupported_schema_versions(
     monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
 
     with pytest.raises(ValueError, match="unsupported proof bundle schema version"):
-        bundle_cli._bundle_service(3)
+        bundle_cli._bundle_service(4)
 
     with pytest.raises(SystemExit) as raised:
         bundle_cli.main(
@@ -252,7 +252,7 @@ def test_bundle_cli_rejects_unsupported_schema_versions(
                 "create",
                 str(uuid4()),
                 "--schema-version",
-                "3",
+                "4",
                 "--output",
                 str(tmp_path / "unsupported.tarkka"),
             ]

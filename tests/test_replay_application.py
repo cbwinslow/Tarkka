@@ -129,6 +129,15 @@ def test_replay_mismatches_continue_after_list_length_difference_when_capacity_r
     assert mismatches[1].actual == "9"
 
 
+def test_replay_mismatch_diagnostics_truncate_long_values() -> None:
+    mismatch = replay_mismatches("A" * 50, "B" * 50, diagnostic_chars=10)[0]
+
+    assert len(mismatch.expected) == 10
+    assert len(mismatch.actual) == 10
+    assert mismatch.expected.endswith("…")
+    assert mismatch.actual.endswith("…")
+
+
 def test_replay_mismatches_cover_root_scalar_and_argument_validation() -> None:
     assert replay_mismatches("expected", "actual")[0].path == "$"
     object_mismatch = replay_mismatches({"a": object()}, {"a": object()})[0]

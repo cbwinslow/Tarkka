@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -24,8 +25,11 @@ from tarkka.application.replay import (
     ReplayResult,
     ReplayStatus,
 )
-from tarkka.domain.proof_bundle_v3 import ProofBundleManifestV3
-from tarkka.infrastructure.normalized_document_json import normalized_document_descriptor
+from tarkka.domain.proof_bundle_v3 import (
+    PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
+    ProofBundleManifestV3,
+    ProofBundleNormalizedDocument,
+)
 from tarkka.infrastructure.proof_bundle_v2 import research_state_descriptor
 from tests.support.proof_bundles import proof_bundle_payload
 
@@ -42,7 +46,11 @@ def _v3_payload() -> ProofBundlePayload:
         document=base.manifest.document,
         artifact=base.manifest.artifact,
         research_state=research_state_descriptor(research_state_bytes),
-        normalized_document=normalized_document_descriptor(normalized_document_bytes),
+        normalized_document=ProofBundleNormalizedDocument(
+            path=PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
+            sha256=hashlib.sha256(normalized_document_bytes).hexdigest(),
+            size_bytes=len(normalized_document_bytes),
+        ),
         work_documents=base.manifest.work_documents,
         source_observations=base.manifest.source_observations,
         resource_links=base.manifest.resource_links,
@@ -130,7 +138,7 @@ class _ResponseService:
 
 
 def test_document_replay_response_returns_shared_success_envelope() -> None:
-    response = document_replay_response(_ResponseService(_result()), _DOCUMENT_ID)  # type: ignore[arg-type]
+    response = document_replay_response(_ResponseService(_result()), _DOCUMENT_ID)
 
     assert response["ok"] is True
     assert response["replay"] == _result().to_dict()
@@ -162,7 +170,7 @@ def test_document_replay_response_maps_stable_problem_codes(
     exc: BaseException,
     code: str,
 ) -> None:
-    response = document_replay_response(_ResponseService(exc), _DOCUMENT_ID)  # type: ignore[arg-type]
+    response = document_replay_response(_ResponseService(exc), _DOCUMENT_ID)
 
     assert response["ok"] is False
     error = response["error"]
@@ -174,7 +182,7 @@ def test_document_replay_response_maps_stable_problem_codes(
 
 def test_document_replay_response_bounds_untrusted_problem_text() -> None:
     response = document_replay_response(
-        _ResponseService(DocumentReplayExecutionError("replay_parser_failed", "x" * 10_000)),  # type: ignore[arg-type]
+        _ResponseService(DocumentReplayExecutionError("replay_parser_failed", "x" * 10_000)),
         _DOCUMENT_ID,
     )
 

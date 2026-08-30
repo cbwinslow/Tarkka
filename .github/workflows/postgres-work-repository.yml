@@ -38,6 +38,7 @@ on:
       - "tests/test_postgres_research_repository_unit.py"
       - "tests/test_postgres_acquisition_recorder_unit.py"
       - "tests/test_postgres_source_observation_repository_unit.py"
+      - "tests/test_postgres_proof_bundle_v2_integration.py"
       - "tests/test_work_cli_backend.py"
   push:
     branches: [main]
@@ -76,6 +77,7 @@ on:
       - "tests/test_postgres_research_repository_unit.py"
       - "tests/test_postgres_acquisition_recorder_unit.py"
       - "tests/test_postgres_source_observation_repository_unit.py"
+      - "tests/test_postgres_proof_bundle_v2_integration.py"
       - "tests/test_work_cli_backend.py"
 
 concurrency:
@@ -133,6 +135,7 @@ jobs:
           tests/test_postgres_evidence_verification.py
           tests/test_postgres_extraction_repository_contract.py
           tests/test_postgres_native_ingest.py
+          tests/test_postgres_proof_bundle_v2_integration.py
           --junitxml=postgres-work-repository-results.xml
       - name: Retain PostgreSQL contract results
         if: ${{ !cancelled() }}

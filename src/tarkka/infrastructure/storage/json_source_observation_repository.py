@@ -37,11 +37,15 @@ class JsonSourceObservationRepository:
 
     @classmethod
     def open_existing(cls, path: Path) -> JsonSourceObservationRepository | None:
-        """Open an existing catalog without creating one for a read-only inspection."""
+        """Open an existing catalog without creating files or lock state."""
         resolved = path.expanduser().resolve()
-        if not resolved.is_file():
+        if not resolved.exists():
             return None
-        return cls(resolved)
+        if resolved.is_dir():
+            raise ValueError(f"source observation catalog path is a directory: {resolved}")
+        repository = cls.__new__(cls)
+        repository.path = resolved
+        return repository
 
     def save_observation(self, observation: SourceObservation) -> None:
         self._save(

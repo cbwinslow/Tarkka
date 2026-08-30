@@ -4,48 +4,108 @@ Tarkka proof bundles are portable, versioned evidence packages for independently
 
 > A third party should be able to verify preserved source identity and exported lineage without trusting the machine, provider, model, or database that produced the bundle.
 
-Proof bundles are export/read models. They do **not** create new canonical Work, Artifact, Document, observation, or relation identities.
+Proof bundles are export/read models. They do **not** create new canonical Work, Artifact, Document, Claim, Evidence, observation, citation, or verification identities.
 
-## Current format
+## Versions
 
 Bundle format: `tarkka-proof-bundle`
 
-Schema version: `1`
+Recommended extension: `.tarkka`
 
-File extension: `.tarkka` is recommended but not required.
+Tarkka currently supports two explicit schema versions:
 
-A v1 bundle is a deterministic ZIP archive with exactly two members:
+- **v1** — preserved source/document provenance;
+- **v2** — v1 provenance plus canonical persisted Claim research state.
+
+Version 1 remains the CLI default for compatibility. Existing v1 bytes and verification semantics are frozen; v2 is opt-in at creation time.
+
+## Create a bundle
+
+Create the compatibility-default v1 bundle:
+
+```bash
+tarkka bundle create <document-id> --output research.tarkka
+```
+
+The explicit equivalent is byte-identical:
+
+```bash
+tarkka bundle create <document-id> \
+  --schema-version 1 \
+  --output research.tarkka
+```
+
+Create a v2 research-state bundle:
+
+```bash
+tarkka bundle create <document-id> \
+  --schema-version 2 \
+  --output research.tarkka
+```
+
+Creation honors the same `TARKKA_DOCUMENT_BACKEND` selection as Tarkka's document interfaces.
+
+For PostgreSQL:
+
+```bash
+TARKKA_DOCUMENT_BACKEND=postgres \
+TARKKA_DATABASE_URL=postgresql://user:password@host/database \
+tarkka bundle create <document-id> \
+  --schema-version 2 \
+  --output research.tarkka
+```
+
+Creation performs no discovery, network, provider, or model calls. Tarkka exports only persisted state. Before publication, it re-hashes the preserved Artifact bytes and refuses to create a bundle when either the digest or byte count differs from the immutable Artifact record.
+
+Publication is fail-closed: Tarkka writes a sibling temporary archive, flushes it, verifies that exact file offline, atomically replaces the destination, and flushes the destination directory on POSIX. A failed write or verification cannot publish an unverified archive or truncate a previous valid export.
+
+## Coherent snapshots
+
+A bundle must describe one coherent persistence snapshot rather than records observed at different write boundaries.
+
+For local JSON, v1 locks the document/source catalogs together. V2 extends the canonical lock set to every participating document, source-observation, extraction, verification, and citation catalog that exists. Missing optional research catalogs are treated as absent state where semantically valid; the export command does not create them as a side effect.
+
+For PostgreSQL, both versions use one `REPEATABLE READ READ ONLY` transaction. V2 reads source provenance, Claims, ExtractionRuns, Evidence, verification relations, cross-document Evidence source lineage, and Claim-document-local CitationContexts through the same connection and transaction. Transaction-scoped caches avoid repeatedly loading the same persisted Document, Artifact, run, Evidence, Claim, or CitationContext during large exports.
+
+## Archive layouts
+
+### v1
+
+A v1 archive contains exactly two members:
 
 ```text
 manifest.json
 artifacts/sha256/<64-character-lowercase-sha256>
 ```
 
-The archive uses stored, uncompressed ZIP members with fixed timestamps, Unix mode metadata, member order, and no ZIP comments or extra metadata. Manifest serialization is canonical, so identical persisted research state produces byte-identical bundle bytes.
+### v2
 
-## Create a bundle
+A v2 archive contains exactly three members:
 
-```bash
-tarkka bundle create <document-id> --output research.tarkka
+```text
+manifest.json
+artifacts/sha256/<64-character-lowercase-sha256>
+research/claim-lineage.json
 ```
 
-Creation honors the same `TARKKA_DOCUMENT_BACKEND` selection as Tarkka's document interfaces.
+Both versions use stored, uncompressed ZIP members with fixed timestamps, canonical member order, Unix mode metadata, and no ZIP comments or extra metadata. Canonical JSON uses sorted keys, no insignificant whitespace, finite JSON numbers only, UTF-8 encoding, and one trailing newline. Identical canonical state therefore produces byte-identical bundle bytes.
 
-For PostgreSQL, configure both the document backend and database URL:
+## Research state in v2
 
-```bash
-TARKKA_DOCUMENT_BACKEND=postgres \
-TARKKA_DATABASE_URL=postgresql://user:password@host/database \
-tarkka bundle create <document-id> --output research.tarkka
-```
+`research/claim-lineage.json` is a canonical, versioned document research-state view. For every persisted Claim belonging to the bundled Document it preserves:
 
-For the local JSON backend, Tarkka acquires the research-catalog and source-observation locks together in canonical path order and reads all exported state while both locks are held. This prevents an export from combining records observed at different write boundaries.
+- the Claim identity, text, type, attribution, confidence, and review state;
+- immutable ExtractionRun provenance;
+- recorded model provider/name/version when a model was used;
+- the Claim's original Evidence identities and exact source locators;
+- source Document and immutable Artifact lineage for Evidence, including cross-document Evidence;
+- persisted verification relations and verifier metadata;
+- optional counter/supporting Evidence lineage;
+- Claim-document-local CitationContext when a relation records one.
 
-For the PostgreSQL backend, Tarkka reads the Document, Artifact, Work↔Document links, source observations, and resource links through one `REPEATABLE READ READ ONLY` transaction. The Work↔Document relation is persisted in PostgreSQL with a composite Document/Artifact foreign key, so an exported representation link cannot name an Artifact that differs from its Document.
+The v2 manifest contains a `research_state` descriptor with the canonical member path, SHA-256 digest, and byte count. Bundle creation validates that the research-state Document identity agrees with the source Document before the member is encoded.
 
-Creation does not call a discovery provider, model, or network service. Before exporting, Tarkka re-hashes the preserved artifact bytes and refuses to create the bundle if either the SHA-256 digest or byte count differs from the immutable Artifact record.
-
-Publication is fail-closed. Tarkka writes a sibling temporary archive, flushes it to durable storage, verifies that exact file offline, then atomically replaces the destination and flushes the destination directory on POSIX. A failed write or verification therefore cannot publish an unverified archive or truncate a previous valid export. The create command reports the verification result produced during that publication step instead of re-reading the full bundle a second time.
+Model provenance is evidence about what produced the persisted result. Tarkka does **not** claim that a model call can be deterministically regenerated from that metadata.
 
 ## Verify a bundle offline
 
@@ -53,17 +113,20 @@ Publication is fail-closed. Tarkka writes a sibling temporary archive, flushes i
 tarkka bundle verify research.tarkka
 ```
 
-Verification uses only the archive file. It does not require a Tarkka home directory, database, network connection, API key, model, or provider.
+Verification auto-dispatches by the explicit manifest schema version. It uses only the archive file and does not require a Tarkka home directory, database, network connection, API key, model, or provider.
 
-Path-based verification is bounded and streaming. The verifier checks archive metadata and declared member sizes before reading member payloads, then hashes the source Artifact incrementally rather than loading the entire archive or Artifact into memory.
+The verifier fails closed on unknown schema versions, version/member mismatches, duplicate or unexpected members, noncanonical paths/ZIP metadata/JSON, invalid internal identities, size-limit violations, missing members, digest mismatches, and noncanonical v2 research-state bytes.
 
-Default v1 limits are:
+Path-based verification is bounded and streaming. It validates archive metadata and declared member sizes before reading large payloads and hashes the embedded source Artifact incrementally.
+
+Default limits are:
 
 - archive: 1 GiB;
 - manifest: 4 MiB;
-- embedded source Artifact: 1 GiB.
+- embedded source Artifact: 1 GiB;
+- v2 research state: 64 MiB.
 
-The verification API accepts explicit limits so embedding applications can impose stricter resource budgets.
+Embedding applications can supply stricter verification limits.
 
 A successful result includes:
 
@@ -75,9 +138,7 @@ A successful result includes:
 
 ## Manifest v1
 
-`manifest.json` is UTF-8 JSON serialized with sorted keys, no insignificant whitespace, finite JSON numbers only, and one trailing newline.
-
-Top-level fields are strict and versioned:
+The v1 top-level manifest fields are strict:
 
 ```json
 {
@@ -91,117 +152,75 @@ Top-level fields are strict and versioned:
 }
 ```
 
-Unknown or missing fields are rejected in v1. Future format evolution must use an explicit schema version rather than silently changing the meaning of existing fields.
+Unknown or missing fields are rejected. V1 continues to mean exactly what it meant before v2 was introduced.
 
-### `artifact`
+### Source fields
 
-Records the immutable source Artifact identity and embedded member location:
+`artifact` records immutable source identity and the embedded content-addressed member path. Its `artifact_id` must equal Tarkka's canonical UUIDv5 derived from `urn:sha256:<sha256>`.
 
-- `artifact_id`
-- `sha256`
-- `size_bytes`
-- `media_type`
-- `path`
-- `original_name`
-- `source_uri`
-- `acquired_at`
+`document` records the parser-versioned normalized Document identity and must reference the bundled Artifact.
 
-`path` must be exactly `artifacts/sha256/<sha256>`. The `artifact_id` must also equal Tarkka's canonical UUIDv5 derived from `urn:sha256:<sha256>`; a manifest cannot substitute an unrelated UUID while preserving the same source bytes.
+`work_documents` records canonical Work↔Document representation links available in the selected persistence backend.
 
-### `document`
+`source_observations` preserves provider/native/reconstructed observation envelopes, including basis, source version, provider record identity, metadata, and observation time.
 
-Records the parser-versioned normalized Document identity:
+`resource_links` preserves source-observed links to supplements, datasets, software, alternate representations, corrections, retractions, and related resources. Bundle creation records these URIs but never resolves or fetches them.
 
-- `document_id`
-- `artifact_id`
-- `title`
-- `parser_name`
-- `parser_version`
-- `normalized_at`
+## Manifest v2
 
-The Document's `artifact_id` must equal the bundled Artifact identity.
+V2 reuses the v1 source/document structures and adds one required descriptor:
 
-### `work_documents`
+```json
+{
+  "artifact": {},
+  "document": {},
+  "format": "tarkka-proof-bundle",
+  "research_state": {
+    "path": "research/claim-lineage.json",
+    "sha256": "<64-character-lowercase-sha256>",
+    "size_bytes": 0
+  },
+  "resource_links": [],
+  "schema_version": 2,
+  "source_observations": [],
+  "work_documents": []
+}
+```
 
-Records canonical Work↔Document representation links available in the selected persistence backend:
+The descriptor digest and byte count must match the canonical research-state member exactly.
 
-- `link_id`
-- `work_id`
-- `artifact_id`
-- `document_id`
-- `linked_at`
+## Verification invariants
 
-Every exported link must reference the bundled Artifact and Document.
-
-### `source_observations`
-
-Preserves the observation envelope used for provider/native/reconstructed metadata:
-
-- `observation_id`
-- `source_name`
-- `basis`
-- `source_version`
-- `provider_record_id`
-- `media_type`
-- `native_artifact_id`
-- `metadata`
-- `observed_at`
-
-`basis` is restricted to Tarkka's canonical `ObservationBasis` vocabulary (`native`, `reconstructed`, or `inferred`). Metadata is deeply validated as finite JSON-compatible data before export. Any non-null `native_artifact_id` must refer to the Artifact embedded in the same bundle; verification fails closed if a manifest claims observation provenance for another Artifact.
-
-### `resource_links`
-
-Preserves source-observed links to supplements, datasets, software, alternate representations, corrections, retractions, and related resources:
-
-- `link_id`
-- `observation_id`
-- `target_uri`
-- `relation`
-- `media_type`
-- `label`
-- `metadata`
-
-`relation` is restricted to Tarkka's canonical `ResourceRelation` vocabulary. Every resource link must reference a source observation included in the same manifest. Targets remain observed URIs; bundle creation does not resolve or fetch them.
-
-## Verification rules
-
-The v1 verifier fails closed when any of these checks fail:
+Verification is intentionally stricter than ordinary ZIP interoperability. Among other checks, Tarkka rejects bundles when:
 
 1. the input is not a valid ZIP archive;
-2. configured archive, manifest, or source-Artifact resource limits are exceeded;
-3. any archive member is duplicated or an unexpected member is present;
-4. a member path is absolute, contains traversal components, Windows separators/drives, or other noncanonical path structure;
-5. ZIP compression, timestamp, Unix mode, flags, comments, extra metadata, order, or member layout is noncanonical;
-6. `manifest.json` is missing;
-7. the manifest is not valid UTF-8 JSON;
-8. JSON object keys are duplicated or a number is non-finite;
-9. the bundle format/schema version is unsupported;
-10. required fields are missing or unknown fields are present;
-11. the Artifact UUID does not match the canonical identity derived from its SHA-256 digest;
-12. observation basis or resource relation contains a value outside Tarkka's canonical vocabulary;
-13. internal Artifact/Document/Work/observation/resource identities are inconsistent;
-14. a source observation claims a different native Artifact;
-15. embedded Artifact byte length differs from the manifest or from the streamed byte count;
-16. streamed embedded Artifact SHA-256 differs from the manifest;
-17. the manifest is not canonically encoded.
+2. configured archive/member resource limits are exceeded;
+3. an archive member is duplicated, missing, unexpected, or ordered incorrectly;
+4. a member path is absolute, traversing, Windows-style, or otherwise noncanonical;
+5. ZIP compression, timestamp, Unix mode, flags, comments, or extra metadata are noncanonical;
+6. a manifest or research-state member is not valid canonical UTF-8 JSON;
+7. object keys are duplicated or a number is non-finite;
+8. the format/schema version is unsupported;
+9. required fields are missing or unknown fields are present;
+10. Artifact, Document, Work, observation, resource, or research-state identities disagree;
+11. the Artifact UUID does not match the identity derived from its SHA-256 digest;
+12. the embedded Artifact byte length or streamed digest differs from the manifest;
+13. a v2 bundle omits or adds the research-state member contrary to its schema version;
+14. v2 research-state bytes differ from the manifest descriptor digest or size;
+15. v2 research-state JSON is not canonically encoded.
 
-Verification is intentionally stricter than ordinary ZIP interoperability. Canonical encoding makes the whole bundle content-addressable and gives downstream systems a stable byte-level identity.
+## Determinism and replay
 
-## Determinism and model-assisted research
+Bundle determinism means that the same canonical persisted snapshot produces the same archive bytes. It does not mean every process that originally produced that state is deterministic.
 
-Bundle v1 exports only deterministic preserved source/document lineage. It does not yet include claims, evidence relations, citations, discovery snapshots, policy decisions, or model invocations.
+Non-model transformation replay and transparent model-step records are separate concerns. Future replay work should preserve inputs, outputs, configuration, and model provenance without pretending stochastic provider execution can be regenerated byte-for-byte.
 
-Those records will be added as explicitly versioned sections. When model-assisted state is exported, Tarkka will preserve provider/model/prompt/version metadata and the resulting observation rather than pretending a model call can be deterministically replayed.
+## Next extensions
 
-## Planned extensions
+The v2 foundation makes the following extensions practical without changing the source/provenance model again:
 
-Priority A under the product roadmap will build on this foundation with:
-
-1. claim/evidence/verification and exact citation-span sections;
-2. discovery/search/acquisition/policy provenance;
-3. deterministic replay of non-model transformations;
-4. compact lineage inspection (`why`) and MCP/API bundle verification;
-5. frozen/live research-state diffing;
-6. interoperability evaluation with established provenance/research packaging standards before any mapping is standardized.
-
-The archive codec and manifest contract are intentionally independent of Tarkka's persistence adapters so other storage backends and third-party tools can emit or consume compatible bundles later.
+1. deterministic replay of non-model transformations;
+2. transparent model-step input/output/config records;
+3. frozen/live research-state comparison with `tarkka diff`;
+4. additional discovery/search/acquisition/policy provenance;
+5. interoperability evaluation with PROV, JSON-LD, RO-Crate, and related standards after the native contract is stable.

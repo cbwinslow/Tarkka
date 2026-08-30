@@ -76,51 +76,64 @@ class JsonProofBundleV2SnapshotReader:
         self,
         *,
         documents: JsonResearchRepository,
-        observations: JsonSourceObservationRepository | None,
-        extractions: JsonExtractionRepository | None,
-        verifications: JsonVerificationRepository | None,
-        citations: JsonCitationRepository | None,
+        observations_path: Path,
+        extractions_path: Path,
+        verifications_path: Path,
+        citations_path: Path,
         limits: DocumentResearchStateLimits = DEFAULT_DOCUMENT_RESEARCH_STATE_LIMITS,
     ) -> None:
         self._documents = documents
-        self._observations = observations
-        self._extractions = extractions
-        self._verifications = verifications
-        self._citations = citations
+        self._observations_path = observations_path.expanduser().resolve()
+        self._extractions_path = extractions_path.expanduser().resolve()
+        self._verifications_path = verifications_path.expanduser().resolve()
+        self._citations_path = citations_path.expanduser().resolve()
         self._limits = limits
 
     def read(self, document_id: UUID) -> ProofBundleV2Snapshot | None:
         with ExitStack() as stack:
             for path in _ordered_unique_paths(self._paths()):
                 stack.enter_context(exclusive_lock(path))
+            observations = JsonSourceObservationRepository.open_existing(self._observations_path)
+            extractions = JsonExtractionRepository.open_existing(self._extractions_path)
+            verifications = JsonVerificationRepository.open_existing(self._verifications_path)
+            citations = JsonCitationRepository.open_existing(self._citations_path)
             source = _read_source_snapshot_locked(
                 document_id,
                 documents=self._documents,
-                observations=self._observations,
+                observations=observations,
             )
             if source is None:
                 return None
             return ProofBundleV2Snapshot(
                 source=source,
-                research_state=self._research_state_locked(document_id),
+                research_state=self._research_state_locked(
+                    document_id,
+                    extractions=extractions,
+                    verifications=verifications,
+                    citations=citations,
+                ),
             )
 
     def _paths(self) -> list[Path]:
-        paths = [self._documents.path]
-        for repository in (
-            self._observations,
-            self._extractions,
-            self._verifications,
-            self._citations,
-        ):
-            if repository is not None:
-                paths.append(repository.path)
-        return paths
+        return [
+            self._documents.path,
+            self._observations_path,
+            self._extractions_path,
+            self._verifications_path,
+            self._citations_path,
+        ]
 
-    def _research_state_locked(self, document_id: UUID) -> DocumentResearchState:
-        if self._extractions is None:
+    def _research_state_locked(
+        self,
+        document_id: UUID,
+        *,
+        extractions: JsonExtractionRepository | None,
+        verifications: JsonVerificationRepository | None,
+        citations: JsonCitationRepository | None,
+    ) -> DocumentResearchState:
+        if extractions is None:
             return DocumentResearchState(document_id=document_id, claim_lineages=())
-        values = self._extractions.list_extractions(
+        values = extractions.list_extractions(
             document_id,
             kind=ResearchObjectKind.CLAIM,
             offset=0,
@@ -132,14 +145,12 @@ class JsonProofBundleV2SnapshotReader:
                 raise RuntimeError("Claim-filtered extraction read returned a non-Claim record")
             claims.append(value)
         service = ClaimLineageService(
-            source=self._extractions,
+            source=extractions,
             relations=(
-                self._verifications
-                if self._verifications is not None
-                else _EmptyEvidenceRelationReader()
+                verifications if verifications is not None else _EmptyEvidenceRelationReader()
             ),
             documents=self._documents,
-            citations=self._citations,
+            citations=citations,
         )
         return assemble_document_research_state(
             document_id,

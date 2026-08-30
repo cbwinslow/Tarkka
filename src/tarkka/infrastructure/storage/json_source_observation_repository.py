@@ -37,11 +37,15 @@ class JsonSourceObservationRepository:
 
     @classmethod
     def open_existing(cls, path: Path) -> JsonSourceObservationRepository | None:
-        """Open an existing catalog without creating one for a read-only inspection."""
+        """Open an existing catalog without creating files or lock state."""
         resolved = path.expanduser().resolve()
-        if not resolved.is_file():
+        if not resolved.exists():
             return None
-        return cls(resolved)
+        if resolved.is_dir():
+            raise ValueError(f"source observation catalog path is a directory: {resolved}")
+        repository = cls.__new__(cls)
+        repository.path = resolved
+        return repository
 
     def save_observation(self, observation: SourceObservation) -> None:
         self._save(
@@ -80,49 +84,36 @@ class JsonSourceObservationRepository:
             for observation_id, observation in data["observations"].items()
             if observation.get("native_artifact_id") == str(artifact_id)
         }
-        matching = (
-            item
-            for item in data["resource_links"].values()
-            if item["observation_id"] in observation_ids
+        if not observation_ids:
+            return 0, ()
+        total, selected = _bounded_resource_link_payloads(
+            data["resource_links"].values(),
+            observation_ids=observation_ids,
+            offset=offset,
+            limit=limit,
         )
-        selected_count = offset + limit
-        if selected_count == 0:
-            return sum(1 for _ in matching), ()
-        selected = nsmallest(selected_count, matching, key=_resource_link_sort_key)
-        total = len(selected)
-        if total == selected_count:
-            total = sum(
-                1
-                for item in data["resource_links"].values()
-                if item["observation_id"] in observation_ids
-            )
-        return total, tuple(_resource_link_from_dict(item) for item in selected[offset:])
+        return total, tuple(_resource_link_from_dict(item) for item in selected)
 
-    def get_resource_link_for_artifact(
-        self, artifact_id: UUID, link_id: UUID
-    ) -> ResourceLinkObservation | None:
+    def page_observations_for_artifact(
+        self,
+        artifact_id: UUID,
+        *,
+        offset: int,
+        limit: int,
+    ) -> tuple[int, tuple[SourceObservation, ...]]:
         data = self._read()
-        payload = data["resource_links"].get(str(link_id))
-        if payload is None:
-            return None
-        link = _resource_link_from_dict(payload)
-        observation = data["observations"].get(str(link.observation_id))
-        if observation is None or observation.get("native_artifact_id") != str(artifact_id):
-            return None
-        return link
-
-    def list_observations_for_artifact(self, artifact_id: UUID) -> tuple[SourceObservation, ...]:
         values = [
             _observation_from_dict(item)
-            for item in self._read()["observations"].values()
+            for item in data["observations"].values()
             if item.get("native_artifact_id") == str(artifact_id)
         ]
-        values.sort(key=lambda item: (item.source_name, str(item.observation_id)))
-        return tuple(values)
+        values.sort(key=lambda item: (item.observed_at, str(item.observation_id)))
+        total = len(values)
+        return total, tuple(values[offset : offset + limit])
 
     def _save(
         self,
-        bucket: str,
+        collection: str,
         stable_id: UUID,
         payload: dict[str, Any],
         *,
@@ -131,43 +122,36 @@ class JsonSourceObservationRepository:
         key = str(stable_id)
         with exclusive_lock(self.path):
             data = self._read()
-            existing = data[bucket].get(key)
+            existing = data[collection].get(key)
             if existing is not None:
                 if _same_payload(existing, payload, ignored_fields=ignored_fields):
-                    # Ignored fields are first-seen metadata and are intentionally preserved.
                     return
                 raise SourceObservationConflictError(
-                    f"conflicting {bucket} entry for stable ID {key}"
+                    f"conflicting source observation record: {collection}:{key}"
                 )
-            data[bucket][key] = payload
+            data[collection][key] = payload
             self._write(data)
 
     def _read(self) -> dict[str, Any]:
         try:
-            raw = self.path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise OSError(f"unable to read source observation catalog {self.path}: {exc}") from exc
-        try:
-            decoded: Any = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"invalid source observation catalog JSON {self.path}: {exc}"
+            decoded: Any = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OSError(
+                f"unable to read source observation catalog {self.path}: {exc}"
             ) from exc
         if not isinstance(decoded, dict):
-            raise RuntimeError("invalid source observation catalog: root must be an object")
+            raise RuntimeError("invalid source observation catalog: root must be a JSON object")
         data = cast(dict[str, Any], decoded)
         if data.get("schema_version") != 1:
-            raise RuntimeError("invalid or unsupported source observation catalog")
-        for bucket in ("observations", "resource_links"):
-            if bucket not in data or not isinstance(data[bucket], dict):
-                raise RuntimeError(f"invalid source observation catalog bucket: {bucket}")
+            raise RuntimeError("unsupported source observation catalog schema version")
+        for key in ("observations", "resource_links"):
+            if not isinstance(data.get(key), dict):
+                raise RuntimeError(f"invalid source observation catalog: {key} must be an object")
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
-        fd, temp_name = tempfile.mkstemp(
-            prefix=".tarkka-source-observations-",
-            dir=self.path.parent,
-        )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix=".source-observation-", dir=self.path.parent)
         temp_path = Path(temp_name)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -180,97 +164,129 @@ class JsonSourceObservationRepository:
             temp_path.unlink(missing_ok=True)
 
 
-def _fsync_directory(path: Path) -> None:
-    """Flush an atomic rename where the platform exposes POSIX directory fsync."""
-    if os.name != "posix":
-        return
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    descriptor = os.open(path, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
 def _empty_catalog() -> dict[str, Any]:
     return {"schema_version": 1, "observations": {}, "resource_links": {}}
 
 
+def _observation_to_dict(observation: SourceObservation) -> dict[str, Any]:
+    return {
+        "observation_id": str(observation.observation_id),
+        "source_name": observation.source_name,
+        "basis": observation.basis.value,
+        "source_version": observation.source_version,
+        "provider_record_id": observation.provider_record_id,
+        "media_type": observation.media_type,
+        "native_artifact_id": (
+            str(observation.native_artifact_id)
+            if observation.native_artifact_id is not None
+            else None
+        ),
+        "metadata": _json_value(dict(observation.metadata)),
+        "observed_at": observation.observed_at.isoformat(),
+    }
+
+
+def _observation_from_dict(payload: Any) -> SourceObservation:
+    if not isinstance(payload, dict):
+        raise RuntimeError("invalid source observation record")
+    return SourceObservation(
+        observation_id=UUID(payload["observation_id"]),
+        source_name=payload["source_name"],
+        basis=ObservationBasis(payload["basis"]),
+        source_version=payload.get("source_version"),
+        provider_record_id=payload.get("provider_record_id"),
+        media_type=payload.get("media_type"),
+        native_artifact_id=(
+            UUID(payload["native_artifact_id"])
+            if payload.get("native_artifact_id") is not None
+            else None
+        ),
+        metadata=payload.get("metadata", {}),
+        observed_at=datetime.fromisoformat(payload["observed_at"]),
+    )
+
+
+def _resource_link_to_dict(link: ResourceLinkObservation) -> dict[str, Any]:
+    return {
+        "link_id": str(link.link_id),
+        "observation_id": str(link.observation_id),
+        "target_uri": link.target_uri,
+        "relation": link.relation.value,
+        "media_type": link.media_type,
+        "label": link.label,
+        "metadata": _json_value(dict(link.metadata)),
+    }
+
+
+def _resource_link_from_dict(payload: Any) -> ResourceLinkObservation:
+    if not isinstance(payload, dict):
+        raise RuntimeError("invalid resource link observation record")
+    return ResourceLinkObservation(
+        link_id=UUID(payload["link_id"]),
+        observation_id=UUID(payload["observation_id"]),
+        target_uri=payload["target_uri"],
+        relation=ResourceRelation(payload["relation"]),
+        media_type=payload.get("media_type"),
+        label=payload.get("label"),
+        metadata=payload.get("metadata", {}),
+    )
+
+
 def _same_payload(
-    existing: dict[str, Any],
-    incoming: dict[str, Any],
+    left: Mapping[str, Any],
+    right: Mapping[str, Any],
     *,
     ignored_fields: frozenset[str],
 ) -> bool:
-    """Compare stable record content while excluding explicitly first-seen fields."""
-    existing_stable = {key: value for key, value in existing.items() if key not in ignored_fields}
-    incoming_stable = {key: value for key, value in incoming.items() if key not in ignored_fields}
-    return existing_stable == incoming_stable
+    keys = (set(left) | set(right)) - ignored_fields
+    return all(left.get(key) == right.get(key) for key in keys)
+
+
+def _bounded_resource_link_payloads(
+    values: Any,
+    *,
+    observation_ids: set[str],
+    offset: int,
+    limit: int,
+) -> tuple[int, list[dict[str, Any]]]:
+    selected = [
+        item
+        for item in values
+        if isinstance(item, dict) and item.get("observation_id") in observation_ids
+    ]
+    total = len(selected)
+    if limit <= 0 or offset >= total:
+        return total, []
+    stop = offset + limit
+    ordered = nsmallest(stop, selected, key=_resource_link_sort_key)
+    return total, ordered[offset:stop]
+
+
+def _resource_link_sort_key(payload: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(payload.get("relation", "")),
+        str(payload.get("target_uri", "")),
+        str(payload.get("link_id", "")),
+    )
 
 
 def _json_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
-    if isinstance(value, Mapping):
-        return {str(key): _json_value(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
+    if isinstance(value, list):
         return [_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_value(item) for key, item in value.items()}
     raise ValueError(f"unsupported source observation metadata value: {type(value).__name__}")
 
 
-def _observation_to_dict(value: SourceObservation) -> dict[str, Any]:
-    return {
-        "observation_id": str(value.observation_id),
-        "source_name": value.source_name,
-        "basis": value.basis.value,
-        "source_version": value.source_version,
-        "provider_record_id": value.provider_record_id,
-        "media_type": value.media_type,
-        "native_artifact_id": (str(value.native_artifact_id) if value.native_artifact_id else None),
-        "metadata": _json_value(value.metadata),
-        "observed_at": value.observed_at.isoformat(),
-    }
-
-
-def _observation_from_dict(raw: dict[str, Any]) -> SourceObservation:
-    return SourceObservation(
-        observation_id=UUID(raw["observation_id"]),
-        source_name=raw["source_name"],
-        basis=ObservationBasis(raw["basis"]),
-        source_version=raw.get("source_version"),
-        provider_record_id=raw.get("provider_record_id"),
-        media_type=raw.get("media_type"),
-        native_artifact_id=(
-            UUID(raw["native_artifact_id"]) if raw.get("native_artifact_id") else None
-        ),
-        metadata=raw.get("metadata", {}),
-        observed_at=datetime.fromisoformat(raw["observed_at"]),
-    )
-
-
-def _resource_link_to_dict(value: ResourceLinkObservation) -> dict[str, Any]:
-    return {
-        "link_id": str(value.link_id),
-        "observation_id": str(value.observation_id),
-        "target_uri": value.target_uri,
-        "relation": value.relation.value,
-        "media_type": value.media_type,
-        "label": value.label,
-        "metadata": _json_value(value.metadata),
-    }
-
-
-def _resource_link_from_dict(raw: dict[str, Any]) -> ResourceLinkObservation:
-    return ResourceLinkObservation(
-        link_id=UUID(raw["link_id"]),
-        observation_id=UUID(raw["observation_id"]),
-        target_uri=raw["target_uri"],
-        relation=ResourceRelation(raw["relation"]),
-        media_type=raw.get("media_type"),
-        label=raw.get("label"),
-        metadata=raw.get("metadata", {}),
-    )
-
-
-def _resource_link_sort_key(raw: dict[str, Any]) -> tuple[str, str, str]:
-    return raw["relation"], raw["target_uri"], raw["link_id"]
+def _fsync_directory(path: Path) -> None:
+    if os.name != "posix":
+        return
+    directory_fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)

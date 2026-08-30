@@ -156,6 +156,21 @@ def test_normalized_document_rejects_section_and_passage_invariant_violations() 
     _reject(value, "passage range must match text length")
 
 
+def test_normalized_document_accepts_child_before_resolved_parent() -> None:
+    value = _value()
+    parent = value["sections"][0]
+    child = copy.deepcopy(parent)
+    child["section_id"] = _OTHER_UUID
+    child["ordinal"] = 1
+    child["parent_section_id"] = parent["section_id"]
+    child["passages"] = []
+    value["sections"] = [child, parent]
+
+    parsed = parse_canonical_normalized_document_bytes(_canonical_json(value))
+
+    assert parsed == value
+
+
 def test_normalized_document_rejects_source_artifact_invariant_violations() -> None:
     value = _value()
     value["figures"] = {}
@@ -229,3 +244,8 @@ def test_version_dispatch_does_not_reinterpret_bare_v1_shape_as_v3() -> None:
 
     with pytest.raises(ValueError, match="unsupported proof bundle schema version"):
         proof_bundle_manifest_from_versioned_dict(value)
+
+
+def test_version_dispatch_rejects_non_mapping_through_frozen_parser() -> None:
+    with pytest.raises(ValueError, match="object with string keys"):
+        proof_bundle_manifest_from_versioned_dict([])

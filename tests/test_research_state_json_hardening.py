@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+import tarkka.infrastructure.proof_bundle_v2 as proof_bundle_v2
 from tarkka.infrastructure.proof_bundle_v2 import (
     ProofBundleResearchStateJsonError,
     canonical_research_state_bytes,
@@ -12,22 +13,22 @@ from tarkka.infrastructure.proof_bundle_v2 import (
 pytestmark = [pytest.mark.unit, pytest.mark.regression, pytest.mark.security]
 
 
-def test_research_state_parser_rejects_excessive_json_nesting() -> None:
-    deeply_nested = b"[" * 5_000 + b"0" + b"]" * 5_000
+def _raise_recursion(*args: object, **kwargs: object) -> object:
+    raise RecursionError("simulated JSON recursion exhaustion")
+
+
+def test_research_state_parser_wraps_json_recursion_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = canonical_research_state_bytes({"claims": []})
+    monkeypatch.setattr(proof_bundle_v2.json, "loads", _raise_recursion)
 
     with pytest.raises(ProofBundleResearchStateJsonError, match="supported nesting depth"):
-        parse_canonical_research_state_bytes(deeply_nested)
+        parse_canonical_research_state_bytes(data)
     with pytest.raises(ProofBundleResearchStateJsonError, match="supported nesting depth"):
-        validate_canonical_research_state_bytes(deeply_nested)
+        validate_canonical_research_state_bytes(data)
 
 
-def test_research_state_encoder_wraps_recursion_failures() -> None:
-    nested: list[object] = []
-    current = nested
-    for _ in range(5_000):
-        child: list[object] = []
-        current.append(child)
-        current = child
+def test_research_state_encoder_wraps_recursion_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(proof_bundle_v2.json, "dumps", _raise_recursion)
 
     with pytest.raises(ProofBundleResearchStateJsonError, match="not JSON-compatible"):
-        canonical_research_state_bytes(nested)
+        canonical_research_state_bytes({"claims": []})

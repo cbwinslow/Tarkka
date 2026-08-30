@@ -35,6 +35,26 @@ def test_open_existing_returns_none_for_missing_catalog(tmp_path: Path) -> None:
     assert not path.exists()
 
 
+def test_open_existing_rejects_directory_catalog(tmp_path: Path) -> None:
+    path = tmp_path / "observations.json"
+    path.mkdir()
+
+    with pytest.raises(ValueError, match="catalog path is a directory"):
+        JsonSourceObservationRepository.open_existing(path)
+
+
+def test_open_existing_reuses_existing_file_without_mutation(tmp_path: Path) -> None:
+    path = tmp_path / "observations.json"
+    created = JsonSourceObservationRepository(path)
+    before = path.read_bytes()
+
+    opened = JsonSourceObservationRepository.open_existing(path)
+
+    assert opened is not None
+    assert opened.path == created.path
+    assert path.read_bytes() == before
+
+
 def test_short_resource_page_reports_selected_count(tmp_path: Path) -> None:
     repository = JsonSourceObservationRepository(tmp_path / "observations.json")
     artifact_id = uuid4()

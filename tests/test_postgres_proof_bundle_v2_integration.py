@@ -1,29 +1,39 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
+from tarkka.application.document_research_state import document_research_state_view
+from tarkka.domain.citations import CitationMention
 from tarkka.domain.extraction import ExtractionBatch
 from tarkka.domain.manifest import build_document_manifest
+from tarkka.infrastructure.postgres.citation_context_repository import (
+    PostgresCitationContextRepository,
+)
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.extraction_repository import PostgresExtractionRepository
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleV2SnapshotReader
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.postgres.verification_repository import PostgresVerificationRepository
-from tests.support.claim_lineage import claim_lineage_fixture
+from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
+from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
+from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
+from tarkka.infrastructure.storage.proof_bundle_snapshot import JsonProofBundleV2SnapshotReader
+from tests.support.claim_lineage import persist_local_claim_lineage
 
 pytestmark = [pytest.mark.external, pytest.mark.postgres, pytest.mark.integration]
 
 
-def test_postgres_v2_snapshot_reads_persisted_claim_lineage_in_one_backend() -> None:
+def test_v2_snapshot_research_state_matches_between_real_json_and_postgres(tmp_path: Path) -> None:
     settings = PostgresSettings.from_environment()
-    fixture = claim_lineage_fixture()
-    relation = replace(fixture.relation, citation_context_id=None)
+    json_home = tmp_path / "json"
+    fixture = persist_local_claim_lineage(json_home)
 
-    documents = PostgresResearchRepository(settings)
-    documents.save_artifact(fixture.artifact)
-    documents.save_document(
+    postgres_documents = PostgresResearchRepository(settings)
+    postgres_documents.save_artifact(fixture.artifact)
+    postgres_documents.save_document(
         fixture.document,
         build_document_manifest(fixture.document, fixture.artifact),
     )
@@ -35,19 +45,53 @@ def test_postgres_v2_snapshot_reads_persisted_claim_lineage_in_one_backend() -> 
             extractions=(fixture.claim,),
         )
     )
-    PostgresVerificationRepository(settings).save_relation(relation)
+    postgres_citations = PostgresCitationContextRepository(settings)
+    postgres_citations.save_mention(
+        CitationMention(
+            mention_id=fixture.context.mention_id,
+            document_id=fixture.document.document_id,
+            raw_text=fixture.context.text,
+            section_id=fixture.context.section_id,
+            passage_id=fixture.context.passage_id,
+            char_start=fixture.context.char_start,
+            char_end=fixture.context.char_end,
+        )
+    )
+    postgres_citations.save_context(fixture.context)
+    PostgresVerificationRepository(settings).save_relation(fixture.relation)
 
-    snapshot = PostgresProofBundleV2SnapshotReader(settings).read(fixture.document.document_id)
+    json_documents = JsonResearchRepository.open_existing(json_home / "catalog.json")
+    json_extractions = JsonExtractionRepository.open_existing(json_home / "extractions.json")
+    json_verifications = JsonVerificationRepository.open_existing(json_home / "verifications.json")
+    json_citations = JsonCitationRepository.open_existing(json_home / "citations.json")
+    assert json_documents is not None
+    assert json_extractions is not None
+    assert json_verifications is not None
+    assert json_citations is not None
 
-    assert snapshot is not None
-    assert snapshot.source.document == fixture.document
-    assert snapshot.source.artifact == fixture.artifact
-    assert len(snapshot.research_state.claim_lineages) == 1
-    lineage = snapshot.research_state.claim_lineages[0]
+    json_snapshot = JsonProofBundleV2SnapshotReader(
+        documents=json_documents,
+        observations=None,
+        extractions=json_extractions,
+        verifications=json_verifications,
+        citations=json_citations,
+    ).read(fixture.document.document_id)
+    postgres_snapshot = PostgresProofBundleV2SnapshotReader(settings).read(
+        fixture.document.document_id
+    )
+
+    assert json_snapshot is not None
+    assert postgres_snapshot is not None
+    assert postgres_snapshot.source.document == fixture.document
+    assert postgres_snapshot.source.artifact == fixture.artifact
+    assert document_research_state_view(postgres_snapshot.research_state) == (
+        document_research_state_view(json_snapshot.research_state)
+    )
+    lineage = postgres_snapshot.research_state.claim_lineages[0]
     assert lineage.claim == fixture.claim
     assert lineage.claim_run == fixture.run
     assert tuple(item.evidence for item in lineage.claim_evidence) == fixture.evidence
-    assert lineage.assessments[0].relation == relation
-    assert lineage.assessments[0].citation_context is None
+    assert lineage.assessments[0].relation == fixture.relation
+    assert lineage.assessments[0].citation_context == fixture.context
     assert lineage.assessments[0].evidence is not None
     assert lineage.assessments[0].evidence.evidence == fixture.evidence[0]

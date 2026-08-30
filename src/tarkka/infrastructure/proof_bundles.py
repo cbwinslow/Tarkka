@@ -225,17 +225,14 @@ def _verify_archive(
     expected_names = [PROOF_BUNDLE_MANIFEST_PATH, manifest.artifact.path]
     if isinstance(manifest, ProofBundleManifestV3):
         research_state = manifest.research_state
-        normalized_document = manifest.normalized_document
-        expected_names.extend((research_state.path, normalized_document.path))
+        expected_names.extend((research_state.path, manifest.normalized_document.path))
     elif isinstance(manifest, ProofBundleManifestV2):
         research_state = manifest.research_state
-        normalized_document = None
         expected_names.append(research_state.path)
         if len(infos) > 3:
             raise ProofBundleVerificationError("proof bundle contains unexpected archive members")
     else:
         research_state = None
-        normalized_document = None
         if len(infos) > 2:
             raise ProofBundleVerificationError("proof bundle contains unexpected archive members")
     if names != expected_names:
@@ -272,7 +269,8 @@ def _verify_archive(
         except ProofBundleResearchStateJsonError as exc:
             raise ProofBundleVerificationError(str(exc)) from exc
 
-    if normalized_document is not None:
+    if isinstance(manifest, ProofBundleManifestV3):
+        normalized_document = manifest.normalized_document
         document_bytes = _validated_json_member_bytes(
             archive,
             path=normalized_document.path,

@@ -68,6 +68,14 @@ def test_normalized_document_rejects_root_shape_and_scalar_contract_violations()
     _reject(value, "document_id must be a UUID")
 
     value = _value()
+    value["document_id"] = value["document_id"].upper()
+    _reject(value, "document_id must be a canonical lowercase UUID")
+
+    value = _value()
+    value["artifact_id"] = "{" + value["artifact_id"] + "}"
+    _reject(value, "artifact_id must be a canonical lowercase UUID")
+
+    value = _value()
     value["title"] = 7
     _reject(value, "title must be a string")
 
@@ -94,6 +102,20 @@ def test_normalized_document_rejects_section_and_passage_invariant_violations() 
     _reject(value, "parent section must refer to a preserved section")
 
     value = _value()
+    value["sections"][0]["parent_section_id"] = value["sections"][0]["section_id"]
+    _reject(value, "section parents must be acyclic")
+
+    value = _value()
+    second = copy.deepcopy(value["sections"][0])
+    second["section_id"] = _OTHER_UUID
+    second["ordinal"] = 1
+    second["passages"] = []
+    value["sections"][0]["parent_section_id"] = _OTHER_UUID
+    second["parent_section_id"] = value["sections"][0]["section_id"]
+    value["sections"].append(second)
+    _reject(value, "section parents must be acyclic")
+
+    value = _value()
     duplicate = copy.deepcopy(value["sections"][0])
     duplicate["ordinal"] = 99
     value["sections"].append(duplicate)
@@ -109,6 +131,12 @@ def test_normalized_document_rejects_section_and_passage_invariant_violations() 
     duplicate_passage = copy.deepcopy(value["sections"][0]["passages"][0])
     value["sections"][0]["passages"].append(duplicate_passage)
     _reject(value, "passage IDs must be unique")
+
+    value = _value()
+    duplicate_passage = copy.deepcopy(value["sections"][0]["passages"][0])
+    duplicate_passage["passage_id"] = _OTHER_UUID
+    value["sections"][0]["passages"].append(duplicate_passage)
+    _reject(value, "passage ordinals must be unique within each section")
 
     value = _value()
     value["sections"][0]["passages"][0]["ordinal"] = -1
@@ -178,6 +206,13 @@ def test_normalized_document_accepts_absent_optional_source_artifact_metadata() 
     parsed = parse_canonical_normalized_document_bytes(_canonical_json(value))
 
     assert parsed == value
+
+
+def test_normalized_document_rejects_excessive_json_nesting() -> None:
+    deeply_nested = b"[" * 5_000 + b"0" + b"]" * 5_000
+
+    with pytest.raises(NormalizedDocumentJsonError, match="supported nesting depth"):
+        parse_canonical_normalized_document_bytes(deeply_nested)
 
 
 def test_version_dispatch_does_not_reinterpret_bare_v1_shape_as_v3() -> None:

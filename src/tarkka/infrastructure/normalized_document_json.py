@@ -150,7 +150,10 @@ def _validate_normalized_document(value: object) -> Mapping[str, object]:
     for section in sections:
         item = _mapping(section, "normalized document section")
         parent = item["parent_section_id"]
-        if parent is not None and _string(parent, "normalized document parent_section_id") not in section_ids:
+        if (
+            parent is not None
+            and _string(parent, "normalized document parent_section_id") not in section_ids
+        ):
             raise NormalizedDocumentJsonError(
                 "normalized document parent section must refer to a preserved section"
             )
@@ -171,7 +174,9 @@ def _validate_passage(value: object) -> str:
     passage_id = _uuid(item["passage_id"], "normalized document passage_id")
     _non_negative_integer(item["ordinal"], "normalized document passage ordinal")
     text = _string(item["text"], "normalized document passage text")
-    char_start = _non_negative_integer(item["char_start"], "normalized document passage char_start")
+    char_start = _non_negative_integer(
+        item["char_start"], "normalized document passage char_start"
+    )
     char_end = _non_negative_integer(item["char_end"], "normalized document passage char_end")
     if char_end < char_start or char_end - char_start != len(text):
         raise NormalizedDocumentJsonError(
@@ -219,14 +224,18 @@ def _validate_artifact_list(value: object, *, kind: str) -> None:
         _exact_keys(item, expected, f"normalized document {kind}")
         identifier = _uuid(item[identifier_field], f"normalized document {identifier_field}")
         ordinal = _non_negative_integer(item["ordinal"], f"normalized document {kind} ordinal")
-        _optional_positive_integer(item["page_number"], f"normalized document {kind} page_number")
+        _optional_positive_integer(
+            item["page_number"], f"normalized document {kind} page_number"
+        )
         _optional_non_blank_string(item["label"], f"normalized document {kind} label")
         if kind in {"figure", "table"}:
             _optional_non_blank_string(item["caption"], f"normalized document {kind} caption")
         if kind == "figure":
             _non_blank_string(item["figure_type"], "normalized document figure_type")
         elif kind == "table":
-            _optional_non_negative_integer(item["row_count"], "normalized document table row_count")
+            _optional_non_negative_integer(
+                item["row_count"], "normalized document table row_count"
+            )
             _optional_non_negative_integer(
                 item["column_count"], "normalized document table column_count"
             )
@@ -243,8 +252,10 @@ def _validate_artifact_list(value: object, *, kind: str) -> None:
 
 
 def _mapping(value: object, field_name: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
-        raise NormalizedDocumentJsonError(f"{field_name} must be an object with string keys")
+    # json.loads guarantees string keys for JSON objects, so checking key types here would
+    # create an unreachable branch rather than harden the untrusted-byte boundary.
+    if not isinstance(value, Mapping):
+        raise NormalizedDocumentJsonError(f"{field_name} must be an object")
     return value
 
 

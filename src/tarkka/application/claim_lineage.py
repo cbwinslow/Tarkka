@@ -19,7 +19,7 @@ from tarkka.domain.identifiers import artifact_id_from_sha256
 from tarkka.domain.models import Artifact, Document, Passage
 from tarkka.domain.source_artifacts import Equation, Figure, Table
 from tarkka.domain.verification import EvidenceRelation
-from tarkka.ports.repositories import ResearchRepository
+from tarkka.ports.repositories import DocumentArtifactReader
 from tarkka.ports.verification import (
     CitationContextReader,
     ClaimLineageSourceReader,
@@ -118,7 +118,7 @@ class ClaimLineageService:
         *,
         source: ClaimLineageSourceReader,
         relations: EvidenceRelationReader,
-        documents: ResearchRepository,
+        documents: DocumentArtifactReader,
         citations: CitationContextReader | None = None,
     ) -> None:
         self._source = source

@@ -119,9 +119,21 @@ def test_replay_mismatches_are_structural_deterministic_and_bounded() -> None:
     assert all(len(item.expected) <= 20 and len(item.actual) <= 20 for item in mismatches)
 
 
+def test_replay_mismatches_continue_after_list_length_difference_when_capacity_remains() -> None:
+    mismatches = replay_mismatches([1, 2], [9, 2, 3], limit=3)
+
+    assert [item.path for item in mismatches] == ["length", "[0]"]
+    assert mismatches[0].expected == "2"
+    assert mismatches[0].actual == "3"
+    assert mismatches[1].expected == "1"
+    assert mismatches[1].actual == "9"
+
+
 def test_replay_mismatches_cover_root_scalar_and_argument_validation() -> None:
     assert replay_mismatches("expected", "actual")[0].path == "$"
-    assert replay_mismatches({"a": object()}, {"a": object()})[0].path == "a"
+    object_mismatch = replay_mismatches({"a": object()}, {"a": object()})[0]
+    assert object_mismatch.path == "a"
+    assert object_mismatch.expected.startswith("<object object at")
     assert replay_mismatches([1, 2], [1, 2]) == ()
 
     with pytest.raises(ValueError, match="mismatch limit"):

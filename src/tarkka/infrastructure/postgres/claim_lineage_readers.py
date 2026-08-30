@@ -128,6 +128,8 @@ class PostgresClaimLineageRelationReader:
             _SELECT_RELATION_PAGE,
             (claim_id, offset, limit, claim_id),
         ).fetchall()
+        if not rows:
+            raise RuntimeError("PostgreSQL relation page query returned no total row")
         first = cast(tuple[Any, ...], rows[0])
         total = int(first[0])
         relations = tuple(

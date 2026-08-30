@@ -21,7 +21,7 @@ from tarkka.domain.source_artifacts import Equation, Figure, Table
 from tarkka.domain.verification import EvidenceRelation
 from tarkka.ports.repositories import DocumentArtifactReader
 from tarkka.ports.verification import (
-    CitationContextReader,
+    CitationContextLookup,
     ClaimLineageSourceReader,
     EvidenceRelationReader,
 )
@@ -119,7 +119,7 @@ class ClaimLineageService:
         source: ClaimLineageSourceReader,
         relations: EvidenceRelationReader,
         documents: DocumentArtifactReader,
-        citations: CitationContextReader | None = None,
+        citations: CitationContextLookup | None = None,
     ) -> None:
         self._source = source
         self._relations = relations

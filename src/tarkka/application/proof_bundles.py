@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
+from tarkka.application.document_research_state import (
+    DocumentResearchState,
+    document_research_state_view,
+)
 from tarkka.domain.models import Artifact, Document
 from tarkka.domain.proof_bundle_v2 import (
     PROOF_BUNDLE_RESEARCH_STATE_PATH,
@@ -40,6 +44,10 @@ class ProofBundleArtifactIntegrityError(RuntimeError):
     """Raised when preserved Artifact bytes do not match their immutable identity."""
 
 
+class ProofBundleResearchStateIntegrityError(RuntimeError):
+    """Raised when v2 research state contradicts its source Document snapshot."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProofBundleSnapshot:
     """One self-consistent read of the canonical state needed by bundle v1."""
@@ -56,7 +64,7 @@ class ProofBundleV2Snapshot:
     """One coherent source snapshot plus its complete validated document research state."""
 
     source: ProofBundleSnapshot
-    research_state: dict[str, object]
+    research_state: DocumentResearchState
 
 
 class ProofBundleSnapshotReader(Protocol):
@@ -143,7 +151,13 @@ class ProofBundleV2Service:
             document_id=document_id,
             artifacts=self._artifacts,
         )
-        research_state_bytes = self._encode_research_state(snapshot.research_state)
+        if snapshot.research_state.document_id != source.document.document_id:
+            raise ProofBundleResearchStateIntegrityError(
+                "proof bundle research state belongs to a different Document"
+            )
+        research_state_bytes = self._encode_research_state(
+            document_research_state_view(snapshot.research_state)
+        )
         research_state = ProofBundleResearchState(
             path=PROOF_BUNDLE_RESEARCH_STATE_PATH,
             sha256=hashlib.sha256(research_state_bytes).hexdigest(),

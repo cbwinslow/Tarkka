@@ -16,10 +16,7 @@ from tarkka.infrastructure.postgres.extraction_repository import PostgresExtract
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleV2SnapshotReader
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.postgres.verification_repository import PostgresVerificationRepository
-from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
-from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
-from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 from tarkka.infrastructure.storage.proof_bundle_snapshot import JsonProofBundleV2SnapshotReader
 from tests.support.claim_lineage import persist_local_claim_lineage
 
@@ -61,20 +58,14 @@ def test_v2_snapshot_research_state_matches_between_real_json_and_postgres(tmp_p
     PostgresVerificationRepository(settings).save_relation(fixture.relation)
 
     json_documents = JsonResearchRepository.open_existing(json_home / "catalog.json")
-    json_extractions = JsonExtractionRepository.open_existing(json_home / "extractions.json")
-    json_verifications = JsonVerificationRepository.open_existing(json_home / "verifications.json")
-    json_citations = JsonCitationRepository.open_existing(json_home / "citations.json")
     assert json_documents is not None
-    assert json_extractions is not None
-    assert json_verifications is not None
-    assert json_citations is not None
 
     json_snapshot = JsonProofBundleV2SnapshotReader(
         documents=json_documents,
-        observations=None,
-        extractions=json_extractions,
-        verifications=json_verifications,
-        citations=json_citations,
+        observations_path=json_home / "source_observations.json",
+        extractions_path=json_home / "extractions.json",
+        verifications_path=json_home / "verifications.json",
+        citations_path=json_home / "citations.json",
     ).read(fixture.document.document_id)
     postgres_snapshot = PostgresProofBundleV2SnapshotReader(settings).read(
         fixture.document.document_id

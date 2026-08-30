@@ -161,7 +161,7 @@ def _artifact_row(fixture: ClaimLineageFixture) -> tuple[Any, ...]:
     )
 
 
-def test_connection_bound_source_reader_decodes_claim_run_and_evidence() -> None:
+def test_connection_bound_source_reader_decodes_and_caches_claim_run_and_evidence() -> None:
     fixture = claim_lineage_fixture()
     connection = _Connection(
         [
@@ -176,19 +176,31 @@ def test_connection_bound_source_reader_decodes_claim_run_and_evidence() -> None
     assert reader.get_extraction(fixture.claim.extraction_id) == fixture.claim
     assert reader.get_run(fixture.run.run_id) == fixture.run
     assert reader.get_evidence(fixture.evidence[0].evidence_id) == fixture.evidence[0]
+    assert reader.get_extraction(fixture.claim.extraction_id) == fixture.claim
+    assert reader.get_run(fixture.run.run_id) == fixture.run
+    assert reader.get_evidence(fixture.evidence[0].evidence_id) == fixture.evidence[0]
+    assert len(connection.calls) == 4
+    assert connection.cursors == []
 
 
-def test_connection_bound_source_reader_handles_missing_records() -> None:
-    reader = PostgresClaimLineageSourceReader(
-        _Connection([_Cursor(row=None), _Cursor(row=None), _Cursor(row=None)])
-    )
+def test_connection_bound_source_reader_caches_missing_records() -> None:
+    connection = _Connection([_Cursor(row=None), _Cursor(row=None), _Cursor(row=None)])
+    reader = PostgresClaimLineageSourceReader(connection)
+    extraction_id = UUID(int=1)
+    run_id = UUID(int=2)
+    evidence_id = UUID(int=3)
 
-    assert reader.get_extraction(UUID(int=1)) is None
-    assert reader.get_run(UUID(int=2)) is None
-    assert reader.get_evidence(UUID(int=3)) is None
+    assert reader.get_extraction(extraction_id) is None
+    assert reader.get_run(run_id) is None
+    assert reader.get_evidence(evidence_id) is None
+    assert reader.get_extraction(extraction_id) is None
+    assert reader.get_run(run_id) is None
+    assert reader.get_evidence(evidence_id) is None
+    assert len(connection.calls) == 3
+    assert connection.cursors == []
 
 
-def test_connection_bound_source_reader_lists_claims_and_validates_limit() -> None:
+def test_connection_bound_source_reader_lists_claims_populates_cache_and_validates_limit() -> None:
     fixture = claim_lineage_fixture()
     connection = _Connection(
         [_Cursor(rows=[_claim_row(fixture)]), _Cursor(rows=_evidence_link_rows(fixture))]
@@ -196,6 +208,9 @@ def test_connection_bound_source_reader_lists_claims_and_validates_limit() -> No
     reader = PostgresClaimLineageSourceReader(connection)
 
     assert reader.list_claims(fixture.document.document_id, limit=5) == (fixture.claim,)
+    call_count = len(connection.calls)
+    assert reader.get_extraction(fixture.claim.extraction_id) == fixture.claim
+    assert len(connection.calls) == call_count
     assert connection.calls[0][1] == (
         fixture.document.document_id,
         ResearchObjectKind.CLAIM.value,
@@ -235,7 +250,7 @@ def test_connection_bound_relation_reader_returns_total_page_and_empty_page() ->
         reader.page_relations(fixture.claim.extraction_id, limit=-1)
 
 
-def test_connection_bound_document_reader_reuses_normalized_repository_decoders() -> None:
+def test_connection_bound_document_reader_reuses_decoders_and_caches_full_objects() -> None:
     fixture = claim_lineage_fixture()
     connection = _Connection(
         [
@@ -249,25 +264,35 @@ def test_connection_bound_document_reader_reuses_normalized_repository_decoders(
         ]
     )
     reader = PostgresClaimLineageDocumentReader(connection)
-
-    assert reader.get_document(fixture.document.document_id) == replace(
+    expected_document = replace(
         fixture.document,
         sections=(),
         figures=(),
         tables=(),
         equations=(),
     )
+
+    assert reader.get_document(fixture.document.document_id) == expected_document
+    assert reader.get_document(fixture.document.document_id) == expected_document
     assert reader.get_artifact(fixture.artifact.artifact_id) == fixture.artifact
+    assert reader.get_artifact(fixture.artifact.artifact_id) == fixture.artifact
+    assert len(connection.calls) == 7
+    assert connection.cursors == []
 
 
-def test_connection_bound_citation_reader_scopes_context_to_document() -> None:
+def test_connection_bound_citation_reader_scopes_and_caches_contexts() -> None:
     fixture = claim_lineage_fixture()
     connection = _Connection([_Cursor(row=_context_row(fixture)), _Cursor(row=None)])
     reader = PostgresClaimLineageCitationReader(connection)
+    missing_id = UUID(int=999)
 
     assert reader.get_context(fixture.document.document_id, fixture.context.context_id) == fixture.context
-    assert reader.get_context(fixture.document.document_id, UUID(int=999)) is None
+    assert reader.get_context(fixture.document.document_id, fixture.context.context_id) == fixture.context
+    assert reader.get_context(fixture.document.document_id, missing_id) is None
+    assert reader.get_context(fixture.document.document_id, missing_id) is None
     assert connection.calls[0][1] == (
         fixture.document.document_id,
         fixture.context.context_id,
     )
+    assert len(connection.calls) == 2
+    assert connection.cursors == []

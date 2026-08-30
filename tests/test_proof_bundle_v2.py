@@ -69,6 +69,18 @@ def _archive(members: list[tuple[str, bytes]]) -> bytes:
     return buffer.getvalue()
 
 
+def _payload_archive(payload: ProofBundlePayload) -> bytes:
+    assert isinstance(payload.manifest, ProofBundleManifestV2)
+    assert payload.research_state_bytes is not None
+    return _archive(
+        [
+            (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
+            (payload.manifest.artifact.path, payload.artifact_bytes),
+            (payload.manifest.research_state.path, payload.research_state_bytes),
+        ]
+    )
+
+
 def _canonical_json(value: object) -> bytes:
     return (
         json.dumps(
@@ -341,7 +353,7 @@ def test_verifier_rejects_v2_research_state_size_digest_limit_and_json_tampering
         research_state_bytes=noncanonical,
     )
     with pytest.raises(ProofBundleVerificationError, match="not canonically encoded"):
-        verify_proof_bundle_bytes(build_proof_bundle_bytes(noncanonical_payload))
+        verify_proof_bundle_bytes(_payload_archive(noncanonical_payload))
 
     duplicate = b'{"claims":[],"claims":[]}\n'
     duplicate_descriptor = ProofBundleResearchState(
@@ -355,7 +367,7 @@ def test_verifier_rejects_v2_research_state_size_digest_limit_and_json_tampering
         research_state_bytes=duplicate,
     )
     with pytest.raises(ProofBundleVerificationError, match="duplicate JSON key"):
-        verify_proof_bundle_bytes(build_proof_bundle_bytes(duplicate_payload))
+        verify_proof_bundle_bytes(_payload_archive(duplicate_payload))
 
 
 def test_verifier_rejects_more_than_three_members_and_nonpositive_v2_limit() -> None:

@@ -25,15 +25,9 @@ from tarkka.infrastructure.proof_bundles import (
 from tarkka.interfaces.proof_bundle_runtime import (
     SUPPORTED_PROOF_BUNDLE_SCHEMA_VERSIONS,
     proof_bundle_service,
-    tarkka_home,
 )
 
 _SUPPORTED_SCHEMA_VERSIONS = SUPPORTED_PROOF_BUNDLE_SCHEMA_VERSIONS
-
-
-def _home() -> Path:
-    """Compatibility wrapper for the shared configured Tarkka home."""
-    return tarkka_home()
 
 
 def _parse_document_id(raw: str) -> UUID:

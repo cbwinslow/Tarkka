@@ -17,10 +17,13 @@ from tarkka.application.proof_bundles import (
     ProofBundleSnapshotReader,
     ProofBundleV2Service,
     ProofBundleV2SnapshotReader,
+    ProofBundleV3Service,
 )
 from tarkka.config import document_backend
 from tarkka.domain.proof_bundle_v2 import PROOF_BUNDLE_SCHEMA_VERSION_V2
+from tarkka.domain.proof_bundle_v3 import PROOF_BUNDLE_SCHEMA_VERSION_V3
 from tarkka.domain.proof_bundles import PROOF_BUNDLE_SCHEMA_VERSION
+from tarkka.infrastructure.normalized_document_json import canonical_normalized_document_bytes
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import (
     PostgresProofBundleSnapshotReader,
@@ -42,7 +45,11 @@ from tarkka.infrastructure.storage.proof_bundle_snapshot import (
     JsonProofBundleV2SnapshotReader,
 )
 
-_SUPPORTED_SCHEMA_VERSIONS = (PROOF_BUNDLE_SCHEMA_VERSION, PROOF_BUNDLE_SCHEMA_VERSION_V2)
+_SUPPORTED_SCHEMA_VERSIONS = (
+    PROOF_BUNDLE_SCHEMA_VERSION,
+    PROOF_BUNDLE_SCHEMA_VERSION_V2,
+    PROOF_BUNDLE_SCHEMA_VERSION_V3,
+)
 
 
 def _home() -> Path:
@@ -58,7 +65,7 @@ def _parse_document_id(raw: str) -> UUID:
 
 def _bundle_service(
     schema_version: int = PROOF_BUNDLE_SCHEMA_VERSION,
-) -> ProofBundleService | ProofBundleV2Service:
+) -> ProofBundleService | ProofBundleV2Service | ProofBundleV3Service:
     if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
         raise ValueError(f"unsupported proof bundle schema version: {schema_version}")
 
@@ -93,10 +100,18 @@ def _bundle_service(
         )
     else:
         v2_snapshots = PostgresProofBundleV2SnapshotReader(PostgresSettings.from_environment())
-    return ProofBundleV2Service(
+    artifacts = LocalArtifactStore(home / "artifacts")
+    if schema_version == PROOF_BUNDLE_SCHEMA_VERSION_V2:
+        return ProofBundleV2Service(
+            snapshots=v2_snapshots,
+            artifacts=artifacts,
+            encode_research_state=canonical_research_state_bytes,
+        )
+    return ProofBundleV3Service(
         snapshots=v2_snapshots,
-        artifacts=LocalArtifactStore(home / "artifacts"),
+        artifacts=artifacts,
         encode_research_state=canonical_research_state_bytes,
+        encode_normalized_document=canonical_normalized_document_bytes,
     )
 
 

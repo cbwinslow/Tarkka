@@ -207,9 +207,13 @@ def _verify_archive(
     manifest = _parse_manifest(manifest_bytes)
 
     expected_names = [PROOF_BUNDLE_MANIFEST_PATH, manifest.artifact.path]
-    research_state = manifest.research_state if isinstance(manifest, ProofBundleManifestV2) else None
-    if research_state is not None:
+    if isinstance(manifest, ProofBundleManifestV2):
+        research_state = manifest.research_state
         expected_names.append(research_state.path)
+    else:
+        research_state = None
+        if len(infos) > 2:
+            raise ProofBundleVerificationError("proof bundle contains unexpected archive members")
     if names != expected_names:
         raise ProofBundleVerificationError(
             "proof bundle contains missing, unexpected, or noncanonical archive members"

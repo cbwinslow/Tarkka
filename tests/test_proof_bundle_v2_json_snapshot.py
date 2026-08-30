@@ -9,6 +9,7 @@ import pytest
 
 import tarkka.infrastructure.storage.proof_bundle_snapshot as snapshot_module
 from tarkka.application.document_research_state import document_research_state_view
+from tarkka.domain.extraction import ExtractionBatch
 from tarkka.domain.manifest import build_document_manifest
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
@@ -40,18 +41,22 @@ def _existing_repositories(
     return documents, extractions, verifications, citations
 
 
+def _reader(home: Path, documents: JsonResearchRepository) -> JsonProofBundleV2SnapshotReader:
+    return JsonProofBundleV2SnapshotReader(
+        documents=documents,
+        observations_path=home / "source_observations.json",
+        extractions_path=home / "extractions.json",
+        verifications_path=home / "verifications.json",
+        citations_path=home / "citations.json",
+    )
+
+
 def test_json_v2_snapshot_captures_complete_claim_lineage(tmp_path: Path) -> None:
     fixture = persist_local_claim_lineage(tmp_path)
-    documents, extractions, verifications, citations = _existing_repositories(tmp_path)
-    observations = JsonSourceObservationRepository(tmp_path / "source_observations.json")
+    documents, _, _, _ = _existing_repositories(tmp_path)
+    JsonSourceObservationRepository(tmp_path / "source_observations.json")
 
-    snapshot = JsonProofBundleV2SnapshotReader(
-        documents=documents,
-        observations=observations,
-        extractions=extractions,
-        verifications=verifications,
-        citations=citations,
-    ).read(fixture.document.document_id)
+    snapshot = _reader(tmp_path, documents).read(fixture.document.document_id)
 
     assert snapshot is not None
     assert snapshot.source.document == fixture.document
@@ -78,17 +83,11 @@ def test_json_v2_snapshot_captures_complete_claim_lineage(tmp_path: Path) -> Non
 
 def test_json_v2_snapshot_allows_semantically_empty_optional_catalogs(tmp_path: Path) -> None:
     fixture = persist_local_claim_lineage(tmp_path, include_verification=False)
-    documents, extractions, verifications, citations = _existing_repositories(tmp_path)
+    documents, _, verifications, citations = _existing_repositories(tmp_path)
     assert verifications is None
     assert citations is None
 
-    snapshot = JsonProofBundleV2SnapshotReader(
-        documents=documents,
-        observations=None,
-        extractions=extractions,
-        verifications=None,
-        citations=None,
-    ).read(fixture.document.document_id)
+    snapshot = _reader(tmp_path, documents).read(fixture.document.document_id)
 
     assert snapshot is not None
     state = document_research_state_view(snapshot.research_state)
@@ -114,13 +113,7 @@ def test_json_v2_snapshot_allows_document_without_extraction_catalog(tmp_path: P
         build_document_manifest(fixture.document, fixture.artifact),
     )
 
-    snapshot = JsonProofBundleV2SnapshotReader(
-        documents=documents,
-        observations=None,
-        extractions=None,
-        verifications=None,
-        citations=None,
-    ).read(fixture.document.document_id)
+    snapshot = _reader(tmp_path, documents).read(fixture.document.document_id)
 
     assert snapshot is not None
     assert snapshot.research_state.document_id == fixture.document.document_id
@@ -129,29 +122,25 @@ def test_json_v2_snapshot_allows_document_without_extraction_catalog(tmp_path: P
 
 def test_json_v2_snapshot_unknown_document_returns_none(tmp_path: Path) -> None:
     fixture = persist_local_claim_lineage(tmp_path)
-    documents, extractions, verifications, citations = _existing_repositories(tmp_path)
+    documents, _, _, _ = _existing_repositories(tmp_path)
 
-    result = JsonProofBundleV2SnapshotReader(
-        documents=documents,
-        observations=None,
-        extractions=extractions,
-        verifications=verifications,
-        citations=citations,
-    ).read(UUID(int=999))
+    result = _reader(tmp_path, documents).read(UUID(int=999))
 
     assert result is None
     assert fixture.document.document_id != UUID(int=999)
 
 
-def test_json_v2_snapshot_locks_every_existing_catalog_in_canonical_order(
+def test_json_v2_snapshot_locks_every_catalog_path_in_canonical_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fixture = persist_local_claim_lineage(tmp_path)
-    documents, extractions, verifications, citations = _existing_repositories(tmp_path)
-    assert verifications is not None
-    assert citations is not None
-    observations = JsonSourceObservationRepository(tmp_path / "source_observations.json")
+    fixture = claim_lineage_fixture()
+    documents = JsonResearchRepository(tmp_path / "catalog.json")
+    documents.save_artifact(fixture.artifact)
+    documents.save_document(
+        fixture.document,
+        build_document_manifest(fixture.document, fixture.artifact),
+    )
     entered: list[Path] = []
     active: list[Path] = []
 
@@ -166,27 +155,65 @@ def test_json_v2_snapshot_locks_every_existing_catalog_in_canonical_order(
 
     monkeypatch.setattr(snapshot_module, "exclusive_lock", tracking_lock)
 
-    snapshot = JsonProofBundleV2SnapshotReader(
-        documents=documents,
-        observations=observations,
-        extractions=extractions,
-        verifications=verifications,
-        citations=citations,
-    ).read(fixture.document.document_id)
+    snapshot = _reader(tmp_path, documents).read(fixture.document.document_id)
 
     assert snapshot is not None
-    assert entered == sorted(entered, key=str)
-    assert entered == sorted(
+    expected = sorted(
         [
             documents.path,
-            observations.path,
-            extractions.path,
-            verifications.path,
-            citations.path,
+            tmp_path / "source_observations.json",
+            tmp_path / "extractions.json",
+            tmp_path / "verifications.json",
+            tmp_path / "citations.json",
         ],
-        key=str,
+        key=lambda path: str(path.resolve()),
     )
+    assert entered == [path.resolve() for path in expected]
     assert active == []
+    assert not (tmp_path / "extractions.json").exists()
+    assert not (tmp_path / "verifications.json").exists()
+    assert not (tmp_path / "citations.json").exists()
+
+
+def test_json_v2_snapshot_includes_catalog_created_at_lock_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = claim_lineage_fixture()
+    documents = JsonResearchRepository(tmp_path / "catalog.json")
+    documents.save_artifact(fixture.artifact)
+    documents.save_document(
+        fixture.document,
+        build_document_manifest(fixture.document, fixture.artifact),
+    )
+    extraction_path = (tmp_path / "extractions.json").resolve()
+    created = False
+
+    @contextmanager
+    def boundary_lock(path: Path) -> Iterator[None]:
+        nonlocal created
+        resolved = path.resolve()
+        if resolved == extraction_path and not created:
+            created = True
+            JsonExtractionRepository(extraction_path).save_batch(
+                ExtractionBatch(
+                    document=fixture.document,
+                    run=fixture.run,
+                    evidence=fixture.evidence,
+                    extractions=(fixture.claim,),
+                )
+            )
+        yield
+
+    monkeypatch.setattr(snapshot_module, "exclusive_lock", boundary_lock)
+
+    snapshot = _reader(tmp_path, documents).read(fixture.document.document_id)
+
+    assert created is True
+    assert snapshot is not None
+    assert tuple(
+        lineage.claim.extraction_id for lineage in snapshot.research_state.claim_lineages
+    ) == (fixture.claim.extraction_id,)
 
 
 def test_json_v2_snapshot_rejects_non_claim_from_claim_filtered_read(
@@ -194,18 +221,12 @@ def test_json_v2_snapshot_rejects_non_claim_from_claim_filtered_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fixture = persist_local_claim_lineage(tmp_path)
-    documents, extractions, verifications, citations = _existing_repositories(tmp_path)
+    documents, _, _, _ = _existing_repositories(tmp_path)
     monkeypatch.setattr(
-        extractions,
+        JsonExtractionRepository,
         "list_extractions",
         lambda *args, **kwargs: (object(),),
     )
 
     with pytest.raises(RuntimeError, match="non-Claim"):
-        JsonProofBundleV2SnapshotReader(
-            documents=documents,
-            observations=None,
-            extractions=extractions,
-            verifications=verifications,
-            citations=citations,
-        ).read(fixture.document.document_id)
+        _reader(tmp_path, documents).read(fixture.document.document_id)

@@ -30,7 +30,9 @@ def normalized_document_view(document: Document) -> dict[str, object]:
                 "title": section.title,
                 "level": section.level,
                 "parent_section_id": (
-                    str(section.parent_section_id) if section.parent_section_id is not None else None
+                    str(section.parent_section_id)
+                    if section.parent_section_id is not None
+                    else None
                 ),
                 "passages": [
                     {

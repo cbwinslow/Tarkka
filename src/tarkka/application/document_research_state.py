@@ -79,6 +79,9 @@ class DocumentResearchStateLimits:
                 )
 
 
+DEFAULT_DOCUMENT_RESEARCH_STATE_LIMITS = DocumentResearchStateLimits()
+
+
 @dataclass(frozen=True, slots=True)
 class DocumentResearchState:
     """Complete validated Claim lineage frozen for one normalized Document."""
@@ -92,7 +95,7 @@ def assemble_document_research_state(
     claims: tuple[Claim, ...],
     service: ClaimLineageInspector,
     *,
-    limits: DocumentResearchStateLimits = DocumentResearchStateLimits(),
+    limits: DocumentResearchStateLimits = DEFAULT_DOCUMENT_RESEARCH_STATE_LIMITS,
 ) -> DocumentResearchState:
     """Collect complete Claim/evidence/verification lineage without silent truncation."""
     ordered_claims = tuple(sorted(claims, key=lambda item: str(item.extraction_id)))

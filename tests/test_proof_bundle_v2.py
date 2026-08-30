@@ -255,7 +255,7 @@ def test_verifier_rejects_v1_v2_member_and_version_mismatches() -> None:
             (PROOF_BUNDLE_RESEARCH_STATE_PATH, b"{}\n"),
         ]
     )
-    with pytest.raises(ProofBundleVerificationError, match="missing, unexpected, or noncanonical"):
+    with pytest.raises(ProofBundleVerificationError, match="unexpected archive members"):
         verify_proof_bundle_bytes(extra_v1_member)
 
     unknown = v1.manifest.to_dict()
@@ -266,7 +266,10 @@ def test_verifier_rejects_v1_v2_member_and_version_mismatches() -> None:
             (v1.manifest.artifact.path, v1.artifact_bytes),
         ]
     )
-    with pytest.raises(ProofBundleVerificationError, match="unsupported proof bundle schema version"):
+    with pytest.raises(
+        ProofBundleVerificationError,
+        match="unsupported proof bundle schema version",
+    ):
         verify_proof_bundle_bytes(unknown_version)
 
     missing_descriptor = v1.manifest.to_dict()

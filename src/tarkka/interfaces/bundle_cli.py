@@ -66,7 +66,6 @@ def _bundle_service(
         raise ValueError(f"unsupported proof bundle schema version: {schema_version}")
 
     home = _home()
-    artifacts = LocalArtifactStore(home / "artifacts")
     if schema_version == PROOF_BUNDLE_SCHEMA_VERSION:
         snapshots: ProofBundleSnapshotReader
         if document_backend() == "json":
@@ -80,7 +79,10 @@ def _bundle_service(
             )
         else:
             snapshots = PostgresProofBundleSnapshotReader(PostgresSettings.from_environment())
-        return ProofBundleService(snapshots=snapshots, artifacts=artifacts)
+        return ProofBundleService(
+            snapshots=snapshots,
+            artifacts=LocalArtifactStore(home / "artifacts"),
+        )
 
     v2_snapshots: ProofBundleV2SnapshotReader
     if document_backend() == "json":
@@ -98,7 +100,7 @@ def _bundle_service(
         v2_snapshots = PostgresProofBundleV2SnapshotReader(PostgresSettings.from_environment())
     return ProofBundleV2Service(
         snapshots=v2_snapshots,
-        artifacts=artifacts,
+        artifacts=LocalArtifactStore(home / "artifacts"),
         encode_research_state=canonical_research_state_bytes,
     )
 

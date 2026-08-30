@@ -1,8 +1,10 @@
 """Connection-bound PostgreSQL readers for coherent Claim-lineage snapshots.
 
 These adapters intentionally reuse the PostgreSQL repositories' package-private query
-and row-decoding helpers.  They do not own transactions or connections; callers supply
+and row-decoding helpers. They do not own transactions or connections; callers supply
 one already-open connection so multiple repository reads share one snapshot boundary.
+Caches are scoped to the reader/transaction because repeatable-read state cannot change
+underneath the export.
 """
 
 from __future__ import annotations
@@ -47,30 +49,43 @@ class PostgresClaimLineageSourceReader:
 
     def __init__(self, connection: Any) -> None:
         self._connection = connection
+        self._extractions: dict[UUID, ResearchExtraction | None] = {}
+        self._runs: dict[UUID, ExtractionRun | None] = {}
+        self._evidence: dict[UUID, EvidenceRecord | None] = {}
 
     def get_extraction(self, extraction_id: UUID) -> ResearchExtraction | None:
-        row = self._connection.execute(
-            _SELECT_EXTRACTION + " WHERE extraction_id = %s",
-            (extraction_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        evidence_ids = _evidence_ids_by_extraction(self._connection, (extraction_id,))
-        return _extraction_from_row(row, evidence_ids[extraction_id])
+        if extraction_id not in self._extractions:
+            row = self._connection.execute(
+                _SELECT_EXTRACTION + " WHERE extraction_id = %s",
+                (extraction_id,),
+            ).fetchone()
+            if row is None:
+                self._extractions[extraction_id] = None
+            else:
+                evidence_ids = _evidence_ids_by_extraction(self._connection, (extraction_id,))
+                self._extractions[extraction_id] = _extraction_from_row(
+                    row,
+                    evidence_ids[extraction_id],
+                )
+        return self._extractions[extraction_id]
 
     def get_run(self, run_id: UUID) -> ExtractionRun | None:
-        row = self._connection.execute(
-            _SELECT_RUN + " WHERE run_id = %s",
-            (run_id,),
-        ).fetchone()
-        return _run_from_row(row) if row is not None else None
+        if run_id not in self._runs:
+            row = self._connection.execute(
+                _SELECT_RUN + " WHERE run_id = %s",
+                (run_id,),
+            ).fetchone()
+            self._runs[run_id] = _run_from_row(row) if row is not None else None
+        return self._runs[run_id]
 
     def get_evidence(self, evidence_id: UUID) -> EvidenceRecord | None:
-        row = self._connection.execute(
-            _SELECT_EVIDENCE + " WHERE evidence_id = %s",
-            (evidence_id,),
-        ).fetchone()
-        return _evidence_from_row(row) if row is not None else None
+        if evidence_id not in self._evidence:
+            row = self._connection.execute(
+                _SELECT_EVIDENCE + " WHERE evidence_id = %s",
+                (evidence_id,),
+            ).fetchone()
+            self._evidence[evidence_id] = _evidence_from_row(row) if row is not None else None
+        return self._evidence[evidence_id]
 
     def list_claims(self, document_id: UUID, *, limit: int) -> tuple[Claim, ...]:
         if limit < 0:
@@ -89,6 +104,7 @@ class PostgresClaimLineageSourceReader:
             value = _extraction_from_row(row, evidence_ids[extraction_id])
             if not isinstance(value, Claim):
                 raise RuntimeError("Claim-filtered PostgreSQL read returned a non-Claim record")
+            self._extractions[extraction_id] = value
             claims.append(value)
         return tuple(claims)
 
@@ -127,12 +143,24 @@ class PostgresClaimLineageDocumentReader:
 
     def __init__(self, connection: Any) -> None:
         self._connection = connection
+        self._documents: dict[UUID, Document | None] = {}
+        self._artifacts: dict[UUID, Artifact | None] = {}
 
     def get_document(self, document_id: UUID) -> Document | None:
-        return PostgresResearchRepository._get_document(self._connection, document_id)
+        if document_id not in self._documents:
+            self._documents[document_id] = PostgresResearchRepository._get_document(
+                self._connection,
+                document_id,
+            )
+        return self._documents[document_id]
 
     def get_artifact(self, artifact_id: UUID) -> Artifact | None:
-        return PostgresResearchRepository._get_artifact(self._connection, artifact_id)
+        if artifact_id not in self._artifacts:
+            self._artifacts[artifact_id] = PostgresResearchRepository._get_artifact(
+                self._connection,
+                artifact_id,
+            )
+        return self._artifacts[artifact_id]
 
 
 class PostgresClaimLineageCitationReader:
@@ -140,10 +168,14 @@ class PostgresClaimLineageCitationReader:
 
     def __init__(self, connection: Any) -> None:
         self._connection = connection
+        self._contexts: dict[tuple[UUID, UUID], CitationContext | None] = {}
 
     def get_context(self, document_id: UUID, context_id: UUID) -> CitationContext | None:
-        row = self._connection.execute(
-            _SELECT_CONTEXT + " WHERE document_id = %s AND context_id = %s",
-            (document_id, context_id),
-        ).fetchone()
-        return _context_from_row(row) if row is not None else None
+        key = (document_id, context_id)
+        if key not in self._contexts:
+            row = self._connection.execute(
+                _SELECT_CONTEXT + " WHERE document_id = %s AND context_id = %s",
+                key,
+            ).fetchone()
+            self._contexts[key] = _context_from_row(row) if row is not None else None
+        return self._contexts[key]

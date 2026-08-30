@@ -14,18 +14,8 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     path = Path(args.path).expanduser().resolve()
     try:
         result = replay_proof_bundle(path, default_replay_registry())
-    except (ReplayProblem, OSError) as exc:
-        if isinstance(exc, ReplayProblem):
-            problem = exc.to_dict()
-        else:
-            problem = {
-                "ok": False,
-                "code": "replay_io_error",
-                "message": str(exc),
-                "parser_name": None,
-                "parser_version": None,
-                "determinism": None,
-            }
+    except ReplayProblem as exc:
+        problem = exc.to_dict()
         problem["bundle_path"] = str(path)
         print(json.dumps(problem, indent=2, sort_keys=True), file=sys.stderr)
         return 2

@@ -15,21 +15,33 @@ from tarkka.application.proof_bundles import (
     ProofBundleDocumentNotFoundError,
     ProofBundleService,
     ProofBundleSnapshotReader,
+    ProofBundleV2Service,
+    ProofBundleV2SnapshotReader,
 )
 from tarkka.config import document_backend
 from tarkka.infrastructure.postgres.connection import PostgresSettings
-from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleSnapshotReader
+from tarkka.infrastructure.postgres.proof_bundle_snapshot import (
+    PostgresProofBundleSnapshotReader,
+    PostgresProofBundleV2SnapshotReader,
+)
+from tarkka.infrastructure.proof_bundle_v2 import canonical_research_state_bytes
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
     verify_proof_bundle,
     write_proof_bundle,
 )
+from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
+from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
+from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
-from tarkka.infrastructure.storage.proof_bundle_snapshot import JsonProofBundleSnapshotReader
+from tarkka.infrastructure.storage.proof_bundle_snapshot import (
+    JsonProofBundleSnapshotReader,
+    JsonProofBundleV2SnapshotReader,
+)
 
 
 def _home() -> Path:
@@ -43,30 +55,56 @@ def _parse_document_id(raw: str) -> UUID:
         raise argparse.ArgumentTypeError(f"invalid document id: {raw}") from exc
 
 
-def _bundle_service() -> ProofBundleService:
+def _bundle_service(schema_version: int = 1) -> ProofBundleService | ProofBundleV2Service:
     home = _home()
-    snapshots: ProofBundleSnapshotReader
-    if document_backend() == "json":
-        documents = JsonResearchRepository(home / "catalog.json")
-        observations = JsonSourceObservationRepository.open_existing(
-            home / "source_observations.json"
+    artifacts = LocalArtifactStore(home / "artifacts")
+    if schema_version == 1:
+        snapshots: ProofBundleSnapshotReader
+        if document_backend() == "json":
+            documents = JsonResearchRepository(home / "catalog.json")
+            observations = JsonSourceObservationRepository.open_existing(
+                home / "source_observations.json"
+            )
+            snapshots = JsonProofBundleSnapshotReader(
+                documents=documents,
+                observations=observations,
+            )
+        else:
+            snapshots = PostgresProofBundleSnapshotReader(PostgresSettings.from_environment())
+        return ProofBundleService(snapshots=snapshots, artifacts=artifacts)
+
+    if schema_version == 2:
+        v2_snapshots: ProofBundleV2SnapshotReader
+        if document_backend() == "json":
+            documents = JsonResearchRepository(home / "catalog.json")
+            v2_snapshots = JsonProofBundleV2SnapshotReader(
+                documents=documents,
+                observations=JsonSourceObservationRepository.open_existing(
+                    home / "source_observations.json"
+                ),
+                extractions=JsonExtractionRepository.open_existing(home / "extractions.json"),
+                verifications=JsonVerificationRepository.open_existing(
+                    home / "verifications.json"
+                ),
+                citations=JsonCitationRepository.open_existing(home / "citations.json"),
+            )
+        else:
+            v2_snapshots = PostgresProofBundleV2SnapshotReader(
+                PostgresSettings.from_environment()
+            )
+        return ProofBundleV2Service(
+            snapshots=v2_snapshots,
+            artifacts=artifacts,
+            encode_research_state=canonical_research_state_bytes,
         )
-        snapshots = JsonProofBundleSnapshotReader(
-            documents=documents,
-            observations=observations,
-        )
-    else:
-        snapshots = PostgresProofBundleSnapshotReader(PostgresSettings.from_environment())
-    return ProofBundleService(
-        snapshots=snapshots,
-        artifacts=LocalArtifactStore(home / "artifacts"),
-    )
+
+    raise ValueError(f"unsupported proof bundle schema version: {schema_version}")
 
 
 def _cmd_create(args: argparse.Namespace) -> int:
     output = Path(args.output).expanduser().resolve()
     try:
-        payload = _bundle_service().build(args.document_id)
+        payload = _bundle_service(args.schema_version).build(args.document_id)
         write_result = write_proof_bundle(output, payload)
     except (
         ProofBundleArtifactIntegrityError,
@@ -113,6 +151,13 @@ def build_parser() -> argparse.ArgumentParser:
     create = sub.add_parser("create", help="export one normalized document as a proof bundle")
     create.add_argument("document_id", type=_parse_document_id)
     create.add_argument("--output", required=True, help="destination .tarkka archive path")
+    create.add_argument(
+        "--schema-version",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help="proof-bundle schema version to create (default: 1)",
+    )
     create.set_defaults(func=_cmd_create)
 
     verify = sub.add_parser("verify", help="verify a proof bundle completely offline")

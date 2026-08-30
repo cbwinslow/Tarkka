@@ -165,18 +165,17 @@ def replay_mismatches(
     mismatches: list[ReplayMismatch] = []
 
     def add(path: str, expected_value: object, actual_value: object) -> None:
-        if len(mismatches) < limit:
-            mismatches.append(
-                ReplayMismatch(
-                    path=path or "$",
-                    expected=_diagnostic(expected_value, diagnostic_chars),
-                    actual=_diagnostic(actual_value, diagnostic_chars),
-                )
+        # Every call site checks the limit before invoking add. Keeping the guard here as well
+        # created an unreachable false branch that could only be covered by bypassing walk().
+        mismatches.append(
+            ReplayMismatch(
+                path=path or "$",
+                expected=_diagnostic(expected_value, diagnostic_chars),
+                actual=_diagnostic(actual_value, diagnostic_chars),
             )
+        )
 
     def walk(path: str, expected_value: object, actual_value: object) -> None:
-        if len(mismatches) >= limit:
-            return
         if isinstance(expected_value, Mapping) and isinstance(actual_value, Mapping):
             expected_keys = {str(key) for key in expected_value}
             actual_keys = {str(key) for key in actual_value}

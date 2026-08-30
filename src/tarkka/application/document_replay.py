@@ -70,4 +70,8 @@ class DocumentReplayService:
             raise DocumentReplayConfigurationError(
                 "document replay requires a proof-bundle v3 runtime"
             )
+        if payload.manifest.document.document_id != document_id:
+            raise DocumentReplayConfigurationError(
+                "document replay builder returned a different Document identity"
+            )
         return self._replayer.replay(payload)

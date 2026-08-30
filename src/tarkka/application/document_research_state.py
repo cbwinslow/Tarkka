@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 from uuid import UUID
 
 from tarkka.application.claim_lineage import (
@@ -11,7 +12,6 @@ from tarkka.application.claim_lineage import (
     MAX_CLAIM_LINEAGE_OFFSET,
     MAX_CLAIM_LINEAGE_PAGE_SIZE,
     ClaimLineage,
-    ClaimLineageService,
 )
 from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.domain.extraction import Claim
@@ -23,6 +23,20 @@ MAX_DOCUMENT_RESEARCH_STATE_CLAIM_EVIDENCE = (
     MAX_CLAIM_EVIDENCE_OFFSET + MAX_CLAIM_EVIDENCE_PAGE_SIZE
 )
 MAX_DOCUMENT_RESEARCH_STATE_RELATIONS = MAX_CLAIM_LINEAGE_OFFSET + MAX_CLAIM_LINEAGE_PAGE_SIZE
+
+
+class ClaimLineageInspector(Protocol):
+    """Minimal read contract needed to assemble complete document research state."""
+
+    def inspect(
+        self,
+        claim_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+        evidence_offset: int = 0,
+        evidence_limit: int = 20,
+    ) -> ClaimLineage: ...
 
 
 class DocumentResearchStateLimitError(ValueError):
@@ -76,7 +90,7 @@ class DocumentResearchState:
 def assemble_document_research_state(
     document_id: UUID,
     claims: tuple[Claim, ...],
-    service: ClaimLineageService,
+    service: ClaimLineageInspector,
     *,
     limits: DocumentResearchStateLimits = DocumentResearchStateLimits(),
 ) -> DocumentResearchState:
@@ -123,7 +137,7 @@ def document_research_state_view(state: DocumentResearchState) -> dict[str, obje
 
 def _collect_complete_claim_lineage(
     claim: Claim,
-    service: ClaimLineageService,
+    service: ClaimLineageInspector,
     *,
     limits: DocumentResearchStateLimits,
 ) -> ClaimLineage:

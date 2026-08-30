@@ -8,8 +8,8 @@ from uuid import UUID
 from tarkka.application.claim_lineage_protocol import agent_error
 from tarkka.application.document_replay import (
     DocumentReplayConfigurationError,
-    DocumentReplayer,
     DocumentReplayExecutionError,
+    DocumentReplayer,
 )
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactIntegrityError,
@@ -47,8 +47,6 @@ def document_replay_response(
         return agent_error(exc.code, _bounded_message(exc))
     except (OSError, RuntimeError) as exc:
         return agent_error("backend_unavailable", _bounded_message(exc))
-    except ValueError as exc:
-        return agent_error("replay_state_invalid", _bounded_message(exc))
 
     payload = result.to_dict()
     estimated_tokens = estimate_tokens(json.dumps(payload, sort_keys=True, separators=(",", ":")))

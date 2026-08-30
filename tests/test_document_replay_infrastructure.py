@@ -69,11 +69,11 @@ def test_ephemeral_replayer_translates_replay_problem_metadata(
 def test_ephemeral_replayer_translates_io_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def reject(payload: object) -> bytes:
-        del payload
+    def reject(path: Path, payload: object) -> object:
+        del path, payload
         raise OSError("temporary storage unavailable")
 
-    monkeypatch.setattr(document_replay_module, "build_proof_bundle_bytes", reject)
+    monkeypatch.setattr(document_replay_module, "write_proof_bundle", reject)
 
     with pytest.raises(DocumentReplayExecutionError) as raised:
         EphemeralProofBundleReplayer(default_replay_registry()).replay(_v3_payload())
@@ -86,11 +86,11 @@ def test_ephemeral_replayer_translates_io_failure(
 def test_ephemeral_replayer_translates_invalid_payload_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def reject(payload: object) -> bytes:
-        del payload
+    def reject(path: Path, payload: object) -> object:
+        del path, payload
         raise ValueError("invalid ephemeral bundle")
 
-    monkeypatch.setattr(document_replay_module, "build_proof_bundle_bytes", reject)
+    monkeypatch.setattr(document_replay_module, "write_proof_bundle", reject)
 
     with pytest.raises(DocumentReplayExecutionError) as raised:
         EphemeralProofBundleReplayer(default_replay_registry()).replay(_v3_payload())

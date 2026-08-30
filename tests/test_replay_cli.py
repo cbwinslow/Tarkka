@@ -51,7 +51,7 @@ def test_replay_cli_executes_real_v3_bundle_and_reports_match(
     assert main(["replay", str(bundle)]) == 0
 
     response = json.loads(capsys.readouterr().out)
-    assert response["ok"] is True
+    assert response["matched"] is True
     assert response["status"] == "matched"
     assert response["bundle_path"] == str(bundle.resolve())
     assert response["implementation"]["parser_name"] == "plain-text"
@@ -74,7 +74,7 @@ def test_replay_cli_returns_one_for_structural_mismatch(
     assert replay_cli.main([str(bundle)]) == 1
 
     response = json.loads(capsys.readouterr().out)
-    assert response["ok"] is False
+    assert response["matched"] is False
     assert response["status"] == "mismatch"
     assert response["mismatches"][0]["path"] == "title"
     assert response["bundle_path"] == str(bundle.resolve())

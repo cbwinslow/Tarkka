@@ -135,7 +135,7 @@ def proof_bundle_manifest_from_versioned_dict(
         schema_version = value.get("schema_version")
         if schema_version == PROOF_BUNDLE_SCHEMA_VERSION_V2:
             return proof_bundle_manifest_v2_from_dict(value)
-        if schema_version == 3:
+        if schema_version == 3 and "normalized_document" in value:
             from tarkka.domain.proof_bundle_v3 import proof_bundle_manifest_v3_from_dict
 
             return proof_bundle_manifest_v3_from_dict(value)

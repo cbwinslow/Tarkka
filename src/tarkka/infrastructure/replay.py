@@ -29,6 +29,7 @@ from tarkka.infrastructure.normalized_document_json import (
     parse_canonical_normalized_document_bytes,
 )
 from tarkka.infrastructure.proof_bundles import (
+    ProofBundleVerification,
     ProofBundleVerificationError,
     verify_proof_bundle,
 )
@@ -55,6 +56,7 @@ _MEDIA_TYPE_SUFFIXES = {
     "text/x-tex": ".tex",
     "text/xml": ".xml",
 }
+_LEGACY_NONDETERMINISTIC_PARSERS = frozenset({("plain-text", "2")})
 
 
 class ReplayProblem(ValueError):
@@ -103,24 +105,13 @@ def replay_proof_bundle(path: Path, registry: ReplayParserRegistry) -> ReplayRes
     """Verify v3, reconstruct its immutable Artifact locally, rerun, and compare full content."""
     with tempfile.TemporaryDirectory(prefix="tarkka-replay-") as directory:
         workspace = Path(directory)
-        manifest, expected_document, verification = _verified_replay_material(
-            path,
-            workspace=workspace,
-        )
+        manifest, expected_document, verification = _verified_replay_material(path)
         parser_name = manifest.document.parser_name
         parser_version = manifest.document.parser_version
         registration = registry.resolve(parser_name, parser_version)
         if registration is None:
-            classification = (
-                ReplayDeterminism.ENVIRONMENT_SENSITIVE if parser_name == "docling" else None
-            )
-            raise ReplayProblem(
-                "replay_parser_unavailable",
-                f"exact replay parser is unavailable: {parser_name}/{parser_version}",
-                parser_name=parser_name,
-                parser_version=parser_version,
-                determinism=classification,
-            )
+            _raise_unavailable_parser(parser_name, parser_version)
+        assert registration is not None
         if registration.determinism is ReplayDeterminism.ENVIRONMENT_SENSITIVE:
             raise ReplayProblem(
                 "replay_environment_sensitive",
@@ -131,7 +122,17 @@ def replay_proof_bundle(path: Path, registry: ReplayParserRegistry) -> ReplayRes
             )
 
         artifact = _artifact_from_manifest(manifest)
-        if not registration.parser.supports(artifact):
+        try:
+            supported = registration.parser.supports(artifact)
+        except (OSError, RuntimeError, UnicodeError, ValueError) as exc:
+            raise ReplayProblem(
+                "replay_parser_support_failed",
+                f"exact replay parser support check failed: {exc}",
+                parser_name=parser_name,
+                parser_version=parser_version,
+                determinism=registration.determinism,
+            ) from exc
+        if not supported:
             raise ReplayProblem(
                 "replay_parser_unsupported",
                 "exact replay parser does not support the preserved Artifact metadata",
@@ -168,45 +169,85 @@ def replay_proof_bundle(path: Path, registry: ReplayParserRegistry) -> ReplayRes
         )
 
 
+def _raise_unavailable_parser(parser_name: str, parser_version: str) -> None:
+    identity = (parser_name, parser_version)
+    if identity in _LEGACY_NONDETERMINISTIC_PARSERS:
+        raise ReplayProblem(
+            "replay_parser_legacy_nondeterministic",
+            (
+                "exact historical parser cannot be replayed deterministically: "
+                f"{parser_name}/{parser_version} generated random Document identity"
+            ),
+            parser_name=parser_name,
+            parser_version=parser_version,
+        )
+    classification = ReplayDeterminism.ENVIRONMENT_SENSITIVE if parser_name == "docling" else None
+    raise ReplayProblem(
+        "replay_parser_unavailable",
+        f"exact replay parser is unavailable: {parser_name}/{parser_version}",
+        parser_name=parser_name,
+        parser_version=parser_version,
+        determinism=classification,
+    )
+
+
 def _verified_replay_material(
     path: Path,
-    *,
-    workspace: Path,
-) -> tuple[ProofBundleManifestV3, object, object]:
+) -> tuple[ProofBundleManifestV3, object, ProofBundleVerification]:
     """Verify first, then read only bytes proven to belong to the same immutable archive digest."""
-    del workspace  # The argument documents that all materialization is scoped to this private dir.
     try:
         verification = verify_proof_bundle(path)
     except ProofBundleVerificationError as exc:
         raise ReplayProblem("replay_bundle_invalid", str(exc)) from exc
+    except OSError as exc:
+        raise ReplayProblem("replay_io_error", str(exc)) from exc
 
-    with path.open("rb") as handle:
-        if _sha256_stream(handle) != verification.bundle_sha256:
-            raise ReplayProblem("replay_bundle_changed", "proof bundle changed after verification")
-        handle.seek(0)
-        try:
-            with zipfile.ZipFile(handle, mode="r") as archive:
-                manifest_value = json.loads(archive.read("manifest.json"))
-                manifest = proof_bundle_manifest_from_versioned_dict(manifest_value)
-                if not isinstance(manifest, ProofBundleManifestV3):
-                    raise ReplayProblem(
-                        "replay_material_unavailable",
-                        "proof bundle schema does not contain normalized-Document replay material",
-                    )
-                expected_bytes = archive.read(manifest.normalized_document.path)
-        except (KeyError, RuntimeError, ValueError, zipfile.BadZipFile) as exc:
-            if isinstance(exc, ReplayProblem):
-                raise
-            raise ReplayProblem("replay_bundle_invalid", f"unable to read replay material: {exc}") from exc
-        handle.seek(0)
-        if _sha256_stream(handle) != verification.bundle_sha256:
-            raise ReplayProblem("replay_bundle_changed", "proof bundle changed while reading replay material")
+    try:
+        with path.open("rb") as handle:
+            if _sha256_stream(handle) != verification.bundle_sha256:
+                raise ReplayProblem(
+                    "replay_bundle_changed",
+                    "proof bundle changed after verification",
+                )
+            handle.seek(0)
+            manifest, expected_bytes = _read_replay_members(handle)
+            handle.seek(0)
+            if _sha256_stream(handle) != verification.bundle_sha256:
+                raise ReplayProblem(
+                    "replay_bundle_changed",
+                    "proof bundle changed while reading replay material",
+                )
+    except ReplayProblem:
+        raise
+    except OSError as exc:
+        raise ReplayProblem("replay_io_error", str(exc)) from exc
 
     try:
         expected_document = parse_canonical_normalized_document_bytes(expected_bytes)
     except ValueError as exc:
         raise ReplayProblem("replay_bundle_invalid", str(exc)) from exc
     return manifest, expected_document, verification
+
+
+def _read_replay_members(handle: BinaryIO) -> tuple[ProofBundleManifestV3, bytes]:
+    try:
+        with zipfile.ZipFile(handle, mode="r") as archive:
+            manifest_value = json.loads(archive.read("manifest.json"))
+            manifest = proof_bundle_manifest_from_versioned_dict(manifest_value)
+            if not isinstance(manifest, ProofBundleManifestV3):
+                raise ReplayProblem(
+                    "replay_material_unavailable",
+                    "proof bundle schema does not contain normalized-Document replay material",
+                )
+            expected_bytes = archive.read(manifest.normalized_document.path)
+    except ReplayProblem:
+        raise
+    except (KeyError, RuntimeError, ValueError, zipfile.BadZipFile) as exc:
+        raise ReplayProblem(
+            "replay_bundle_invalid",
+            f"unable to read replay material: {exc}",
+        ) from exc
+    return manifest, expected_bytes
 
 
 def _extract_verified_artifact(
@@ -216,30 +257,43 @@ def _extract_verified_artifact(
     destination: Path,
 ) -> None:
     """Copy only the integrity-bound Artifact member, never a preserved source path."""
-    with path.open("rb") as handle:
-        if _sha256_stream(handle) != verified_sha256:
-            raise ReplayProblem("replay_bundle_changed", "proof bundle changed before replay extraction")
-        handle.seek(0)
-        digest = hashlib.sha256()
-        size = 0
-        try:
-            with zipfile.ZipFile(handle, mode="r") as archive:
-                with archive.open(manifest.artifact.path, mode="r") as source:
-                    with destination.open("wb") as target:
-                        while chunk := source.read(_READ_CHUNK_BYTES):
-                            target.write(chunk)
-                            digest.update(chunk)
-                            size += len(chunk)
-        except (KeyError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
-            raise ReplayProblem("replay_artifact_materialization_failed", str(exc)) from exc
-        if size != manifest.artifact.size_bytes or digest.hexdigest() != manifest.artifact.sha256:
-            raise ReplayProblem(
-                "replay_artifact_integrity_mismatch",
-                "materialized replay Artifact does not match the proof-bundle manifest",
-            )
-        handle.seek(0)
-        if _sha256_stream(handle) != verified_sha256:
-            raise ReplayProblem("replay_bundle_changed", "proof bundle changed during replay extraction")
+    try:
+        with path.open("rb") as handle:
+            if _sha256_stream(handle) != verified_sha256:
+                raise ReplayProblem(
+                    "replay_bundle_changed",
+                    "proof bundle changed before replay extraction",
+                )
+            handle.seek(0)
+            digest = hashlib.sha256()
+            size = 0
+            try:
+                with (
+                    zipfile.ZipFile(handle, mode="r") as archive,
+                    archive.open(manifest.artifact.path, mode="r") as source,
+                    destination.open("wb") as target,
+                ):
+                    while chunk := source.read(_READ_CHUNK_BYTES):
+                        target.write(chunk)
+                        digest.update(chunk)
+                        size += len(chunk)
+            except (KeyError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                raise ReplayProblem("replay_artifact_materialization_failed", str(exc)) from exc
+            if size != manifest.artifact.size_bytes or digest.hexdigest() != manifest.artifact.sha256:
+                raise ReplayProblem(
+                    "replay_artifact_integrity_mismatch",
+                    "materialized replay Artifact does not match the proof-bundle manifest",
+                )
+            handle.seek(0)
+            if _sha256_stream(handle) != verified_sha256:
+                raise ReplayProblem(
+                    "replay_bundle_changed",
+                    "proof bundle changed during replay extraction",
+                )
+    except ReplayProblem:
+        raise
+    except OSError as exc:
+        raise ReplayProblem("replay_io_error", str(exc)) from exc
 
 
 def _artifact_from_manifest(manifest: ProofBundleManifestV3) -> Artifact:

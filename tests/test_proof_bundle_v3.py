@@ -304,7 +304,10 @@ def test_verifier_rejects_v3_member_integrity_limit_and_identity_mismatches() ->
         [
             (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
             (payload.manifest.artifact.path, payload.artifact_bytes),
-            (payload.manifest.research_state.path, cast(bytes, payload.research_state_bytes)),
+            (
+                payload.manifest.research_state.path,
+                cast(bytes, payload.research_state_bytes),
+            ),
         ]
     )
     with pytest.raises(ProofBundleVerificationError, match="missing, unexpected, or noncanonical"):
@@ -316,7 +319,10 @@ def test_verifier_rejects_v3_member_integrity_limit_and_identity_mismatches() ->
         [
             (PROOF_BUNDLE_MANIFEST_PATH, _canonical_json(wrong_size)),
             (payload.manifest.artifact.path, payload.artifact_bytes),
-            (payload.manifest.research_state.path, cast(bytes, payload.research_state_bytes)),
+            (
+                payload.manifest.research_state.path,
+                cast(bytes, payload.research_state_bytes),
+            ),
             (payload.manifest.normalized_document.path, payload.normalized_document_bytes),
         ]
     )
@@ -329,7 +335,10 @@ def test_verifier_rejects_v3_member_integrity_limit_and_identity_mismatches() ->
         [
             (PROOF_BUNDLE_MANIFEST_PATH, _canonical_json(wrong_digest)),
             (payload.manifest.artifact.path, payload.artifact_bytes),
-            (payload.manifest.research_state.path, cast(bytes, payload.research_state_bytes)),
+            (
+                payload.manifest.research_state.path,
+                cast(bytes, payload.research_state_bytes),
+            ),
             (payload.manifest.normalized_document.path, payload.normalized_document_bytes),
         ]
     )
@@ -364,7 +373,10 @@ def test_verifier_rejects_v3_member_integrity_limit_and_identity_mismatches() ->
         [
             (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(mismatched_manifest)),
             (mismatched_manifest.artifact.path, payload.artifact_bytes),
-            (mismatched_manifest.research_state.path, cast(bytes, payload.research_state_bytes)),
+            (
+                mismatched_manifest.research_state.path,
+                cast(bytes, payload.research_state_bytes),
+            ),
             (mismatched_manifest.normalized_document.path, mismatched),
         ]
     )
@@ -391,7 +403,10 @@ def test_verifier_rejects_noncanonical_v3_replay_json_and_more_than_four_members
                 [
                     (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(manifest)),
                     (manifest.artifact.path, payload.artifact_bytes),
-                    (manifest.research_state.path, cast(bytes, payload.research_state_bytes)),
+                    (
+                        manifest.research_state.path,
+                        cast(bytes, payload.research_state_bytes),
+                    ),
                     (manifest.normalized_document.path, noncanonical),
                 ]
             )
@@ -403,7 +418,10 @@ def test_verifier_rejects_noncanonical_v3_replay_json_and_more_than_four_members
                 [
                     (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
                     (payload.manifest.artifact.path, payload.artifact_bytes),
-                    (payload.manifest.research_state.path, cast(bytes, payload.research_state_bytes)),
+                    (
+                        payload.manifest.research_state.path,
+                        cast(bytes, payload.research_state_bytes),
+                    ),
                     (
                         payload.manifest.normalized_document.path,
                         payload.normalized_document_bytes,

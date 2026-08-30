@@ -68,8 +68,8 @@ def test_normalized_document_rejects_root_shape_and_scalar_contract_violations()
     _reject(value, "document_id must be a UUID")
 
     value = _value()
-    value["document_id"] = value["document_id"].upper()
-    _reject(value, "document_id must be a canonical lowercase UUID")
+    value["artifact_id"] = value["artifact_id"].upper()
+    _reject(value, "artifact_id must be a canonical lowercase UUID")
 
     value = _value()
     value["artifact_id"] = "{" + value["artifact_id"] + "}"

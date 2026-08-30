@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 
 import tarkka.infrastructure.storage.proof_bundle_snapshot as snapshot_module
+from tarkka.application.document_research_state import document_research_state_view
 from tarkka.domain.manifest import build_document_manifest
 from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
@@ -55,18 +56,24 @@ def test_json_v2_snapshot_captures_complete_claim_lineage(tmp_path: Path) -> Non
     assert snapshot is not None
     assert snapshot.source.document == fixture.document
     assert snapshot.source.artifact == fixture.artifact
-    state = snapshot.research_state
-    assert state["document_id"] == str(fixture.document.document_id)
+    assert snapshot.research_state.document_id == fixture.document.document_id
+    state = document_research_state_view(snapshot.research_state)
     claims = state["claims"]
     assert isinstance(claims, list)
     assert len(claims) == 1
     claim = claims[0]
     assert isinstance(claim, dict)
     assert len(claim["claim_evidence"]) == len(fixture.evidence)
-    assert claim["verification"]["total"] == 1
-    assert claim["verification"]["assessments"][0]["citation_context"]["context_id"] == str(
-        fixture.context.context_id
-    )
+    verification = claim["verification"]
+    assert isinstance(verification, dict)
+    assert verification["total"] == 1
+    assessments = verification["assessments"]
+    assert isinstance(assessments, list)
+    assessment = assessments[0]
+    assert isinstance(assessment, dict)
+    context = assessment["citation_context"]
+    assert isinstance(context, dict)
+    assert context["context_id"] == str(fixture.context.context_id)
 
 
 def test_json_v2_snapshot_allows_semantically_empty_optional_catalogs(tmp_path: Path) -> None:
@@ -84,10 +91,13 @@ def test_json_v2_snapshot_allows_semantically_empty_optional_catalogs(tmp_path: 
     ).read(fixture.document.document_id)
 
     assert snapshot is not None
-    claims = snapshot.research_state["claims"]
+    state = document_research_state_view(snapshot.research_state)
+    claims = state["claims"]
     assert isinstance(claims, list)
     assert len(claims) == 1
-    assert claims[0]["verification"] == {
+    claim = claims[0]
+    assert isinstance(claim, dict)
+    assert claim["verification"] == {
         "offset": 0,
         "limit": 0,
         "total": 0,
@@ -113,7 +123,8 @@ def test_json_v2_snapshot_allows_document_without_extraction_catalog(tmp_path: P
     ).read(fixture.document.document_id)
 
     assert snapshot is not None
-    assert snapshot.research_state["claims"] == []
+    assert snapshot.research_state.document_id == fixture.document.document_id
+    assert snapshot.research_state.claim_lineages == ()
 
 
 def test_json_v2_snapshot_unknown_document_returns_none(tmp_path: Path) -> None:

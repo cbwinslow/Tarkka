@@ -29,10 +29,12 @@ from tarkka.application.identity_review import (
     IdentitySnapshotNotFoundError,
 )
 from tarkka.application.research_capabilities import (
-    ResearchOperationSchema,
     UnknownResearchOperationError,
-    research_capabilities,
     research_operation_schema,
+)
+from tarkka.application.research_capability_view import (
+    research_capabilities_view,
+    research_operation_schema_view,
 )
 from tarkka.application.research_packages import (
     MAX_RESOURCE_LINK_OFFSET,
@@ -311,56 +313,8 @@ def _cmd_db_upgrade(_: argparse.Namespace) -> int:
     return 0
 
 
-def _research_capabilities_payload() -> dict[str, object]:
-    """Serialize the compact first-stage discovery response for CLI consumers."""
-    capabilities = research_capabilities()
-    return {
-        "version": capabilities.version,
-        "estimated_tokens": capabilities.estimated_tokens,
-        "operations": [
-            {
-                "operation_id": operation.operation_id,
-                "family": operation.family,
-                "summary": operation.summary,
-                "estimated_tokens": operation.estimated_tokens,
-            }
-            for operation in capabilities.operations
-        ],
-    }
-
-
-def _research_operation_schema_payload(schema: ResearchOperationSchema) -> dict[str, object]:
-    """Serialize one second-stage operation descriptor without exposing implementation types."""
-    operation = schema.operation
-    return {
-        "operation": {
-            "operation_id": operation.operation_id,
-            "family": operation.family,
-            "summary": operation.summary,
-            "estimated_tokens": operation.estimated_tokens,
-        },
-        "inputs": [
-            {
-                "name": field.name,
-                "value_type": field.value_type,
-                "required": field.required,
-                "summary": field.summary,
-                "allowed_values": list(field.allowed_values),
-                "item_value_type": field.item_value_type,
-                "property_value_type": field.property_value_type,
-                "minimum": field.minimum,
-                "maximum": field.maximum,
-                "required_when": field.required_when,
-            }
-            for field in schema.inputs
-        ],
-        "result_summary": schema.result_summary,
-        "estimated_tokens": schema.estimated_tokens,
-    }
-
-
 def _cmd_capabilities_list(_: argparse.Namespace) -> int:
-    print(json.dumps(_research_capabilities_payload(), indent=2, sort_keys=True))
+    print(json.dumps(research_capabilities_view(), indent=2, sort_keys=True))
     return 0
 
 
@@ -370,7 +324,7 @@ def _cmd_capabilities_show(args: argparse.Namespace) -> int:
     except UnknownResearchOperationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(_research_operation_schema_payload(schema), indent=2, sort_keys=True))
+    print(json.dumps(research_operation_schema_view(schema), indent=2, sort_keys=True))
     return 0
 
 

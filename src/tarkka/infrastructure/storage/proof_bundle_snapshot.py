@@ -8,6 +8,7 @@ from uuid import UUID
 
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.document_research_state import (
+    DEFAULT_DOCUMENT_RESEARCH_STATE_LIMITS,
     DocumentResearchState,
     DocumentResearchStateLimits,
     assemble_document_research_state,
@@ -80,7 +81,7 @@ class JsonProofBundleV2SnapshotReader:
         extractions: JsonExtractionRepository | None,
         verifications: JsonVerificationRepository | None,
         citations: JsonCitationRepository | None,
-        limits: DocumentResearchStateLimits = DocumentResearchStateLimits(),
+        limits: DocumentResearchStateLimits = DEFAULT_DOCUMENT_RESEARCH_STATE_LIMITS,
     ) -> None:
         self._documents = documents
         self._observations = observations

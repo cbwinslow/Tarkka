@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import UUID
 
 from tarkka.domain.models import Artifact, Document
+from tarkka.domain.proof_bundle_v2 import ProofBundleManifestV2
 from tarkka.domain.proof_bundles import (
     ProofBundleArtifact,
     ProofBundleDocument,
@@ -55,8 +56,23 @@ class ProofBundleSnapshotReader(Protocol):
 class ProofBundlePayload:
     """Validated manifest plus the exact immutable bytes embedded in a proof bundle."""
 
-    manifest: ProofBundleManifest
+    manifest: ProofBundleManifest | ProofBundleManifestV2
     artifact_bytes: bytes
+    research_state_bytes: bytes | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.manifest, ProofBundleManifestV2):
+            if self.research_state_bytes is None:
+                raise ValueError("proof bundle v2 requires research-state bytes")
+            descriptor = self.manifest.research_state
+            digest = hashlib.sha256(self.research_state_bytes).hexdigest()
+            if (
+                len(self.research_state_bytes) != descriptor.size_bytes
+                or digest != descriptor.sha256
+            ):
+                raise ValueError("proof bundle research-state bytes do not match manifest")
+        elif self.research_state_bytes is not None:
+            raise ValueError("proof bundle v1 must not carry research-state bytes")
 
 
 class ProofBundleService:

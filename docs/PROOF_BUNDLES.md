@@ -183,6 +183,32 @@ CLI exit status is explicit:
 
 Replay proves deterministic normalized-Document equality for the executed parser boundary. It does **not** regenerate model-produced Claim/extraction state and does not claim stochastic provider/model execution is byte-for-byte reproducible.
 
+## Replay a persisted Document through agent interfaces
+
+Tarkka also exposes the same deterministic replay semantics without accepting a caller-supplied server filesystem path. The canonical transport-neutral operation is:
+
+```text
+research.documents.replay
+```
+
+It accepts one stable persisted `document_id`. The configured JSON or PostgreSQL backend creates a coherent v3 payload for that Document, Tarkka materializes a private ephemeral `.tarkka` archive, and the exact replay engine above verifies and executes it. The temporary archive and replay workspace are removed after the request.
+
+MCP exposes:
+
+```text
+document_replay(document_id)
+```
+
+HTTP exposes the read-only, idempotent endpoint:
+
+```text
+GET /v1/documents/{document_id}/replay
+```
+
+The HTTP route accepts a UUID or `doc:<uuid>` handle and no query parameters. Blocking snapshot, archive, and parser work is executed off the ASGI event loop. MCP and HTTP both use the same transport-neutral replay result/error representation as the application service: deterministic status, expected/actual canonical digests, implementation identity, bounded mismatches, and stable bounded machine problems.
+
+Neither agent transport accepts an arbitrary local bundle path, follows preserved source URIs/resource links, or performs discovery, provider, model, or network calls during deterministic replay. To replay an independently supplied archive by path, use the local CLI `tarkka replay <bundle.tarkka>` instead.
+
 ## Verify a bundle offline
 
 ```bash
@@ -327,9 +353,8 @@ Model-assisted steps remain transparent preserved observations. Future model-ste
 
 The versioned bundle and exact-parser replay foundation makes the following extensions practical without changing the source/provenance model again:
 
-1. expose the stable replay operation through MCP and HTTP/OpenAPI;
-2. optionally persist/sign replay attestations;
-3. transparent model-step input/output/config records;
-4. frozen/live research-state comparison with `tarkka diff`;
-5. additional discovery/search/acquisition/policy provenance;
-6. interoperability evaluation with PROV, JSON-LD, RO-Crate, and related standards after the native contract is stable.
+1. optionally persist/sign replay attestations;
+2. transparent model-step input/output/config records;
+3. frozen/live research-state comparison with `tarkka diff`;
+4. additional discovery/search/acquisition/policy provenance;
+5. interoperability evaluation with PROV, JSON-LD, RO-Crate, and related standards after the native contract is stable.

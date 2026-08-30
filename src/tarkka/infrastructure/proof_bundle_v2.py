@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -55,8 +56,6 @@ def validate_canonical_research_state_bytes(data: bytes) -> None:
 
 def research_state_descriptor(data: bytes) -> ProofBundleResearchState:
     """Return the integrity descriptor for already-canonical research-state bytes."""
-    import hashlib
-
     validate_canonical_research_state_bytes(data)
     return ProofBundleResearchState(
         path="research/claim-lineage.json",

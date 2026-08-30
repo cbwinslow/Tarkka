@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import zipfile
@@ -138,6 +139,27 @@ def test_v3_builder_rejects_research_state_without_document_identity() -> None:
     )
 
     with pytest.raises(ProofBundleVerificationError, match="research-state document identity"):
+        build_proof_bundle_bytes(bad_payload)
+
+
+def test_v3_builder_rejects_invalid_research_state_json_as_verification_error() -> None:
+    payload = _valid_v3_payload()
+    assert isinstance(payload.manifest, ProofBundleManifestV3)
+    assert payload.normalized_document_bytes is not None
+    invalid_state = b"{\n"
+    descriptor = replace(
+        payload.manifest.research_state,
+        sha256=hashlib.sha256(invalid_state).hexdigest(),
+        size_bytes=len(invalid_state),
+    )
+    bad_payload = ProofBundlePayload(
+        manifest=replace(payload.manifest, research_state=descriptor),
+        artifact_bytes=payload.artifact_bytes,
+        research_state_bytes=invalid_state,
+        normalized_document_bytes=payload.normalized_document_bytes,
+    )
+
+    with pytest.raises(ProofBundleVerificationError, match="not valid JSON"):
         build_proof_bundle_bytes(bad_payload)
 
 

@@ -9,7 +9,7 @@ from tarkka.application.claim_lineage_protocol import agent_error
 from tarkka.application.document_replay import (
     DocumentReplayConfigurationError,
     DocumentReplayExecutionError,
-    DocumentReplayService,
+    DocumentReplayer,
 )
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactIntegrityError,
@@ -23,7 +23,7 @@ _MAX_PUBLIC_ERROR_CHARS = 512
 
 
 def document_replay_response(
-    service: DocumentReplayService,
+    service: DocumentReplayer,
     document_id: UUID,
 ) -> dict[str, object]:
     """Execute one persisted-Document replay into the shared agent envelope."""
@@ -45,9 +45,7 @@ def document_replay_response(
         return agent_error("replay_configuration_error", _bounded_message(exc))
     except DocumentReplayExecutionError as exc:
         return agent_error(exc.code, _bounded_message(exc))
-    except OSError as exc:
-        return agent_error("backend_unavailable", _bounded_message(exc))
-    except RuntimeError as exc:
+    except (OSError, RuntimeError) as exc:
         return agent_error("backend_unavailable", _bounded_message(exc))
     except ValueError as exc:
         return agent_error("replay_state_invalid", _bounded_message(exc))

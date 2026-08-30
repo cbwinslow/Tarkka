@@ -42,7 +42,7 @@ class ProofBundleDocumentNotFoundError(LookupError):
 
 
 class ProofBundleArtifactNotFoundError(LookupError):
-    """Raised when a Document references an Artifact missing from canonical state."""
+    """Raised when a Document references an Artifact missing from canonical state or storage."""
 
 
 class ProofBundleArtifactIntegrityError(RuntimeError):
@@ -293,7 +293,12 @@ def _validated_artifact_bytes(
             "snapshot document and artifact identities do not match"
         )
 
-    artifact_bytes = artifacts.read_bytes(artifact)
+    try:
+        artifact_bytes = artifacts.read_bytes(artifact)
+    except FileNotFoundError as exc:
+        raise ProofBundleArtifactNotFoundError(
+            f"artifact bytes not found: {artifact.artifact_id}"
+        ) from exc
     actual_sha256 = hashlib.sha256(artifact_bytes).hexdigest()
     if len(artifact_bytes) != artifact.size_bytes or actual_sha256 != artifact.sha256:
         raise ProofBundleArtifactIntegrityError(

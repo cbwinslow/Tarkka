@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+import tarkka.infrastructure.normalized_document_json as normalized_document_json
 from tarkka.domain.proof_bundle_v2 import proof_bundle_manifest_from_versioned_dict
 from tarkka.infrastructure.normalized_document_json import (
     NormalizedDocumentJsonError,
@@ -42,6 +43,10 @@ def _canonical_json(value: object) -> bytes:
 def _reject(value: object, pattern: str) -> None:
     with pytest.raises(NormalizedDocumentJsonError, match=pattern):
         parse_canonical_normalized_document_bytes(_canonical_json(value))
+
+
+def _raise_recursion(*args: object, **kwargs: object) -> object:
+    raise RecursionError("simulated JSON recursion exhaustion")
 
 
 def test_normalized_document_rejects_root_shape_and_scalar_contract_violations() -> None:
@@ -208,11 +213,14 @@ def test_normalized_document_accepts_absent_optional_source_artifact_metadata() 
     assert parsed == value
 
 
-def test_normalized_document_rejects_excessive_json_nesting() -> None:
-    deeply_nested = b"[" * 5_000 + b"0" + b"]" * 5_000
+def test_normalized_document_wraps_json_recursion_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = canonical_normalized_document_bytes(claim_lineage_fixture().document)
+    monkeypatch.setattr(normalized_document_json.json, "loads", _raise_recursion)
 
     with pytest.raises(NormalizedDocumentJsonError, match="supported nesting depth"):
-        parse_canonical_normalized_document_bytes(deeply_nested)
+        parse_canonical_normalized_document_bytes(data)
 
 
 def test_version_dispatch_does_not_reinterpret_bare_v1_shape_as_v3() -> None:

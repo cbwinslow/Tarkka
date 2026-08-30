@@ -10,13 +10,17 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, cast
 
 from tarkka.application.proof_bundles import ProofBundlePayload
-from tarkka.domain.proof_bundles import (
-    PROOF_BUNDLE_MANIFEST_PATH,
-    ProofBundleManifest,
-    proof_bundle_manifest_from_dict,
+from tarkka.domain.proof_bundle_v2 import (
+    ProofBundleManifestV2,
+    proof_bundle_manifest_from_versioned_dict,
+)
+from tarkka.domain.proof_bundles import PROOF_BUNDLE_MANIFEST_PATH, ProofBundleManifest
+from tarkka.infrastructure.proof_bundle_v2 import (
+    ProofBundleResearchStateJsonError,
+    validate_canonical_research_state_bytes,
 )
 from tarkka.infrastructure.storage.filesystem import fsync_directory
 
@@ -40,6 +44,7 @@ class ProofBundleVerificationLimits:
     max_archive_bytes: int = 1024 * 1024 * 1024
     max_manifest_bytes: int = 4 * 1024 * 1024
     max_artifact_bytes: int = 1024 * 1024 * 1024
+    max_research_state_bytes: int = 64 * 1024 * 1024
 
 
 _DEFAULT_VERIFICATION_LIMITS = ProofBundleVerificationLimits()
@@ -72,8 +77,8 @@ class ProofBundleWriteResult:
     verification: ProofBundleVerification
 
 
-def canonical_manifest_bytes(manifest: ProofBundleManifest) -> bytes:
-    """Serialize a manifest with the canonical v1 JSON representation."""
+def canonical_manifest_bytes(manifest: ProofBundleManifest | ProofBundleManifestV2) -> bytes:
+    """Serialize a versioned manifest with Tarkka's canonical JSON representation."""
     return (
         json.dumps(
             manifest.to_dict(),
@@ -88,10 +93,17 @@ def canonical_manifest_bytes(manifest: ProofBundleManifest) -> bytes:
 
 def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
     """Return byte-for-byte deterministic archive bytes for one validated payload."""
-    members = (
+    members = [
         (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
         (payload.manifest.artifact.path, payload.artifact_bytes),
-    )
+    ]
+    if isinstance(payload.manifest, ProofBundleManifestV2):
+        members.append(
+            (
+                payload.manifest.research_state.path,
+                cast(bytes, payload.research_state_bytes),
+            )
+        )
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_STORED) as archive:
         for name, content in members:
@@ -178,7 +190,7 @@ def _verify_archive(
     names = [info.filename for info in infos]
     if len(names) != len(set(names)):
         raise ProofBundleVerificationError("proof bundle contains duplicate archive members")
-    if len(infos) > 2:
+    if len(infos) > 3:
         raise ProofBundleVerificationError("proof bundle contains unexpected archive members")
     if archive.comment:
         raise ProofBundleVerificationError("proof bundle ZIP comment is not canonical")
@@ -195,6 +207,9 @@ def _verify_archive(
     manifest = _parse_manifest(manifest_bytes)
 
     expected_names = [PROOF_BUNDLE_MANIFEST_PATH, manifest.artifact.path]
+    research_state = manifest.research_state if isinstance(manifest, ProofBundleManifestV2) else None
+    if research_state is not None:
+        expected_names.append(research_state.path)
     if names != expected_names:
         raise ProofBundleVerificationError(
             "proof bundle contains missing, unexpected, or noncanonical archive members"
@@ -213,6 +228,27 @@ def _verify_archive(
         )
     if actual_sha256 != manifest.artifact.sha256:
         raise ProofBundleVerificationError("proof bundle artifact sha256 does not match manifest")
+
+    if research_state is not None:
+        state_info = archive.getinfo(research_state.path)
+        if state_info.file_size > limits.max_research_state_bytes:
+            raise ProofBundleVerificationError(
+                "proof bundle research-state member exceeds the configured limit"
+            )
+        state_bytes = _read_member(archive, research_state.path)
+        if len(state_bytes) != research_state.size_bytes:
+            raise ProofBundleVerificationError(
+                "proof bundle research-state byte length does not match manifest"
+            )
+        if hashlib.sha256(state_bytes).hexdigest() != research_state.sha256:
+            raise ProofBundleVerificationError(
+                "proof bundle research-state sha256 does not match manifest"
+            )
+        try:
+            validate_canonical_research_state_bytes(state_bytes)
+        except ProofBundleResearchStateJsonError as exc:
+            raise ProofBundleVerificationError(str(exc)) from exc
+
     if manifest_bytes != canonical_manifest_bytes(manifest):
         raise ProofBundleVerificationError("proof bundle manifest is not canonically encoded")
     _validate_member_offsets(infos)
@@ -257,7 +293,7 @@ def _sha256_stream(stream: BinaryIO) -> str:
     return digest.hexdigest()
 
 
-def _parse_manifest(data: bytes) -> ProofBundleManifest:
+def _parse_manifest(data: bytes) -> ProofBundleManifest | ProofBundleManifestV2:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -271,7 +307,7 @@ def _parse_manifest(data: bytes) -> ProofBundleManifest:
     except json.JSONDecodeError as exc:
         raise ProofBundleVerificationError("proof bundle manifest is not valid JSON") from exc
     try:
-        return proof_bundle_manifest_from_dict(value)
+        return proof_bundle_manifest_from_versioned_dict(value)
     except ValueError as exc:
         raise ProofBundleVerificationError(str(exc)) from exc
 
@@ -330,7 +366,12 @@ def _validate_member_offsets(infos: list[zipfile.ZipInfo]) -> None:
 
 
 def _validate_limits(limits: ProofBundleVerificationLimits) -> None:
-    if min(limits.max_archive_bytes, limits.max_manifest_bytes, limits.max_artifact_bytes) <= 0:
+    if min(
+        limits.max_archive_bytes,
+        limits.max_manifest_bytes,
+        limits.max_artifact_bytes,
+        limits.max_research_state_bytes,
+    ) <= 0:
         raise ValueError("proof bundle verification limits must be positive")
 
 

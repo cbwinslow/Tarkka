@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from uuid import UUID
 
 import pytest

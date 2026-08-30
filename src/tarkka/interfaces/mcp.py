@@ -29,6 +29,8 @@ from tarkka.application.claim_lineage_protocol import (
     claim_lineage_response,
 )
 from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
+from tarkka.application.document_replay import DocumentReplayer
+from tarkka.application.document_replay_protocol import document_replay_response
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
     DocumentRetrievalService,
@@ -49,6 +51,9 @@ from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorde
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service as configured_claim_lineage_service,
 )
+from tarkka.interfaces.document_replay_runtime import (
+    document_replay_service as configured_document_replay_service,
+)
 from tarkka.interfaces.main import _document_retrieval_service
 from tarkka.ports.telemetry import AgentUsageRecorder
 
@@ -67,6 +72,7 @@ def create_server(
     *,
     documents: DocumentRetrievalService | None = None,
     lineage: ClaimLineageService | None = None,
+    replay: DocumentReplayer | None = None,
     telemetry: AgentUsageRecorder | None = None,
 ) -> MCPServer:
     """Build the stdio MCP server with lazily constructed configured services.
@@ -76,6 +82,7 @@ def create_server(
     """
     retrieval = documents
     lineage_reader = lineage
+    replay_reader = replay
 
     def retrieval_service() -> DocumentRetrievalService:
         """Create the configured document backend only when a document tool needs it."""
@@ -90,6 +97,13 @@ def create_server(
         if lineage_reader is None:
             lineage_reader = configured_claim_lineage_service()
         return lineage_reader
+
+    def replay_service() -> DocumentReplayer:
+        """Create the configured replay backend only when document replay is requested."""
+        nonlocal replay_reader
+        if replay_reader is None:
+            replay_reader = configured_document_replay_service()
+        return replay_reader
 
     def instrument(
         operation_id: str,
@@ -272,6 +286,26 @@ def create_server(
             "section": _section_payload(selected),
             "estimated_tokens": estimated_tokens,
         }
+
+    @server.tool(
+        name="document_replay",
+        description=(
+            "Replay one persisted Document with its exact deterministic parser without "
+            "accepting a server-local path."
+        ),
+        annotations=_READ_ONLY,
+    )
+    @instrument("document_replay")
+    def replay_document(document_id: object) -> dict[str, object]:
+        """Return one path-free deterministic replay result for a persisted Document."""
+        parsed = _uuid_or_error(document_id, kind="document")
+        if isinstance(parsed, dict):
+            return parsed
+        try:
+            service = replay_service()
+        except (OSError, RuntimeError, ValueError) as exc:
+            return _error("backend_unavailable", str(exc))
+        return document_replay_response(service, parsed)
 
     return server
 

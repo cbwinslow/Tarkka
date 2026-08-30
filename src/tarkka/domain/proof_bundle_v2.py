@@ -136,14 +136,23 @@ def proof_bundle_manifest_from_versioned_dict(
         if schema_version == PROOF_BUNDLE_SCHEMA_VERSION_V2:
             return proof_bundle_manifest_v2_from_dict(value)
         if schema_version == 3:
-            # A version number alone must never reinterpret an older manifest shape. The v3
-            # parser is selected only when its defining member descriptor is present; otherwise
-            # the frozen v1 parser rejects the unsupported version as it always has.
-            if "normalized_document" in value:
-                from tarkka.domain.proof_bundle_v3 import proof_bundle_manifest_v3_from_dict
-
-                return proof_bundle_manifest_v3_from_dict(value)
+            return _proof_bundle_manifest_v3_or_frozen(value)
     return proof_bundle_manifest_from_dict(value)
+
+
+def _proof_bundle_manifest_v3_or_frozen(
+    value: Mapping[str, Any],
+) -> ProofBundleManifest | ProofBundleManifestV3:
+    """Parse a structurally v3 manifest or preserve the frozen older-version rejection path."""
+    # A version number alone must never reinterpret an older manifest shape. The v3 parser is
+    # selected only when its defining member descriptor is present; otherwise the frozen v1
+    # parser rejects the unsupported version as it always has.
+    if "normalized_document" not in value:
+        return proof_bundle_manifest_from_dict(value)
+
+    from tarkka.domain.proof_bundle_v3 import proof_bundle_manifest_v3_from_dict
+
+    return proof_bundle_manifest_v3_from_dict(value)
 
 
 def _v1_manifest(manifest: ProofBundleManifestV2) -> ProofBundleManifest:

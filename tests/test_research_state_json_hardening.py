@@ -17,7 +17,9 @@ def _raise_recursion(*args: object, **kwargs: object) -> object:
     raise RecursionError("simulated JSON recursion exhaustion")
 
 
-def test_research_state_parser_wraps_json_recursion_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_research_state_parser_wraps_json_recursion_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     data = canonical_research_state_bytes({"claims": []})
     monkeypatch.setattr(proof_bundle_v2.json, "loads", _raise_recursion)
 

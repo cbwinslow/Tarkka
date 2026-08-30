@@ -250,6 +250,14 @@ def test_connection_bound_relation_reader_returns_total_page_and_empty_page() ->
         reader.page_relations(fixture.claim.extraction_id, limit=-1)
 
 
+def test_connection_bound_relation_reader_fails_closed_without_total_row() -> None:
+    fixture = claim_lineage_fixture()
+    reader = PostgresClaimLineageRelationReader(_Connection([_Cursor(rows=[])]))
+
+    with pytest.raises(RuntimeError, match="no total row"):
+        reader.page_relations(fixture.claim.extraction_id)
+
+
 def test_connection_bound_document_reader_reuses_decoders_and_caches_full_objects() -> None:
     fixture = claim_lineage_fixture()
     connection = _Connection(
@@ -286,8 +294,14 @@ def test_connection_bound_citation_reader_scopes_and_caches_contexts() -> None:
     reader = PostgresClaimLineageCitationReader(connection)
     missing_id = UUID(int=999)
 
-    assert reader.get_context(fixture.document.document_id, fixture.context.context_id) == fixture.context
-    assert reader.get_context(fixture.document.document_id, fixture.context.context_id) == fixture.context
+    assert (
+        reader.get_context(fixture.document.document_id, fixture.context.context_id)
+        == fixture.context
+    )
+    assert (
+        reader.get_context(fixture.document.document_id, fixture.context.context_id)
+        == fixture.context
+    )
     assert reader.get_context(fixture.document.document_id, missing_id) is None
     assert reader.get_context(fixture.document.document_id, missing_id) is None
     assert connection.calls[0][1] == (

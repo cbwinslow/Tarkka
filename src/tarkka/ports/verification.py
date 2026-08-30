@@ -20,10 +20,14 @@ class ClaimLineageSourceReader(ClaimEvidenceReader, Protocol):
     def get_run(self, run_id: UUID) -> ExtractionRun | None: ...
 
 
-class CitationContextReader(Protocol):
-    def list_contexts(self, document_id: UUID) -> tuple[CitationContext, ...]: ...
+class CitationContextLookup(Protocol):
+    """Resolve one citation context scoped to its normalized Document."""
 
     def get_context(self, document_id: UUID, context_id: UUID) -> CitationContext | None: ...
+
+
+class CitationContextReader(CitationContextLookup, Protocol):
+    def list_contexts(self, document_id: UUID) -> tuple[CitationContext, ...]: ...
 
     def list_mentions_for_ids(
         self, document_id: UUID, mention_ids: frozenset[UUID]

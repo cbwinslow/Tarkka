@@ -32,13 +32,10 @@ from tarkka.infrastructure.proof_bundles import (
     verify_proof_bundle,
     write_proof_bundle,
 )
-from tarkka.infrastructure.storage.json_citation_repository import JsonCitationRepository
-from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
 )
-from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.proof_bundle_snapshot import (
     JsonProofBundleSnapshotReader,
@@ -89,12 +86,10 @@ def _bundle_service(
         documents = JsonResearchRepository(home / "catalog.json")
         v2_snapshots = JsonProofBundleV2SnapshotReader(
             documents=documents,
-            observations=JsonSourceObservationRepository.open_existing(
-                home / "source_observations.json"
-            ),
-            extractions=JsonExtractionRepository.open_existing(home / "extractions.json"),
-            verifications=JsonVerificationRepository.open_existing(home / "verifications.json"),
-            citations=JsonCitationRepository.open_existing(home / "citations.json"),
+            observations_path=home / "source_observations.json",
+            extractions_path=home / "extractions.json",
+            verifications_path=home / "verifications.json",
+            citations_path=home / "citations.json",
         )
     else:
         v2_snapshots = PostgresProofBundleV2SnapshotReader(PostgresSettings.from_environment())

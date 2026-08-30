@@ -168,7 +168,10 @@ def _write_v3_bundle(
     return path
 
 
-def _registry_for(document: Document, **kwargs: bool) -> tuple[ReplayParserRegistry, _RecordingParser]:
+def _registry_for(
+    document: Document,
+    **kwargs: bool,
+) -> tuple[ReplayParserRegistry, _RecordingParser]:
     parser = _RecordingParser(
         document,
         name=document.parser_name,
@@ -199,8 +202,10 @@ def test_plain_text_v3_has_repeatable_document_identity(tmp_path: Path) -> None:
     second = parser.parse(artifact, source)
 
     assert parser.version == "3"
-    assert first == second
+    assert first.document_id == second.document_id
     assert first.document_id == parser_stable_id(artifact.artifact_id, "plain-text-document")
+    assert canonical_normalized_document_bytes(first) == canonical_normalized_document_bytes(second)
+    assert first.normalized_at != second.normalized_at
 
 
 def test_default_registry_replays_plain_text_without_network(
@@ -491,6 +496,36 @@ def test_replay_wraps_invalid_and_missing_bundle_errors(tmp_path: Path) -> None:
     assert missing_problem.value.code in {"replay_bundle_invalid", "replay_io_error"}
 
 
+def test_verified_replay_material_translates_verifier_and_open_io_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = tmp_path / "bundle.tarkka"
+
+    def verifier_io_error(path: Path) -> object:
+        del path
+        raise OSError("simulated verifier I/O")
+
+    monkeypatch.setattr(replay_module, "verify_proof_bundle", verifier_io_error)
+    with pytest.raises(ReplayProblem) as verifier_problem:
+        replay_module._verified_replay_material(bundle)
+    assert verifier_problem.value.code == "replay_io_error"
+
+    artifact, document = _plain_document(tmp_path)
+    bundle = _write_v3_bundle(tmp_path, artifact, document)
+    verification = verify_proof_bundle(bundle)
+    monkeypatch.setattr(replay_module, "verify_proof_bundle", lambda path: verification)
+
+    def open_io_error(self: Path, *args: object, **kwargs: object) -> object:
+        del self, args, kwargs
+        raise OSError("simulated replay open I/O")
+
+    monkeypatch.setattr(Path, "open", open_io_error)
+    with pytest.raises(ReplayProblem) as open_problem:
+        replay_module._verified_replay_material(bundle)
+    assert open_problem.value.code == "replay_io_error"
+
+
 def test_replay_detects_archive_change_after_verification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -585,7 +620,26 @@ def test_artifact_extraction_detects_pre_and_post_read_archive_changes(
     assert after.value.code == "replay_bundle_changed"
 
 
-def test_artifact_extraction_wraps_zip_failure_and_integrity_mismatch(tmp_path: Path) -> None:
+def test_artifact_extraction_translates_outer_open_io_error(tmp_path: Path) -> None:
+    artifact, document = _plain_document(tmp_path)
+    bundle = _write_v3_bundle(tmp_path, artifact, document)
+    manifest, _, verification = replay_module._verified_replay_material(bundle)
+    missing = tmp_path / "missing-bundle.tarkka"
+
+    with pytest.raises(ReplayProblem) as raised:
+        replay_module._extract_verified_artifact(
+            missing,
+            manifest,
+            verification.bundle_sha256,
+            tmp_path / "unused.txt",
+        )
+
+    assert raised.value.code == "replay_io_error"
+
+
+def test_artifact_extraction_wraps_zip_failure_and_integrity_mismatch(
+    tmp_path: Path,
+) -> None:
     artifact, document = _plain_document(tmp_path)
     bundle = _write_v3_bundle(tmp_path, artifact, document)
     manifest, _, _ = replay_module._verified_replay_material(bundle)
@@ -617,7 +671,9 @@ def test_artifact_extraction_wraps_zip_failure_and_integrity_mismatch(tmp_path: 
 
 
 def test_safe_artifact_suffix_uses_safe_name_media_type_and_binary_fallback() -> None:
-    assert replay_module._safe_artifact_suffix(_artifact(original_name="FILE.MarkDown")) == ".markdown"
+    assert replay_module._safe_artifact_suffix(
+        _artifact(original_name="FILE.MarkDown")
+    ) == ".markdown"
     assert replay_module._safe_artifact_suffix(_artifact(original_name=None)) == ".txt"
 
     unsafe = replace(

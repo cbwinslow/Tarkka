@@ -12,7 +12,6 @@ from tarkka.application.document_research_state import (
     DocumentResearchState,
     DocumentResearchStateLimits,
     assemble_document_research_state,
-    document_research_state_view,
 )
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactNotFoundError,
@@ -101,10 +100,9 @@ class JsonProofBundleV2SnapshotReader:
             )
             if source is None:
                 return None
-            research_state = self._research_state_locked(document_id)
             return ProofBundleV2Snapshot(
                 source=source,
-                research_state=document_research_state_view(research_state),
+                research_state=self._research_state_locked(document_id),
             )
 
     def _paths(self) -> list[Path]:

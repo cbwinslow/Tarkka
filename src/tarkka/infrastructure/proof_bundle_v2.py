@@ -24,14 +24,14 @@ def canonical_research_state_bytes(value: object) -> bytes:
             allow_nan=False,
         )
         return (text + "\n").encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise ProofBundleResearchStateJsonError(
             "proof bundle research-state value is not JSON-compatible"
         ) from exc
 
 
-def validate_canonical_research_state_bytes(data: bytes) -> None:
-    """Fail closed unless bytes are canonical UTF-8 JSON with safe object semantics."""
+def parse_canonical_research_state_bytes(data: bytes) -> Any:
+    """Return canonical safe JSON decoded from an untrusted research-state member."""
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -48,10 +48,20 @@ def validate_canonical_research_state_bytes(data: bytes) -> None:
         raise ProofBundleResearchStateJsonError(
             "proof bundle research-state member is not valid JSON"
         ) from exc
+    except RecursionError as exc:
+        raise ProofBundleResearchStateJsonError(
+            "proof bundle research-state member exceeds the supported nesting depth"
+        ) from exc
     if data != canonical_research_state_bytes(value):
         raise ProofBundleResearchStateJsonError(
             "proof bundle research-state member is not canonically encoded"
         )
+    return value
+
+
+def validate_canonical_research_state_bytes(data: bytes) -> None:
+    """Fail closed unless bytes are canonical UTF-8 JSON with safe object semantics."""
+    parse_canonical_research_state_bytes(data)
 
 
 def research_state_descriptor(data: bytes) -> ProofBundleResearchState:

@@ -282,7 +282,10 @@ def _extract_verified_artifact(
                         size += len(chunk)
             except (KeyError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
                 raise ReplayProblem("replay_artifact_materialization_failed", str(exc)) from exc
-            if size != manifest.artifact.size_bytes or digest.hexdigest() != manifest.artifact.sha256:
+            if (
+                size != manifest.artifact.size_bytes
+                or digest.hexdigest() != manifest.artifact.sha256
+            ):
                 raise ReplayProblem(
                     "replay_artifact_integrity_mismatch",
                     "materialized replay Artifact does not match the proof-bundle manifest",

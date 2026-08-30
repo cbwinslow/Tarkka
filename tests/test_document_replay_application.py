@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -25,32 +25,48 @@ from tarkka.application.replay import (
     ReplayResult,
     ReplayStatus,
 )
-from tarkka.domain.proof_bundle_v3 import (
-    PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
-    ProofBundleManifestV3,
-    ProofBundleNormalizedDocument,
+from tarkka.domain.models import Document
+from tarkka.domain.proof_bundle_v3 import ProofBundleManifestV3
+from tarkka.infrastructure.normalized_document_json import (
+    canonical_normalized_document_bytes,
+    normalized_document_descriptor,
 )
-from tarkka.infrastructure.proof_bundle_v2 import research_state_descriptor
+from tarkka.infrastructure.proof_bundle_v2 import (
+    canonical_research_state_bytes,
+    research_state_descriptor,
+)
 from tests.support.proof_bundles import proof_bundle_payload
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
-_DOCUMENT_ID = UUID("00000000-0000-0000-0000-00000000da01")
+_DOCUMENT_ID = UUID("00000000-0000-0000-0000-00000000fe01")
 
 
 def _v3_payload() -> ProofBundlePayload:
     base = proof_bundle_payload()
-    research_state_bytes = b'{"claims":[],"document_id":"00000000-0000-0000-0000-00000000da01"}\n'
-    normalized_document_bytes = b"{}\n"
+    document = Document(
+        document_id=base.manifest.document.document_id,
+        artifact_id=base.manifest.document.artifact_id,
+        title=base.manifest.document.title,
+        parser_name=base.manifest.document.parser_name,
+        parser_version=base.manifest.document.parser_version,
+        sections=(),
+        normalized_at=datetime(2026, 8, 29, tzinfo=UTC),
+    )
+    research_state_bytes = canonical_research_state_bytes(
+        {
+            "format": "tarkka-document-research-state",
+            "schema_version": 1,
+            "document_id": str(document.document_id),
+            "claims": [],
+        }
+    )
+    normalized_document_bytes = canonical_normalized_document_bytes(document)
     manifest = ProofBundleManifestV3(
         document=base.manifest.document,
         artifact=base.manifest.artifact,
         research_state=research_state_descriptor(research_state_bytes),
-        normalized_document=ProofBundleNormalizedDocument(
-            path=PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
-            sha256=hashlib.sha256(normalized_document_bytes).hexdigest(),
-            size_bytes=len(normalized_document_bytes),
-        ),
+        normalized_document=normalized_document_descriptor(normalized_document_bytes),
         work_documents=base.manifest.work_documents,
         source_observations=base.manifest.source_observations,
         resource_links=base.manifest.resource_links,
@@ -126,6 +142,16 @@ def test_document_replay_service_rejects_non_v3_runtime() -> None:
     assert replayer.received is None
 
 
+def test_document_replay_service_rejects_builder_identity_mismatch() -> None:
+    builder = _Builder(_v3_payload())
+    replayer = _Replayer(_result())
+
+    with pytest.raises(DocumentReplayConfigurationError, match="different Document identity"):
+        DocumentReplayService(bundles=builder, replayer=replayer).replay(uuid4())
+
+    assert replayer.received is None
+
+
 class _ResponseService:
     def __init__(self, outcome: ReplayResult | BaseException) -> None:
         self._outcome = outcome
@@ -163,7 +189,6 @@ def test_document_replay_response_returns_shared_success_envelope() -> None:
         ),
         (OSError("backend io"), "backend_unavailable"),
         (RuntimeError("backend runtime"), "backend_unavailable"),
-        (ValueError("bad persisted state"), "replay_state_invalid"),
     ],
 )
 def test_document_replay_response_maps_stable_problem_codes(
@@ -178,6 +203,11 @@ def test_document_replay_response_maps_stable_problem_codes(
     assert error["code"] == code
     if code == "document_not_found":
         assert error["next_actions"] == ["research.documents.manifest"]
+
+
+def test_document_replay_response_does_not_mask_unexpected_value_error() -> None:
+    with pytest.raises(ValueError, match="programming error"):
+        document_replay_response(_ResponseService(ValueError("programming error")), _DOCUMENT_ID)
 
 
 def test_document_replay_response_bounds_untrusted_problem_text() -> None:
@@ -208,14 +238,3 @@ def test_document_replay_execution_error_preserves_machine_metadata() -> None:
     assert error.parser_version == "9"
     assert error.determinism is ReplayDeterminism.ENVIRONMENT_SENSITIVE
     assert str(error) == "not deterministic"
-
-
-def test_document_replay_service_accepts_arbitrary_stable_uuid() -> None:
-    document_id = uuid4()
-    payload = _v3_payload()
-    builder = _Builder(payload)
-    replayer = _Replayer(_result())
-
-    DocumentReplayService(bundles=builder, replayer=replayer).replay(document_id)
-
-    assert builder.requested == document_id

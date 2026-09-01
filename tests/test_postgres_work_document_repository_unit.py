@@ -7,7 +7,7 @@ from uuid import UUID
 
 import pytest
 
-import tarkka.infrastructure.postgres.work_document_repository as repository_module
+import tarkka.infrastructure.postgres.connection as connection_module
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.work_document_repository import (
@@ -123,7 +123,7 @@ def test_postgres_work_document_repository_translates_driver_failures(
 ) -> None:
     connection = _FailingConnection(RuntimeError("driver failure"))
     monkeypatch.setattr(
-        repository_module,
+        connection_module,
         "translate_driver_error",
         lambda exc: ValueError("translated") if isinstance(exc, RuntimeError) else None,
     )
@@ -138,7 +138,7 @@ def test_postgres_work_document_repository_preserves_untranslated_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     connection = _FailingConnection(RuntimeError("boom"))
-    monkeypatch.setattr(repository_module, "translate_driver_error", lambda exc: None)
+    monkeypatch.setattr(connection_module, "translate_driver_error", lambda exc: None)
 
     with pytest.raises(RuntimeError, match="boom"):
         _repository(connection).list_work_document_links(_LINK.work_id)

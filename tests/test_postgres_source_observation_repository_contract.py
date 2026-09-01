@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.conformance import SourceObservationRepositoryContract
 from tarkka.domain.models import Artifact
 from tarkka.domain.source_observations import (
     ObservationBasis,
@@ -21,7 +22,6 @@ from tarkka.infrastructure.postgres.source_observation_repository import (
     PostgresSourceObservationConflictError,
     PostgresSourceObservationRepository,
 )
-from tests.contracts.source_observation_repository import SourceObservationRepositoryContract
 
 pytestmark = [pytest.mark.integration, pytest.mark.external]
 

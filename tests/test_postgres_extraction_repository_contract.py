@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.conformance import ExtractionRepositoryContract
 from tarkka.domain.extraction import (
     Claim,
     EquationEvidence,
@@ -27,7 +28,6 @@ from tarkka.infrastructure.postgres.extraction_repository import (
 )
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.storage.latex_parser import LatexParser
-from tests.contracts.extraction_repository import ExtractionRepositoryContract
 
 pytestmark = [pytest.mark.integration, pytest.mark.external]
 

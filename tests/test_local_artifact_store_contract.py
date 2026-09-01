@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tarkka.conformance import ArtifactStoreContract
+from tarkka.conformance import ArtifactStoreContract, StreamingArtifactStoreContract
 from tarkka.domain.models import Artifact
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 
@@ -30,6 +30,31 @@ def test_local_artifact_store_round_trips_content(
         tmp_path / "paper.txt",
         b"evidence\nwith stable bytes\n",
     )
+
+
+def test_local_artifact_store_streams_content(
+    store: LocalArtifactStore,
+    tmp_path: Path,
+) -> None:
+    StreamingArtifactStoreContract.assert_streaming_round_trip(
+        store,
+        tmp_path / "streamed-paper.txt",
+        b"evidence streamed without whole-object reads",
+        chunk_size=5,
+    )
+
+
+def test_streaming_artifact_contract_rejects_nonpositive_chunk_size(
+    store: LocalArtifactStore,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="chunk_size must be positive"):
+        StreamingArtifactStoreContract.assert_streaming_round_trip(
+            store,
+            tmp_path / "unused.txt",
+            b"unused",
+            chunk_size=0,
+        )
 
 
 def test_local_artifact_store_duplicate_writes_are_idempotent(

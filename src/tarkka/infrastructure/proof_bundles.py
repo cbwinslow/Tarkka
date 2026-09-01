@@ -101,8 +101,8 @@ def canonical_manifest_bytes(
     ).encode("utf-8")
 
 
-def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
-    """Return byte-for-byte deterministic archive bytes for one validated payload."""
+def _proof_bundle_members(payload: ProofBundlePayload) -> list[tuple[str, bytes]]:
+    """Return validated canonical members in deterministic archive order."""
     members = [
         (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
         (payload.manifest.artifact.path, payload.artifact_bytes),
@@ -127,31 +127,44 @@ def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
         state_bytes = cast(bytes, payload.research_state_bytes)
         validate_canonical_research_state_bytes(state_bytes)
         members.append((payload.manifest.research_state.path, state_bytes))
+    return members
+
+
+def _write_members(archive: zipfile.ZipFile, members: list[tuple[str, bytes]]) -> None:
+    """Write already validated members with canonical ZIP metadata."""
+    for name, content in members:
+        archive.writestr(_zip_info(name), content)
+
+
+def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
+    """Return byte-for-byte deterministic archive bytes for one validated payload."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_STORED) as archive:
-        for name, content in members:
-            archive.writestr(_zip_info(name), content)
+        _write_members(archive, _proof_bundle_members(payload))
     return buffer.getvalue()
 
 
 def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWriteResult:
-    """Verify a durable sibling temp file before atomically publishing the bundle."""
-    data = build_proof_bundle_bytes(payload)
+    """Stream the canonical archive to verified sibling storage before atomic publication."""
+    members = _proof_bundle_members(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=".tarkka-bundle-", suffix=".tmp", dir=path.parent)
     temp_path = Path(temp_name)
+    byte_count = 0
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
+        with os.fdopen(fd, "w+b") as handle:
+            with zipfile.ZipFile(handle, mode="w", compression=zipfile.ZIP_STORED) as archive:
+                _write_members(archive, members)
             handle.flush()
             os.fsync(handle.fileno())
+            byte_count = os.fstat(handle.fileno()).st_size
         verification = verify_proof_bundle(temp_path)
         os.replace(temp_path, path)
         # Atomic publication succeeded; failure here means crash durability remains unproven.
         fsync_directory(path.parent)
     finally:
         temp_path.unlink(missing_ok=True)
-    return ProofBundleWriteResult(byte_count=len(data), verification=verification)
+    return ProofBundleWriteResult(byte_count=byte_count, verification=verification)
 
 
 def verify_proof_bundle(

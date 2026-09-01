@@ -5,7 +5,15 @@ from pathlib import Path
 import pytest
 
 from tarkka.conformance import ArtifactStoreContract
+from tarkka.domain.models import Artifact
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
+
+
+class _AcceptsMissingArtifactStore(LocalArtifactStore):
+    """Deliberately non-conforming store used to prove the public contract fails it."""
+
+    def put_file(self, source: Path) -> Artifact:
+        return self.put_bytes(b"", original_name=source.name)
 
 
 @pytest.fixture
@@ -45,3 +53,12 @@ def test_local_artifact_store_rejects_missing_source(
     tmp_path: Path,
 ) -> None:
     ArtifactStoreContract.assert_missing_source_fails(store, tmp_path / "missing.bin")
+
+
+def test_artifact_store_contract_rejects_adapter_that_accepts_missing_source(
+    tmp_path: Path,
+) -> None:
+    store = _AcceptsMissingArtifactStore(tmp_path / "nonconforming")
+
+    with pytest.raises(AssertionError, match="must reject a missing source file"):
+        ArtifactStoreContract.assert_missing_source_fails(store, tmp_path / "missing.bin")

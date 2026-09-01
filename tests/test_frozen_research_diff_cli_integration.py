@@ -1,147 +1,84 @@
 from __future__ import annotations
 
-import hashlib
 import json
-from dataclasses import replace
-from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
-from uuid import UUID
+from pathlib import Path
 
 import pytest
 
-from tarkka.application.document_research_state import DocumentResearchState
-from tarkka.application.proof_bundles import (
-    ProofBundlePayload,
-    ProofBundleSnapshot,
-    ProofBundleV2Snapshot,
-    ProofBundleV3Service,
-)
-from tarkka.domain.identifiers import artifact_id_from_sha256
-from tarkka.domain.models import Artifact, Document
-from tarkka.infrastructure.normalized_document_json import canonical_normalized_document_bytes
-from tarkka.infrastructure.proof_bundle_v2 import (
-    canonical_research_state_bytes,
-    research_state_descriptor,
-)
-from tarkka.infrastructure.proof_bundles import build_proof_bundle_bytes
 from tarkka.interfaces.entrypoint import main
 
 pytestmark = [pytest.mark.integration, pytest.mark.regression]
 
-_BYTES = b"Frozen diff integration fixture."
-_SHA256 = hashlib.sha256(_BYTES).hexdigest()
-_ARTIFACT_ID = artifact_id_from_sha256(_SHA256)
-_DOCUMENT_ID = UUID("00000000-0000-0000-0000-00000000d301")
-_CLAIM_ID = "00000000-0000-0000-0000-00000000c301"
-_EVIDENCE_ID = "00000000-0000-0000-0000-00000000e301"
-_CREATED_AT = datetime(2026, 9, 1, tzinfo=UTC)
+_FIXTURE = Path(__file__).resolve().parents[1] / "examples" / "proof-replay-demo.txt"
 
 
-class _SnapshotReader:
-    def read(self, document_id: UUID) -> ProofBundleV2Snapshot | None:
-        assert document_id == _DOCUMENT_ID
-        artifact = Artifact(
-            artifact_id=_ARTIFACT_ID,
-            sha256=_SHA256,
-            size_bytes=len(_BYTES),
-            media_type="text/plain",
-            storage_key=PurePosixPath("sha256", _SHA256),
-            original_name="fixture.txt",
-            acquired_at=_CREATED_AT,
-            source_uri=None,
-        )
-        document = Document(
-            document_id=_DOCUMENT_ID,
-            artifact_id=_ARTIFACT_ID,
-            title="Frozen diff fixture",
-            parser_name="plain-text",
-            parser_version="3",
-            sections=(),
-            normalized_at=_CREATED_AT,
-        )
-        return ProofBundleV2Snapshot(
-            source=ProofBundleSnapshot(document=document, artifact=artifact),
-            research_state=DocumentResearchState(document_id=_DOCUMENT_ID, claim_lineages=()),
-        )
+def _document_handle(output: str) -> str:
+    for line in output.splitlines():
+        if line.startswith("id: doc:"):
+            return line.removeprefix("id: ")
+    raise AssertionError("ingest output did not contain a Document handle")
 
 
-class _ArtifactStore:
-    def read_bytes(self, artifact: Artifact) -> bytes:
-        assert artifact.artifact_id == _ARTIFACT_ID
-        return _BYTES
-
-
-def _payload() -> ProofBundlePayload:
-    return ProofBundleV3Service(
-        snapshots=_SnapshotReader(),
-        artifacts=_ArtifactStore(),  # type: ignore[arg-type]
-        encode_research_state=canonical_research_state_bytes,
-        encode_normalized_document=canonical_normalized_document_bytes,
-    ).build(_DOCUMENT_ID)
-
-
-def _payload_with_claim() -> ProofBundlePayload:
-    payload = _payload()
-    state = {
-        "format": "tarkka.document-research-state",
-        "schema_version": 1,
-        "document_id": str(_DOCUMENT_ID),
-        "claims": [
-            {
-                "claim": {
-                    "claim_id": _CLAIM_ID,
-                    "document_id": str(_DOCUMENT_ID),
-                    "text": "The fixture supports a deterministic diff.",
-                },
-                "claim_source": {"source": "fixture"},
-                "claim_evidence_page": {"offset": 0, "limit": 1, "total": 1},
-                "claim_evidence": [
-                    {
-                        "evidence_id": _EVIDENCE_ID,
-                        "text": "Frozen diff integration fixture.",
-                    }
-                ],
-                "verification": {
-                    "offset": 0,
-                    "limit": 0,
-                    "total": 0,
-                    "assessments": [],
-                },
-            }
-        ],
-    }
-    state_bytes = canonical_research_state_bytes(state)
-    return replace(
-        payload,
-        manifest=replace(payload.manifest, research_state=research_state_descriptor(state_bytes)),
-        research_state_bytes=state_bytes,
-    )
-
-
-def _write(path: Path, payload: ProofBundlePayload) -> None:
-    path.write_bytes(build_proof_bundle_bytes(payload))
-
-
-def test_public_diff_cli_compares_real_verified_v3_bundles_offline(
-    tmp_path: Path,
+def _create_bundle(
+    document_handle: str,
+    output: Path,
+    *,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    assert (
+        main(
+            [
+                "bundle",
+                "create",
+                document_handle,
+                "--schema-version",
+                "3",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    created = json.loads(capsys.readouterr().out)
+    assert created["valid"] is True
+    assert created["member_count"] == 4
+
+
+def test_public_diff_cli_compares_real_frozen_research_transition_offline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("TARKKA_DOCUMENT_BACKEND", "json")
+    monkeypatch.delenv("TARKKA_MODEL_BASE_URL", raising=False)
+    monkeypatch.delenv("TARKKA_MODEL_NAME", raising=False)
+    monkeypatch.delenv("TARKKA_MODEL_API_KEY", raising=False)
+
+    assert main(["ingest", str(_FIXTURE)]) == 0
+    document_handle = _document_handle(capsys.readouterr().out)
     before = tmp_path / "before.tarkka"
-    equal = tmp_path / "equal.tarkka"
-    changed = tmp_path / "changed.tarkka"
-    payload = _payload()
-    _write(before, payload)
-    _write(equal, payload)
-    _write(changed, _payload_with_claim())
+    after = tmp_path / "after.tarkka"
+    _create_bundle(document_handle, before, capsys=capsys)
 
-    assert main(["diff", str(before), str(equal)]) == 0
-    equal_result = json.loads(capsys.readouterr().out)
-    assert equal_result["materially_equal"] is True
-    assert equal_result["claims"] == []
+    assert main(["extract", "claims", document_handle, "--extractor", "rule"]) == 0
+    extraction = json.loads(capsys.readouterr().out)
+    assert extraction["claims"] == 2
+    assert extraction["evidence"] == 2
+    _create_bundle(document_handle, after, capsys=capsys)
 
-    assert main(["diff", str(before), str(changed)]) == 1
-    changed_result = json.loads(capsys.readouterr().out)
-    assert changed_result["materially_equal"] is False
-    assert changed_result["claims"][0]["claim_id"] == _CLAIM_ID
-    assert changed_result["claims"][0]["change"] == "added"
-    assert changed_result["claims"][0]["evidence"]["added"][0]["id"] == _EVIDENCE_ID
+    assert main(["diff", str(before), str(before)]) == 0
+    equal = json.loads(capsys.readouterr().out)
+    assert equal["materially_equal"] is True
+    assert equal["byte_identical"] is True
+    assert equal["claims"] == []
+
+    assert main(["diff", str(before), str(after)]) == 1
+    changed = json.loads(capsys.readouterr().out)
+    assert changed["materially_equal"] is False
+    assert changed["same_document"] is True
+    assert changed["artifact"]["changed"] is False
+    assert changed["normalized_document"]["changed"] is False
+    assert len(changed["claims"]) == 2
+    assert [item["change"] for item in changed["claims"]] == ["added", "added"]
+    assert all(len(item["evidence"]["added"]) == 1 for item in changed["claims"])

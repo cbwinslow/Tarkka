@@ -30,7 +30,10 @@ from tarkka.application.claim_lineage_protocol import (
 )
 from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 from tarkka.application.document_replay import DocumentReplayer
-from tarkka.application.document_replay_protocol import document_replay_response
+from tarkka.application.document_replay_protocol import (
+    document_replay_backend_unavailable_response,
+    document_replay_response,
+)
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
     DocumentRetrievalService,
@@ -303,8 +306,8 @@ def create_server(
             return parsed
         try:
             service = replay_service()
-        except (OSError, RuntimeError, ValueError) as exc:
-            return _error("backend_unavailable", str(exc))
+        except (OSError, RuntimeError, ValueError):
+            return document_replay_backend_unavailable_response()
         return document_replay_response(service, parsed)
 
     return server

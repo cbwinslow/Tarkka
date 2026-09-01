@@ -11,7 +11,7 @@ from tarkka.application.replay import (
     ReplayParserRegistry,
 )
 from tarkka.infrastructure.replay import ReplayProblem, replay_proof_bundle
-from tests.test_replay_execution import _RecordingParser, _plain_document, _write_v3_bundle
+from tests.test_replay_execution import _plain_document, _RecordingParser, _write_v3_bundle
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression, pytest.mark.security]
 

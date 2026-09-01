@@ -15,6 +15,11 @@ from tarkka.application.claim_lineage_protocol import (
     agent_error,
     claim_lineage_response,
 )
+from tarkka.application.document_replay import DocumentReplayer
+from tarkka.application.document_replay_protocol import (
+    document_replay_backend_unavailable_response,
+    document_replay_response,
+)
 from tarkka.application.research_capabilities import (
     ResearchField,
     UnknownResearchOperationError,
@@ -27,6 +32,9 @@ from tarkka.application.research_capability_view import (
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service as configured_claim_lineage_service,
 )
+from tarkka.interfaces.document_replay_runtime import (
+    document_replay_service as configured_document_replay_service,
+)
 
 ASGIMessage: TypeAlias = dict[str, object]
 ASGIScope: TypeAlias = Mapping[str, object]
@@ -34,9 +42,11 @@ ASGIReceive: TypeAlias = Callable[[], Awaitable[ASGIMessage]]
 ASGISend: TypeAlias = Callable[[ASGIMessage], Awaitable[None]]
 
 _LINEAGE_OPERATION_ID = "research.claims.lineage"
+_REPLAY_OPERATION_ID = "research.documents.replay"
 _ALLOWED_LINEAGE_QUERY = frozenset({"offset", "limit", "evidence_offset", "evidence_limit"})
 _MAX_QUERY_STRING_BYTES = 4096
 _MAX_QUERY_FIELDS = 16
+_DEFAULT_MAX_CONCURRENT_REPLAYS = 1
 _NOT_FOUND_CODES = frozenset(
     {
         "claim_not_found",
@@ -45,6 +55,29 @@ _NOT_FOUND_CODES = frozenset(
         "document_not_found",
         "artifact_not_found",
         "citation_context_not_found",
+    }
+)
+_REPLAY_CONFLICT_CODES = frozenset(
+    {
+        "artifact_integrity_error",
+        "research_state_integrity_error",
+        "replay_bundle_invalid",
+        "replay_bundle_changed",
+        "replay_material_unavailable",
+        "replay_environment_sensitive",
+        "replay_parser_legacy_nondeterministic",
+        "replay_parser_unsupported",
+        "replay_artifact_integrity_mismatch",
+    }
+)
+_REPLAY_UNAVAILABLE_CODES = frozenset(
+    {
+        "replay_configuration_error",
+        "replay_io_error",
+        "replay_parser_unavailable",
+        "replay_parser_support_failed",
+        "replay_parser_failed",
+        "replay_artifact_materialization_failed",
     }
 )
 
@@ -56,18 +89,44 @@ class TarkkaHttpApp:
         self,
         *,
         lineage: ClaimLineageService | None = None,
+        replay: DocumentReplayer | None = None,
         max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
+        max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
     ) -> None:
         if max_estimated_tokens < 0:
             raise ValueError("max_estimated_tokens must be non-negative")
+        if max_concurrent_replays < 1:
+            raise ValueError("max_concurrent_replays must be positive")
         self._lineage = lineage
+        self._replay = replay
         self._max_estimated_tokens = max_estimated_tokens
+        self._replay_slots = asyncio.Semaphore(max_concurrent_replays)
 
     def _lineage_service(self) -> ClaimLineageService:
         """Construct the configured durable lineage backend only when first requested."""
         if self._lineage is None:
             self._lineage = configured_claim_lineage_service()
         return self._lineage
+
+    def _replay_service(self) -> DocumentReplayer:
+        """Construct the configured document replay backend only when first requested."""
+        if self._replay is None:
+            self._replay = configured_document_replay_service()
+        return self._replay
+
+    async def _dispatch_replay_off_loop(
+        self,
+        path: str,
+        scope: ASGIScope,
+    ) -> tuple[int, dict[str, object]]:
+        """Hold replay capacity until the worker exits, including after request cancellation."""
+        async with self._replay_slots:
+            worker = asyncio.create_task(asyncio.to_thread(self._dispatch, path, scope))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError as cancellation:
+                await asyncio.gather(worker, return_exceptions=True)
+                raise cancellation
 
     async def __call__(
         self,
@@ -101,10 +160,12 @@ class TarkkaHttpApp:
             )
             return
 
-        if _claim_handle_from_path(path) is None:
-            status, payload = self._dispatch(path, scope)
-        else:
+        if _document_replay_handle_from_path(path) is not None:
+            status, payload = await self._dispatch_replay_off_loop(path, scope)
+        elif _claim_handle_from_path(path) is not None:
             status, payload = await asyncio.to_thread(self._dispatch, path, scope)
+        else:
+            status, payload = self._dispatch(path, scope)
         await _send_json(send, status, payload)
 
     def _dispatch(self, path: str, scope: ASGIScope) -> tuple[int, dict[str, object]]:
@@ -127,9 +188,51 @@ class TarkkaHttpApp:
                 )
             return 200, {"ok": True, **research_operation_schema_view(schema)}
 
+        replay_handle = _document_replay_handle_from_path(path)
+        if replay_handle is not None:
+            return self._dispatch_document_replay(replay_handle, scope)
+
         claim_handle = _claim_handle_from_path(path)
         if claim_handle is None:
             return _route_not_found(path)
+        return self._dispatch_claim_lineage(claim_handle, scope)
+
+    def _dispatch_document_replay(
+        self,
+        document_handle: str,
+        scope: ASGIScope,
+    ) -> tuple[int, dict[str, object]]:
+        """Replay one persisted Document through the path-free application contract."""
+        try:
+            document_id = UUID(document_handle.removeprefix("doc:"))
+        except ValueError:
+            return 400, agent_error(
+                "invalid_argument",
+                "document_id must be a UUID or doc:UUID handle",
+                next_actions=("research_operation_schema",),
+            )
+        try:
+            _require_empty_query(scope)
+        except ValueError as exc:
+            return 400, agent_error(
+                "invalid_argument",
+                str(exc),
+                next_actions=("research_operation_schema",),
+            )
+        try:
+            service = self._replay_service()
+        except (OSError, RuntimeError, ValueError):
+            response = document_replay_backend_unavailable_response()
+        else:
+            response = document_replay_response(service, document_id)
+        return _status_for_agent_response(response), response
+
+    def _dispatch_claim_lineage(
+        self,
+        claim_handle: str,
+        scope: ASGIScope,
+    ) -> tuple[int, dict[str, object]]:
+        """Resolve one bounded Claim-lineage request through the shared application view."""
         try:
             claim_id = UUID(claim_handle.removeprefix("claim:"))
         except ValueError:
@@ -166,10 +269,17 @@ class TarkkaHttpApp:
 def create_app(
     *,
     lineage: ClaimLineageService | None = None,
+    replay: DocumentReplayer | None = None,
     max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
+    max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
 ) -> TarkkaHttpApp:
     """Build the dependency-free ASGI adapter with lazy configured persistence."""
-    return TarkkaHttpApp(lineage=lineage, max_estimated_tokens=max_estimated_tokens)
+    return TarkkaHttpApp(
+        lineage=lineage,
+        replay=replay,
+        max_estimated_tokens=max_estimated_tokens,
+        max_concurrent_replays=max_concurrent_replays,
+    )
 
 
 def _json_schema_response(description: str, schema: dict[str, object]) -> dict[str, object]:
@@ -189,6 +299,10 @@ def openapi_document() -> dict[str, object]:
         for field in lineage_schema.inputs
         if field.name != "claim_id"
     ]
+    replay_schema = research_operation_schema(_REPLAY_OPERATION_ID)
+    replay_document_field = next(
+        field for field in replay_schema.inputs if field.name == "document_id"
+    )
     error_responses: dict[str, object] = {
         status: _json_schema_response(
             description,
@@ -197,9 +311,9 @@ def openapi_document() -> dict[str, object]:
         for status, description in (
             ("400", "Invalid request."),
             ("404", "Requested research object or operation was not found."),
-            ("409", "Persisted lineage is internally contradictory."),
+            ("409", "Persisted state conflicts with the requested deterministic operation."),
             ("413", "The bounded response still exceeds the configured size ceiling."),
-            ("503", "The configured durable backend is unavailable."),
+            ("503", "The configured durable backend or exact replay runtime is unavailable."),
         )
     }
     lineage_responses: dict[str, object] = {
@@ -209,6 +323,17 @@ def openapi_document() -> dict[str, object]:
         )
     }
     lineage_responses.update(error_responses)
+    replay_responses: dict[str, object] = {
+        "200": _json_schema_response(
+            replay_schema.result_summary,
+            {"$ref": "#/components/schemas/DocumentReplayEnvelope"},
+        ),
+        "400": error_responses["400"],
+        "404": error_responses["404"],
+        "409": error_responses["409"],
+        "413": error_responses["413"],
+        "503": error_responses["503"],
+    }
     operation_responses: dict[str, object] = {
         "200": _json_schema_response(
             "Selected operation schema.",
@@ -250,6 +375,25 @@ def openapi_document() -> dict[str, object]:
                         }
                     ],
                     "responses": operation_responses,
+                }
+            },
+            "/v1/documents/{document_id}/replay": {
+                "get": {
+                    "operationId": _REPLAY_OPERATION_ID,
+                    "summary": replay_schema.operation.summary,
+                    "parameters": [
+                        {
+                            "name": "document_id",
+                            "in": "path",
+                            "required": True,
+                            "description": (
+                                f"{replay_document_field.summary} "
+                                "Accepts a UUID or doc:<uuid> handle."
+                            ),
+                            "schema": {"type": "string", "minLength": 1},
+                        }
+                    ],
+                    "responses": replay_responses,
                 }
             },
             "/v1/claims/{claim_id}/lineage": {
@@ -338,6 +482,15 @@ def openapi_document() -> dict[str, object]:
                         "estimated_tokens": {"type": "integer", "minimum": 0},
                     },
                 },
+                "DocumentReplayEnvelope": {
+                    "type": "object",
+                    "required": ["ok", "replay", "estimated_tokens"],
+                    "properties": {
+                        "ok": {"const": True},
+                        "replay": {"type": "object"},
+                        "estimated_tokens": {"type": "integer", "minimum": 0},
+                    },
+                },
             }
         },
     }
@@ -378,8 +531,20 @@ def _openapi_field_schema(field: ResearchField) -> dict[str, object]:
 
 def _claim_handle_from_path(path: str) -> str | None:
     """Extract one Claim handle only from the exact versioned lineage route shape."""
-    prefix = "/v1/claims/"
-    suffix = "/lineage"
+    return _handle_from_path(path, prefix="/v1/claims/", suffix="/lineage")
+
+
+def _document_replay_handle_from_path(path: str) -> str | None:
+    """Extract one Document handle only from the exact versioned replay route shape."""
+    return _handle_from_path(path, prefix="/v1/documents/", suffix="/replay")
+
+
+def _blocking_handle_from_path(path: str) -> str | None:
+    """Return a handle when a route performs durable/blocking work off the event loop."""
+    return _document_replay_handle_from_path(path) or _claim_handle_from_path(path)
+
+
+def _handle_from_path(path: str, *, prefix: str, suffix: str) -> str | None:
     if not path.startswith(prefix) or not path.endswith(suffix):
         return None
     value = path[len(prefix) : -len(suffix)]
@@ -394,6 +559,12 @@ def _raw_query(scope: ASGIScope) -> bytes:
     if len(raw_query) > _MAX_QUERY_STRING_BYTES:
         raise ValueError("query string exceeds the configured byte maximum")
     return raw_query
+
+
+def _require_empty_query(scope: ASGIScope) -> None:
+    """Reject every query parameter on exact-handle operations that define none."""
+    if _raw_query(scope):
+        raise ValueError("document replay does not accept query parameters")
 
 
 def _lineage_query(scope: ASGIScope) -> tuple[int, int, int, int]:
@@ -443,11 +614,15 @@ def _status_for_agent_response(response: dict[str, object]) -> int:
         return 400
     if code in _NOT_FOUND_CODES or code == "unknown_operation":
         return 404
-    if code == "lineage_mismatch":
+    if code == "lineage_mismatch" or code in _REPLAY_CONFLICT_CODES:
         return 409
     if code == "content_too_large":
         return 413
-    if code in {"backend_unavailable", "citation_repository_unavailable"}:
+    if code in {
+        "backend_unavailable",
+        "citation_repository_unavailable",
+        *_REPLAY_UNAVAILABLE_CODES,
+    }:
         return 503
     return 500
 

@@ -36,13 +36,34 @@ from tarkka.domain.source_observations import ResourceLinkObservation, SourceObs
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.ports.artifacts import ArtifactStore
 
+_MIB = 1024 * 1024
+# Keep the default Artifact ceiling low enough that a verifier-valid v3 manifest,
+# research-state member, normalized Document member, and generous ZIP metadata reserve
+# can still fit inside the default 1 GiB archive ceiling. A regression test ties these
+# duplicated build-time defaults to the verifier defaults so either side cannot drift silently.
+_DEFAULT_MAX_ARCHIVE_BYTES = 1024 * _MIB
+_DEFAULT_MAX_MANIFEST_BYTES = 4 * _MIB
+_DEFAULT_MAX_RESEARCH_STATE_BYTES = 64 * _MIB
+_DEFAULT_MAX_NORMALIZED_DOCUMENT_BYTES = 64 * _MIB
+_DEFAULT_ZIP_CONTAINER_RESERVE_BYTES = 1 * _MIB
+_DEFAULT_MAX_ARTIFACT_BYTES = _DEFAULT_MAX_ARCHIVE_BYTES - (
+    _DEFAULT_MAX_MANIFEST_BYTES
+    + _DEFAULT_MAX_RESEARCH_STATE_BYTES
+    + _DEFAULT_MAX_NORMALIZED_DOCUMENT_BYTES
+    + _DEFAULT_ZIP_CONTAINER_RESERVE_BYTES
+)
+
 
 class ProofBundleDocumentNotFoundError(LookupError):
     """Raised when a bundle is requested for an unknown normalized Document."""
 
 
 class ProofBundleArtifactNotFoundError(LookupError):
-    """Raised when a Document references an Artifact missing from canonical state."""
+    """Raised when a Document references an Artifact missing from canonical state or storage."""
+
+
+class ProofBundleArtifactLimitError(ValueError):
+    """Raised before Artifact materialization when configured build limits would be exceeded."""
 
 
 class ProofBundleArtifactIntegrityError(RuntimeError):
@@ -51,6 +72,20 @@ class ProofBundleArtifactIntegrityError(RuntimeError):
 
 class ProofBundleResearchStateIntegrityError(RuntimeError):
     """Raised when v2+ research state contradicts its source Document snapshot."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProofBundleBuildLimits:
+    """Fail-before-read resource ceilings applied while building local proof bundles."""
+
+    max_artifact_bytes: int = _DEFAULT_MAX_ARTIFACT_BYTES
+
+    def __post_init__(self) -> None:
+        if self.max_artifact_bytes < 0:
+            raise ValueError("proof bundle build max_artifact_bytes must be non-negative")
+
+
+DEFAULT_PROOF_BUNDLE_BUILD_LIMITS = ProofBundleBuildLimits()
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,9 +168,16 @@ class ProofBundlePayload:
 class ProofBundleService:
     """Compose a v1 export payload without introducing new canonical research identities."""
 
-    def __init__(self, *, snapshots: ProofBundleSnapshotReader, artifacts: ArtifactStore) -> None:
+    def __init__(
+        self,
+        *,
+        snapshots: ProofBundleSnapshotReader,
+        artifacts: ArtifactStore,
+        limits: ProofBundleBuildLimits = DEFAULT_PROOF_BUNDLE_BUILD_LIMITS,
+    ) -> None:
         self._snapshots = snapshots
         self._artifacts = artifacts
+        self._limits = limits
 
     def build(self, document_id: UUID) -> ProofBundlePayload:
         snapshot = self._snapshots.read(document_id)
@@ -145,6 +187,7 @@ class ProofBundleService:
             snapshot,
             document_id=document_id,
             artifacts=self._artifacts,
+            limits=self._limits,
         )
         return ProofBundlePayload(
             manifest=_source_manifest(snapshot),
@@ -161,10 +204,12 @@ class ProofBundleV2Service:
         snapshots: ProofBundleV2SnapshotReader,
         artifacts: ArtifactStore,
         encode_research_state: ResearchStateEncoder,
+        limits: ProofBundleBuildLimits = DEFAULT_PROOF_BUNDLE_BUILD_LIMITS,
     ) -> None:
         self._snapshots = snapshots
         self._artifacts = artifacts
         self._encode_research_state = encode_research_state
+        self._limits = limits
 
     def build(self, document_id: UUID) -> ProofBundlePayload:
         snapshot = self._snapshots.read(document_id)
@@ -175,6 +220,7 @@ class ProofBundleV2Service:
             source,
             document_id=document_id,
             artifacts=self._artifacts,
+            limits=self._limits,
         )
         _validate_research_state_identity(snapshot)
         research_state_bytes = self._encode_research_state(
@@ -207,11 +253,13 @@ class ProofBundleV3Service:
         artifacts: ArtifactStore,
         encode_research_state: ResearchStateEncoder,
         encode_normalized_document: NormalizedDocumentEncoder,
+        limits: ProofBundleBuildLimits = DEFAULT_PROOF_BUNDLE_BUILD_LIMITS,
     ) -> None:
         self._snapshots = snapshots
         self._artifacts = artifacts
         self._encode_research_state = encode_research_state
         self._encode_normalized_document = encode_normalized_document
+        self._limits = limits
 
     def build(self, document_id: UUID) -> ProofBundlePayload:
         snapshot = self._snapshots.read(document_id)
@@ -222,6 +270,7 @@ class ProofBundleV3Service:
             source,
             document_id=document_id,
             artifacts=self._artifacts,
+            limits=self._limits,
         )
         _validate_research_state_identity(snapshot)
         research_state_bytes = self._encode_research_state(
@@ -281,6 +330,7 @@ def _validated_artifact_bytes(
     *,
     document_id: UUID,
     artifacts: ArtifactStore,
+    limits: ProofBundleBuildLimits,
 ) -> bytes:
     document = snapshot.document
     artifact = snapshot.artifact
@@ -292,8 +342,18 @@ def _validated_artifact_bytes(
         raise ProofBundleArtifactIntegrityError(
             "snapshot document and artifact identities do not match"
         )
+    if artifact.size_bytes > limits.max_artifact_bytes:
+        raise ProofBundleArtifactLimitError(
+            "proof bundle Artifact exceeds the configured build byte maximum: "
+            f"size={artifact.size_bytes}, maximum={limits.max_artifact_bytes}"
+        )
 
-    artifact_bytes = artifacts.read_bytes(artifact)
+    try:
+        artifact_bytes = artifacts.read_bytes(artifact)
+    except FileNotFoundError as exc:
+        raise ProofBundleArtifactNotFoundError(
+            f"artifact bytes not found: {artifact.artifact_id}"
+        ) from exc
     actual_sha256 = hashlib.sha256(artifact_bytes).hexdigest()
     if len(artifact_bytes) != artifact.size_bytes or actual_sha256 != artifact.sha256:
         raise ProofBundleArtifactIntegrityError(

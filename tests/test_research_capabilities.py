@@ -3,6 +3,7 @@ import pytest
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.discover import DiscoveryService
+from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_capabilities import (
     _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD,
@@ -25,6 +26,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.documents.manifest",
         "research.documents.sections",
         "research.documents.section",
+        "research.documents.replay",
         "research.claims.lineage",
         "research.verify",
         "research.verify.candidates",
@@ -42,6 +44,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (DocumentRetrievalService, "manifest"),
         (DocumentRetrievalService, "sections"),
         (DocumentRetrievalService, "section"),
+        (DocumentReplayService, "replay"),
         (ClaimLineageService, "inspect"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
@@ -57,6 +60,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     document_manifest = research_operation_schema("research.documents.manifest")
     document_sections = research_operation_schema("research.documents.sections")
     document_section = research_operation_schema("research.documents.section")
+    document_replay = research_operation_schema("research.documents.replay")
     lineage = research_operation_schema("research.claims.lineage")
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
@@ -100,6 +104,12 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert document_section.result_summary == (
         "One exact section with source-preserving normalized passage handles and text."
     )
+    assert [field.name for field in document_replay.inputs] == ["document_id"]
+    assert document_replay.operation.family == "replay"
+    assert document_replay.result_summary == (
+        "Replay status, canonical digests, implementation identity, and bounded mismatches."
+    )
+    assert document_replay.estimated_tokens < 50
 
     assert [field.name for field in lineage.inputs] == [
         "claim_id",

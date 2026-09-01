@@ -14,6 +14,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.discover import DiscoveryService
+from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
@@ -124,6 +125,7 @@ class _OperationRegistration:
     service_type: (
         type[DiscoveryService]
         | type[DocumentRetrievalService]
+        | type[DocumentReplayService]
         | type[ClaimLineageService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
@@ -230,6 +232,18 @@ _OPERATION_REGISTRATIONS = (
             ResearchField("section_id", "uuid", True, "Stable normalized Section identifier."),
         ),
         "One exact section with source-preserving normalized passage handles and text.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.documents.replay",
+            "replay",
+            "Replay one persisted Document against its exact deterministic parser.",
+            12,
+        ),
+        DocumentReplayService,
+        "replay",
+        (ResearchField("document_id", "uuid", True, "Stable persisted Document identifier."),),
+        "Replay status, canonical digests, implementation identity, and bounded mismatches.",
     ),
     _OperationRegistration(
         ResearchOperation(

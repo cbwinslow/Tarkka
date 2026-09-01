@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.conformance import SourceObservationRepositoryContract
 from tarkka.domain.source_observations import (
     ObservationBasis,
     ResourceLinkObservation,
@@ -17,9 +18,6 @@ from tarkka.infrastructure.storage import json_source_observation_repository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
     SourceObservationConflictError,
-)
-from tests.contracts.source_observation_repository import (
-    SourceObservationRepositoryContract,
 )
 
 _OBSERVATION_ID = UUID("00000000-0000-0000-0000-000000000901")

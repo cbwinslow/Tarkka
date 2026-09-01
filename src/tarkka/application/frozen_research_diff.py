@@ -150,7 +150,8 @@ class FrozenResearchDiff:
     @property
     def materially_equal(self) -> bool:
         return not (
-            self.manifest_changed
+            not self.same_document
+            or self.manifest_changed
             or self.artifact_changed
             or self.normalized_document_changed
             or any(claim.has_changes for claim in self.claims)

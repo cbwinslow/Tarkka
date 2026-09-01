@@ -226,10 +226,21 @@ def test_acquired_artifact_accepts_direct_and_redirected_receipts() -> None:
             "https://cdn.example.test/paper.pdf",
         ),
     )
+    returned_to_origin = AcquiredArtifact(
+        requested_uri="https://example.test/source",
+        final_uri="https://example.test/source",
+        size_bytes=3,
+        sha256=hashlib.sha256(b"pdf").hexdigest(),
+        redirect_chain=(
+            "https://cdn.example.test/intermediate",
+            "https://example.test/source",
+        ),
+    )
 
     assert direct.redirect_chain == ()
     assert direct.metadata == {"source": "local"}
     assert redirected.redirect_chain[-1] == redirected.final_uri
+    assert returned_to_origin.redirect_chain[-1] == returned_to_origin.final_uri
     with pytest.raises(TypeError):
         direct.metadata["new"] = "value"  # type: ignore[index]
 
@@ -274,22 +285,14 @@ def test_acquired_artifact_rejects_invalid_redirect_semantics() -> None:
             sha256=digest,
             redirect_chain=("relative",),
         )
-    with pytest.raises(ValueError, match="unchanged acquired URI"):
-        AcquiredArtifact(
-            requested_uri="https://example.test/source",
-            final_uri="https://example.test/source",
-            size_bytes=3,
-            sha256=digest,
-            redirect_chain=("https://example.test/source",),
-        )
-    with pytest.raises(ValueError, match="must end its redirect chain"):
+    with pytest.raises(ValueError, match="changed final_uri requires"):
         AcquiredArtifact(
             requested_uri="https://example.test/source",
             final_uri="https://example.test/final",
             size_bytes=3,
             sha256=digest,
         )
-    with pytest.raises(ValueError, match="must end its redirect chain"):
+    with pytest.raises(ValueError, match="redirect chain must end at final_uri"):
         AcquiredArtifact(
             requested_uri="https://example.test/source",
             final_uri="https://example.test/final",

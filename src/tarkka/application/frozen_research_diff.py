@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -110,7 +111,11 @@ class ClaimDiff:
 
     @property
     def has_changes(self) -> bool:
-        return self.change != "unchanged" or self.evidence.has_changes or self.verifications.has_changes
+        return (
+            self.change != "unchanged"
+            or self.evidence.has_changes
+            or self.verifications.has_changes
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -179,7 +184,7 @@ def diff_frozen_research(
     before: FrozenResearchBundle,
     after: FrozenResearchBundle,
 ) -> FrozenResearchDiff:
-    """Compare two verified frozen states using only exact identities and canonical fingerprints."""
+    """Compare two verified frozen states using exact identities and canonical fingerprints."""
     before_claims = {item.claim.entity_id: item for item in before.claims}
     after_claims = {item.claim.entity_id: item for item in after.claims}
     claim_diffs = tuple(
@@ -206,13 +211,13 @@ def diff_frozen_research(
 
 def _diff_claim(before: FrozenClaimState | None, after: FrozenClaimState | None) -> ClaimDiff:
     if before is None:
-        assert after is not None
+        added = cast(FrozenClaimState, after)
         change = "added"
         before_sha256 = None
-        after_sha256 = after.claim.sha256
-        evidence = _diff_entities((), after.evidence)
-        verifications = _diff_entities((), after.verifications)
-        claim_id = after.claim.entity_id
+        after_sha256 = added.claim.sha256
+        evidence = _diff_entities((), added.evidence)
+        verifications = _diff_entities((), added.verifications)
+        claim_id = added.claim.entity_id
     elif after is None:
         change = "removed"
         before_sha256 = before.claim.sha256

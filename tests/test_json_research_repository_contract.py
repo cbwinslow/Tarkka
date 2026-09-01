@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.conformance import ResearchRepositoryContract
+from tarkka.domain.document_structure import DocumentStructureError
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.storage import json_repository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -58,6 +62,36 @@ def test_json_repository_satisfies_idempotent_save_contract(tmp_path: Path) -> N
         result.document,
         result.manifest,
     )
+
+
+def test_json_repository_rejects_invalid_document_structure_before_write(tmp_path: Path) -> None:
+    result = _ingest_sample(tmp_path)
+    repository = JsonResearchRepository(tmp_path / "catalog.json")
+    invalid_section = replace(result.document.sections[0], parent_section_id=uuid4())
+    invalid_document = replace(
+        result.document,
+        sections=(invalid_section, *result.document.sections[1:]),
+    )
+
+    with pytest.raises(DocumentStructureError) as exc_info:
+        repository.save_document(invalid_document, result.manifest)
+
+    assert exc_info.value.code == "missing_parent"
+    assert repository.get_document(result.document.document_id) == result.document
+
+
+def test_json_repository_rejects_corrupt_persisted_document_structure(tmp_path: Path) -> None:
+    result = _ingest_sample(tmp_path)
+    catalog = tmp_path / "catalog.json"
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    stored = payload["documents"][str(result.document.document_id)]["document"]
+    stored["sections"][0]["parent_section_id"] = str(uuid4())
+    catalog.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(DocumentStructureError) as exc_info:
+        JsonResearchRepository(catalog).get_document(result.document.document_id)
+
+    assert exc_info.value.code == "missing_parent"
 
 
 def test_json_repository_preserves_first_class_source_artifacts_on_reload(tmp_path: Path) -> None:

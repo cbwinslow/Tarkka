@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 from uuid import UUID
 
@@ -112,15 +113,16 @@ def test_mcp_document_replay_preserves_shared_machine_problem() -> None:
     }
 
 
-def test_mcp_document_replay_runtime_is_lazy_and_configuration_failures_are_bounded(
+def test_mcp_document_replay_runtime_is_lazy_and_hides_configuration_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
+    secret = "postgresql://user:super-secret@database/" + "x" * 10_000
 
     def unavailable() -> DocumentReplayer:
         nonlocal calls
         calls += 1
-        raise ValueError("TARKKA_DATABASE_URL is required")
+        raise ValueError(secret)
 
     monkeypatch.setattr(mcp, "configured_document_replay_service", unavailable)
     server = create_server()
@@ -134,7 +136,12 @@ def test_mcp_document_replay_runtime_is_lazy_and_configuration_failures_are_boun
         {"document_id": str(_DOCUMENT_ID)},
     )
 
-    assert response["error"]["code"] == "backend_unavailable"
+    assert response["error"] == {
+        "code": "backend_unavailable",
+        "message": "configured document replay backend is unavailable",
+        "next_actions": [],
+    }
+    assert secret not in json.dumps(response)
     assert calls == 1
 
 

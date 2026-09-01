@@ -157,6 +157,22 @@ def list_resource_links_with_connection(
     return tuple(_link_from_row(row) for row in rows)
 
 
+def list_resource_links_for_artifact_with_connection(
+    connection: Any,
+    artifact_id: UUID,
+) -> tuple[ResourceLinkObservation, ...]:
+    """Read all links observed from an Artifact in one caller-owned query."""
+    rows = connection.execute(
+        _SELECT_LINKS
+        + """ JOIN tarkka.source_observation AS observation
+               ON observation.observation_id = resource_link_observation.observation_id
+            WHERE observation.native_artifact_id = %s
+            ORDER BY resource_relation, target_uri, link_id""",
+        (artifact_id,),
+    ).fetchall()
+    return tuple(_link_from_row(row) for row in rows)
+
+
 def list_observations_for_artifact_with_connection(
     connection: Any,
     artifact_id: UUID,

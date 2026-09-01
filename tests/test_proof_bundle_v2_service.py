@@ -51,7 +51,9 @@ class _ArtifactStore:
 
 class _UnreadableArtifactStore:
     def read_bytes(self, artifact: Artifact) -> bytes:
-        raise AssertionError(f"streaming build must not read Artifact bytes: {artifact.artifact_id}")
+        raise AssertionError(
+            f"streaming build must not read Artifact bytes: {artifact.artifact_id}"
+        )
 
 
 def _snapshot() -> ProofBundleV2Snapshot:

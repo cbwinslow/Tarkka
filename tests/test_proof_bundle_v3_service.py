@@ -13,6 +13,8 @@ from tarkka.application.document_research_state import (
     document_research_state_view,
 )
 from tarkka.application.proof_bundles import (
+    ProofBundleArtifactLimitError,
+    ProofBundleBuildLimits,
     ProofBundleDocumentNotFoundError,
     ProofBundleResearchStateIntegrityError,
     ProofBundleSnapshot,
@@ -24,7 +26,11 @@ from tarkka.domain.models import Artifact, Document
 from tarkka.domain.proof_bundle_v3 import ProofBundleManifestV3
 from tarkka.infrastructure.normalized_document_json import canonical_normalized_document_bytes
 from tarkka.infrastructure.proof_bundle_v2 import canonical_research_state_bytes
-from tarkka.infrastructure.proof_bundles import build_proof_bundle_bytes, verify_proof_bundle_bytes
+from tarkka.infrastructure.proof_bundles import (
+    ProofBundleVerificationLimits,
+    build_proof_bundle_bytes,
+    verify_proof_bundle_bytes,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
@@ -48,6 +54,11 @@ class _ArtifactStore:
     def read_bytes(self, artifact: Artifact) -> bytes:
         del artifact
         return _BYTES
+
+
+class _UnreadableArtifactStore:
+    def read_bytes(self, artifact: Artifact) -> bytes:
+        raise AssertionError(f"oversized Artifact must not be read: {artifact.artifact_id}")
 
 
 def _snapshot() -> ProofBundleV2Snapshot:
@@ -129,3 +140,34 @@ def test_v3_service_rejects_research_state_for_another_document() -> None:
 
     with pytest.raises(ProofBundleResearchStateIntegrityError, match="different Document"):
         _service(mismatched).build(_DOCUMENT_ID)
+
+
+def test_v3_service_rejects_oversized_artifact_before_reading_bytes() -> None:
+    snapshot = _snapshot()
+    oversized = replace(
+        snapshot,
+        source=replace(
+            snapshot.source,
+            artifact=replace(snapshot.source.artifact, size_bytes=len(_BYTES) + 1),
+        ),
+    )
+    service = ProofBundleV3Service(
+        snapshots=_SnapshotReader(oversized),
+        artifacts=_UnreadableArtifactStore(),  # type: ignore[arg-type]
+        encode_research_state=canonical_research_state_bytes,
+        encode_normalized_document=canonical_normalized_document_bytes,
+        limits=ProofBundleBuildLimits(max_artifact_bytes=len(_BYTES)),
+    )
+
+    with pytest.raises(ProofBundleArtifactLimitError, match="configured build byte maximum"):
+        service.build(_DOCUMENT_ID)
+
+
+def test_proof_bundle_build_limit_is_validated_and_matches_verifier_default() -> None:
+    with pytest.raises(ValueError, match="max_artifact_bytes must be non-negative"):
+        ProofBundleBuildLimits(max_artifact_bytes=-1)
+
+    assert (
+        ProofBundleBuildLimits().max_artifact_bytes
+        == ProofBundleVerificationLimits().max_artifact_bytes
+    )

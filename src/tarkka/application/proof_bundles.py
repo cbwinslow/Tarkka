@@ -36,7 +36,22 @@ from tarkka.domain.source_observations import ResourceLinkObservation, SourceObs
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.ports.artifacts import ArtifactStore
 
-_DEFAULT_MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
+_MIB = 1024 * 1024
+# Keep the default Artifact ceiling low enough that a verifier-valid v3 manifest,
+# research-state member, normalized Document member, and generous ZIP metadata reserve
+# can still fit inside the default 1 GiB archive ceiling. A regression test ties these
+# duplicated build-time defaults to the verifier defaults so either side cannot drift silently.
+_DEFAULT_MAX_ARCHIVE_BYTES = 1024 * _MIB
+_DEFAULT_MAX_MANIFEST_BYTES = 4 * _MIB
+_DEFAULT_MAX_RESEARCH_STATE_BYTES = 64 * _MIB
+_DEFAULT_MAX_NORMALIZED_DOCUMENT_BYTES = 64 * _MIB
+_DEFAULT_ZIP_CONTAINER_RESERVE_BYTES = 1 * _MIB
+_DEFAULT_MAX_ARTIFACT_BYTES = _DEFAULT_MAX_ARCHIVE_BYTES - (
+    _DEFAULT_MAX_MANIFEST_BYTES
+    + _DEFAULT_MAX_RESEARCH_STATE_BYTES
+    + _DEFAULT_MAX_NORMALIZED_DOCUMENT_BYTES
+    + _DEFAULT_ZIP_CONTAINER_RESERVE_BYTES
+)
 
 
 class ProofBundleDocumentNotFoundError(LookupError):

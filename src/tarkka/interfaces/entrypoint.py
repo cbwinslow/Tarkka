@@ -14,10 +14,10 @@ from tarkka.interfaces.why_cli import main as why_main
 CommandMain = Callable[[list[str] | None], int]
 
 _COMMANDS: dict[str, CommandMain] = {
-    "bundle": bundle_main,
-    "diff": diff_main,
-    "replay": replay_main,
-    "why": why_main,
+    "bundle": lambda argv: bundle_main(argv),
+    "diff": lambda argv: diff_main(argv),
+    "replay": lambda argv: replay_main(argv),
+    "why": lambda argv: why_main(argv),
 }
 
 

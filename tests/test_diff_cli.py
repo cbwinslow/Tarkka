@@ -41,6 +41,14 @@ def _bundle(marker: str = "a") -> FrozenResearchBundle:
     )
 
 
+def _existing_paths(tmp_path: Path) -> tuple[str, str]:
+    before = tmp_path / "before.tarkka"
+    after = tmp_path / "after.tarkka"
+    before.write_bytes(b"before")
+    after.write_bytes(b"after")
+    return str(before), str(after)
+
+
 def test_diff_cli_returns_zero_and_stable_json_for_equal_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -49,7 +57,7 @@ def test_diff_cli_returns_zero_and_stable_json_for_equal_state(
     frozen = _bundle()
     monkeypatch.setattr(diff_cli, "inspect_frozen_research_bundle", lambda _path: frozen)
 
-    exit_code = diff_cli.main([str(tmp_path / "before"), str(tmp_path / "after")])
+    exit_code = diff_cli.main(list(_existing_paths(tmp_path)))
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
@@ -67,7 +75,7 @@ def test_diff_cli_returns_one_when_material_state_changed(
     values = iter((_bundle("a"), _bundle("d")))
     monkeypatch.setattr(diff_cli, "inspect_frozen_research_bundle", lambda _path: next(values))
 
-    exit_code = diff_cli.main([str(tmp_path / "before"), str(tmp_path / "after")])
+    exit_code = diff_cli.main(list(_existing_paths(tmp_path)))
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 1
@@ -94,7 +102,7 @@ def test_diff_cli_returns_bounded_machine_problem_for_invalid_bundle(
 
     monkeypatch.setattr(diff_cli, "inspect_frozen_research_bundle", inspect)
 
-    exit_code = diff_cli.main([str(tmp_path / "before"), str(tmp_path / "after")])
+    exit_code = diff_cli.main(list(_existing_paths(tmp_path)))
     captured = capsys.readouterr()
     problem = json.loads(captured.err)
 
@@ -118,7 +126,7 @@ def test_diff_cli_keeps_short_problem_detail_unchanged(
         lambda _path: (_ for _ in ()).throw(FrozenResearchBundleInspectionError("bad bundle")),
     )
 
-    assert diff_cli.main([str(tmp_path / "before"), str(tmp_path / "after")]) == 2
+    assert diff_cli.main(list(_existing_paths(tmp_path))) == 2
     assert json.loads(capsys.readouterr().err)["detail"] == "bad bundle"
 
 

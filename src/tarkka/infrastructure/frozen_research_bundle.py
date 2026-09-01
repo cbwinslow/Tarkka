@@ -140,7 +140,9 @@ def _validate_member_contracts(
     if research.get("format") != DOCUMENT_RESEARCH_STATE_FORMAT:
         raise FrozenResearchBundleInspectionError("unsupported frozen research-state format")
     if research.get("schema_version") != DOCUMENT_RESEARCH_STATE_SCHEMA_VERSION:
-        raise FrozenResearchBundleInspectionError("unsupported frozen research-state schema version")
+        raise FrozenResearchBundleInspectionError(
+            "unsupported frozen research-state schema version"
+        )
 
 
 def _project_claims(
@@ -290,7 +292,9 @@ def _canonical_uuid(value: object, label: str) -> str:
     except ValueError as exc:
         raise FrozenResearchBundleInspectionError(f"frozen {label} must be a UUID string") from exc
     if str(parsed) != value:
-        raise FrozenResearchBundleInspectionError(f"frozen {label} must use canonical UUID spelling")
+        raise FrozenResearchBundleInspectionError(
+            f"frozen {label} must use canonical UUID spelling"
+        )
     return value
 
 

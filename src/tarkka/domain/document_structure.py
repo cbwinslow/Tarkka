@@ -81,22 +81,27 @@ def _validated_parent_first_sections(document: Document) -> tuple[Section, ...]:
             f"missing parent {missing_parent}",
         )
 
-    pending = {section.section_id: section for section in sections}
-    inserted: set[UUID] = set()
+    children_by_parent: dict[UUID, list[Section]] = {
+        section.section_id: [] for section in sections
+    }
+    roots: list[Section] = []
+    for section in sections:
+        if section.parent_section_id is None:
+            roots.append(section)
+        else:
+            children_by_parent[section.parent_section_id].append(section)
+
+    key = lambda item: (item.ordinal, str(item.section_id))
+    stack = sorted(roots, key=key, reverse=True)
     ordered: list[Section] = []
-    while pending:
-        ready = [
-            section
-            for section in pending.values()
-            if section.parent_section_id is None or section.parent_section_id in inserted
-        ]
-        if not ready:
-            raise DocumentStructureError(
-                "cyclic_parent",
-                "document sections have a missing or cyclic parent: cycle detected",
-            )
-        for section in sorted(ready, key=lambda item: (item.ordinal, str(item.section_id))):
-            ordered.append(section)
-            inserted.add(section.section_id)
-            del pending[section.section_id]
+    while stack:
+        section = stack.pop()
+        ordered.append(section)
+        stack.extend(sorted(children_by_parent[section.section_id], key=key, reverse=True))
+
+    if len(ordered) != len(sections):
+        raise DocumentStructureError(
+            "cyclic_parent",
+            "document sections have a missing or cyclic parent: cycle detected",
+        )
     return tuple(ordered)

@@ -19,6 +19,11 @@ Examples of candidate URI schemes include `file:`, `http:`, `https:`, provider-d
 or connector-defined schemes such as an upload/object-store handle. The public contract does not
 contain a provider or format allowlist.
 
+When a candidate or receipt exposes a `filename`, it must be one safe filename component on both
+POSIX and Windows. Path separators, traversal components, NULs, and blank names are rejected.
+Adapters may preserve a source-native unsafe/raw filename separately in `SourceObservation`
+provenance, but Tarkka must not let it become an implicit filesystem path.
+
 Large or source-native provider records do not belong in candidate metadata. Preserve them as a
 `SourceObservation` or immutable Artifact and reference them from canonical provenance.
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from tarkka.application.citation_context import build_citation_contexts
+from tarkka.domain.document_structure import validate_document_structure
 from tarkka.domain.manifest import ResourceManifest, build_document_manifest
 from tarkka.domain.models import Acquisition, Artifact, Document, new_id
 from tarkka.ports.acquisitions import AcquisitionRecorder
@@ -134,6 +135,11 @@ class IngestService:
             document = native_parse.document
         else:
             document = parser.parse(artifact, stored_path)
+
+        # This is the generic parser compatibility boundary. Built-in normalizers and
+        # NativeDocumentParseResult validate earlier too, but an external DocumentParser must not
+        # be able to bypass the canonical contract merely because it does not use those helpers.
+        validate_document_structure(document)
         manifest = build_document_manifest(document, artifact)
 
         self._repository.save_document(document, manifest)

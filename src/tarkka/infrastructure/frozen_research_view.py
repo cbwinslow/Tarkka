@@ -345,7 +345,7 @@ def _validate_assessment(
         "verification assessment",
     )
     relation_id = _uuid(value["relation_id"], "verification relation_id")
-    _enum_string(value["kind"], EvidenceRelationKind, "verification kind")
+    kind = _enum_string(value["kind"], EvidenceRelationKind, "verification kind")
     _non_blank_string(value["verifier_name"], "verification verifier_name")
     _non_blank_string(value["verifier_version"], "verification verifier_version")
     _unit_number(value["confidence"], "verification confidence")
@@ -356,9 +356,19 @@ def _validate_assessment(
     )
     _optional_non_blank_string(value["reasoning_summary"], "verification reasoning_summary")
     _non_blank_string(value["created_at"], "verification created_at")
-    if value["evidence"] is not None:
+    evidence = value["evidence"]
+    if kind == EvidenceRelationKind.NO_EVIDENCE.value:
+        if evidence is not None:
+            raise FrozenResearchStateProjectionError(
+                "frozen no_evidence verification relation must not identify Evidence"
+            )
+    elif evidence is None:
+        raise FrozenResearchStateProjectionError(
+            "frozen verification relation must identify exact Evidence"
+        )
+    else:
         _validate_and_register_evidence(
-            value["evidence"],
+            evidence,
             evidence_fingerprints=evidence_fingerprints,
             expected_document_id=None,
             expected_artifact_id=None,
@@ -386,12 +396,12 @@ def _validate_citation_context(value: object) -> None:
     )
     _uuid(context["context_id"], "citation context context_id")
     _uuid(context["mention_id"], "citation context mention_id")
-    _string(context["text"], "citation context text")
+    text = _non_blank_string(context["text"], "citation context text")
     _optional_uuid(context["section_id"], "citation context section_id")
     _optional_uuid(context["passage_id"], "citation context passage_id")
     start = _non_negative_integer(context["char_start"], "citation context char_start")
     end = _non_negative_integer(context["char_end"], "citation context char_end")
-    if end < start:
+    if end < start or end - start != len(text):
         raise FrozenResearchStateProjectionError("frozen citation context range is invalid")
 
 

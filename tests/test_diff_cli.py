@@ -84,7 +84,7 @@ def test_diff_cli_returns_one_when_material_state_changed(
 
 
 @pytest.mark.parametrize(("failing_call", "side"), [(1, "before"), (2, "after")])
-def test_diff_cli_returns_bounded_machine_problem_for_invalid_bundle(
+def test_diff_cli_bounds_only_explicit_public_detail(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -97,7 +97,10 @@ def test_diff_cli_returns_bounded_machine_problem_for_invalid_bundle(
         nonlocal calls
         calls += 1
         if calls == failing_call:
-            raise FrozenResearchBundleInspectionError("secret:" + "x" * 10_000)
+            raise FrozenResearchBundleInspectionError(
+                "internal secret path: /srv/private/research.tarkka",
+                public_detail="x" * 10_000,
+            )
         return _bundle()
 
     monkeypatch.setattr(diff_cli, "inspect_frozen_research_bundle", inspect)
@@ -113,9 +116,10 @@ def test_diff_cli_returns_bounded_machine_problem_for_invalid_bundle(
     assert problem["side"] == side
     assert len(problem["detail"]) == 512
     assert problem["detail"].endswith("...")
+    assert "/srv/private" not in captured.err
 
 
-def test_diff_cli_keeps_short_problem_detail_unchanged(
+def test_diff_cli_hides_internal_inspection_detail_by_default(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -123,11 +127,15 @@ def test_diff_cli_keeps_short_problem_detail_unchanged(
     monkeypatch.setattr(
         diff_cli,
         "inspect_frozen_research_bundle",
-        lambda _path: (_ for _ in ()).throw(FrozenResearchBundleInspectionError("bad bundle")),
+        lambda _path: (_ for _ in ()).throw(
+            FrozenResearchBundleInspectionError("unable to read: /secret/path.tarkka")
+        ),
     )
 
     assert diff_cli.main(list(_existing_paths(tmp_path))) == 2
-    assert json.loads(capsys.readouterr().err)["detail"] == "bad bundle"
+    problem = json.loads(capsys.readouterr().err)
+    assert problem["detail"] == "frozen proof bundle inspection failed"
+    assert "/secret/path.tarkka" not in json.dumps(problem)
 
 
 def test_diff_cli_normalizes_expanduser_failure_before_inspection(

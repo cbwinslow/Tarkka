@@ -196,7 +196,10 @@ def test_document_structure_is_rechecked_after_dataclass_replace() -> None:
     document = _document((root,))
     invalid = replace(document, sections=(root, replace(root, ordinal=1)))
 
-    with pytest.raises(DocumentStructureError, match="section IDs and ordinals must be unique") as exc:
+    with pytest.raises(
+        DocumentStructureError,
+        match="section IDs and ordinals must be unique",
+    ) as exc:
         document_sections_parent_first(invalid)
 
     assert exc.value.code == "duplicate_sections"

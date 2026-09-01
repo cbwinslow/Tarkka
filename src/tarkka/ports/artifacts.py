@@ -41,11 +41,12 @@ class ArtifactStore(Protocol):
     def exists(self, sha256: str) -> bool: ...
 
 
-class StreamingArtifactStore(ArtifactStore, Protocol):
-    """Optional ArtifactStore capability for bounded sequential reads.
+class StreamingArtifactStore(Protocol):
+    """Optional backend-neutral capability for bounded sequential Artifact reads.
 
     Implementations may stream from local files, object storage, or another durable backend.
     Callers own neither the returned reader nor its backend resources beyond the context manager.
+    This capability deliberately does not require a local filesystem path.
     """
 
     def open_reader(self, artifact: Artifact) -> AbstractContextManager[BinaryIO]: ...

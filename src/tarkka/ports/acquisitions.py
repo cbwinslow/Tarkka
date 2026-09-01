@@ -134,11 +134,8 @@ class AcquiredArtifact:
         redirects = tuple(self.redirect_chain)
         if any(not _is_uri(uri) for uri in redirects):
             raise ValueError("acquired Artifact redirect chain must contain valid URIs")
-        if redirects:
-            if redirects[-1] != self.final_uri:
-                raise ValueError("acquisition redirect chain must end at final_uri")
-        elif self.final_uri != self.requested_uri:
-            raise ValueError("changed final_uri requires an explicit redirect chain")
+        if redirects and redirects[-1] != self.final_uri:
+            raise ValueError("acquisition redirect chain must end at final_uri")
         object.__setattr__(self, "redirect_chain", redirects)
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 

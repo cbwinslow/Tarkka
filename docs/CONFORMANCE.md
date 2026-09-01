@@ -59,10 +59,18 @@ def test_my_store_conforms(tmp_path: Path) -> None:
         store,
         tmp_path / "missing.txt",
     )
-    StreamingArtifactStoreContract.assert_streaming_round_trip(
+
+
+def test_my_store_optional_streaming_capability(tmp_path: Path) -> None:
+    # MyArtifactStore implements the optional StreamingArtifactStore capability.
+    store = MyArtifactStore(tmp_path / "objects")
+    payload = b"large immutable bytes can be read incrementally\n"
+    artifact = store.put_bytes(payload, original_name="streamed.txt")
+
+    StreamingArtifactStoreContract.assert_streaming_read(
         store,
-        tmp_path / "streamed.txt",
-        b"large immutable bytes can be read incrementally\n",
+        artifact,
+        payload,
     )
 ```
 
@@ -71,14 +79,16 @@ def test_my_store_conforms(tmp_path: Path) -> None:
 bytes, and verifies digest-based reads with `read_bytes_by_sha256`.
 
 `StreamingArtifactStoreContract` covers the optional `StreamingArtifactStore`
-capability. It requires a context-managed binary reader that can be consumed in
-bounded chunks without changing the underlying Artifact identity. Object-store
-and remote adapters may implement this capability without exposing a local
-filesystem path.
+capability. Its assertion accepts an already-persisted `Artifact` and tests only
+context-managed bounded reading through `open_reader`. This intentionally keeps
+fixture creation outside the streaming capability contract: object-store and
+remote adapters can implement streaming without exposing a local filesystem path
+or inheriting unrelated persistence methods.
 
 The adapter remains responsible for constructing domain fixtures required by
-repository contracts. This keeps conformance focused on public port behavior
-rather than imposing a Tarkka-specific test framework or fixture loader.
+repository and optional capability contracts. This keeps conformance focused on
+public port behavior rather than imposing a Tarkka-specific test framework or
+fixture loader.
 
 ## How to run
 

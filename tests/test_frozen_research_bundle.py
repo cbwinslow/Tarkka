@@ -29,7 +29,6 @@ from tarkka.infrastructure.proof_bundle_v2 import (
     research_state_descriptor,
 )
 from tarkka.infrastructure.proof_bundles import (
-    ProofBundleVerification,
     ProofBundleVerificationError,
     ProofBundleVerificationLimits,
     build_proof_bundle_bytes,

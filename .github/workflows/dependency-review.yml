@@ -1,6 +1,8 @@
 name: Dependency Review
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -10,7 +12,7 @@ permissions:
 jobs:
   dependency-submission:
     name: Submit uv.lock dependencies
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -29,9 +31,9 @@ jobs:
     name: Review dependency changes
     needs: dependency-submission
     # Submission and review are independent security signals. Preserve dependency
-    # review after any non-cancelled submission result; a failed submission still
-    # fails its own job and remains visible to maintainers.
-    if: ${{ always() && !cancelled() }}
+    # review after any non-cancelled same-repository PR submission result; pushes
+    # to main submit the new base snapshot but do not run PR-only dependency review.
+    if: ${{ github.event_name == 'pull_request' && always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

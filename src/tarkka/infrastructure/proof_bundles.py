@@ -205,16 +205,18 @@ def _write_streaming_artifact(
     digest = hashlib.sha256()
     size = 0
     try:
-        with artifacts.open_reader(payload.artifact) as source:
-            with archive.open(_zip_info(expected.path), mode="w") as member:
-                while chunk := source.read(_READ_CHUNK_BYTES):
-                    size += len(chunk)
-                    if size > expected.size_bytes:
-                        raise ProofBundleArtifactIntegrityError(
-                            f"artifact bytes exceed immutable size: {payload.artifact.artifact_id}"
-                        )
-                    digest.update(chunk)
-                    member.write(chunk)
+        with (
+            artifacts.open_reader(payload.artifact) as source,
+            archive.open(_zip_info(expected.path), mode="w") as member,
+        ):
+            while chunk := source.read(_READ_CHUNK_BYTES):
+                size += len(chunk)
+                if size > expected.size_bytes:
+                    raise ProofBundleArtifactIntegrityError(
+                        f"artifact bytes exceed immutable size: {payload.artifact.artifact_id}"
+                    )
+                digest.update(chunk)
+                member.write(chunk)
     except FileNotFoundError as exc:
         raise ProofBundleArtifactNotFoundError(
             f"artifact bytes not found: {payload.artifact.artifact_id}"

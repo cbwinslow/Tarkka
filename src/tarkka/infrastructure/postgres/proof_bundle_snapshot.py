@@ -34,7 +34,7 @@ from tarkka.infrastructure.postgres.research_repository import (
 )
 from tarkka.infrastructure.postgres.source_observation_repository import (
     list_observations_for_artifact_with_connection,
-    list_resource_links_with_connection,
+    list_resource_links_for_artifact_with_connection,
 )
 from tarkka.infrastructure.postgres.work_document_repository import (
     list_document_work_links_with_connection,
@@ -124,13 +124,9 @@ def _read_source_snapshot(connection: Any, document_id: UUID) -> ProofBundleSnap
         connection,
         artifact.artifact_id,
     )
-    resource_links = tuple(
-        link
-        for observation in observations
-        for link in list_resource_links_with_connection(
-            connection,
-            observation.observation_id,
-        )
+    resource_links = list_resource_links_for_artifact_with_connection(
+        connection,
+        artifact.artifact_id,
     )
     return ProofBundleSnapshot(
         document=document,

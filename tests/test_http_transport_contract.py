@@ -57,11 +57,6 @@ class _UnexpectedFailureTransport:
         raise RuntimeError("unexpected transport failure")
 
 
-@pytest.fixture
-def store(tmp_path: object) -> None:
-    del tmp_path
-
-
 def test_system_host_resolver_contract_returns_valid_unique_addresses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

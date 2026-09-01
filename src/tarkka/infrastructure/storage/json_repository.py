@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 from uuid import UUID
 
+from tarkka.domain.document_structure import validate_document_structure
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
 from tarkka.domain.source_artifacts import Equation, Figure, Table
@@ -89,6 +90,7 @@ class JsonResearchRepository:
             self._write(data)
 
     def save_document(self, document: Document, manifest: ResourceManifest) -> None:
+        validate_document_structure(document)
         with exclusive_lock(self.path):
             data = self._read()
             data["documents"][str(document.document_id)] = {
@@ -317,7 +319,7 @@ def _document_from_dict(raw: dict[str, Any]) -> Document:
                 passages=passages,
             )
         )
-    return Document(
+    document = Document(
         document_id=document_id,
         artifact_id=UUID(raw["artifact_id"]),
         title=raw["title"],
@@ -362,6 +364,8 @@ def _document_from_dict(raw: dict[str, Any]) -> Document:
         ),
         normalized_at=datetime.fromisoformat(raw["normalized_at"]),
     )
+    validate_document_structure(document)
+    return document
 
 
 def _fsync_directory(path: Path) -> None:

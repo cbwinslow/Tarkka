@@ -66,20 +66,6 @@ class PostgresWorkDocumentRepository:
         with self._connection() as connection:
             return list_document_work_links_with_connection(connection, document_id)
 
-    @staticmethod
-    def _list_work_document_links(
-        connection: Any,
-        work_id: UUID,
-    ) -> tuple[WorkDocumentLink, ...]:
-        return list_work_document_links_with_connection(connection, work_id)
-
-    @staticmethod
-    def _list_document_work_links(
-        connection: Any,
-        document_id: UUID,
-    ) -> tuple[WorkDocumentLink, ...]:
-        return list_document_work_links_with_connection(connection, document_id)
-
     @contextmanager
     def _connection(self) -> Iterator[Any]:
         with managed_connection(

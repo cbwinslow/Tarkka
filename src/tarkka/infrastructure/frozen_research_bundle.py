@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import BinaryIO
 
@@ -135,11 +136,9 @@ def inspect_frozen_research_bundle(
 
 
 def _require_normalized_identity(
-    document: object,
+    document: Mapping[str, object],
     manifest: ProofBundleManifestV3,
 ) -> None:
-    if not isinstance(document, dict):
-        raise FrozenResearchStateProjectionError("normalized Document must be an object")
     expected = {
         "document_id": str(manifest.document.document_id),
         "artifact_id": str(manifest.document.artifact_id),

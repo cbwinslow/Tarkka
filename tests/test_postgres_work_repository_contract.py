@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.conformance import WorkRepositoryContract
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
@@ -14,7 +15,6 @@ from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
 from tarkka.infrastructure.postgres.migrations import discover_migrations, upgrade
 from tarkka.infrastructure.postgres.work_repository import PostgresWorkRepository
 from tarkka.interfaces.cli import _work_repository
-from tests.contracts.work_repository import WorkRepositoryContract
 
 pytestmark = [pytest.mark.integration, pytest.mark.external]
 

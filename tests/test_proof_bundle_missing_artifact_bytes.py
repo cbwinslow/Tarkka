@@ -27,7 +27,11 @@ class _SnapshotReader:
 
 def test_proof_bundle_service_normalizes_missing_artifact_bytes(tmp_path) -> None:
     store = LocalArtifactStore(tmp_path / "artifacts")
-    artifact = store.put_bytes(b"immutable source", original_name="source.txt", media_type="text/plain")
+    artifact = store.put_bytes(
+        b"immutable source",
+        original_name="source.txt",
+        media_type="text/plain",
+    )
     document = Document(
         document_id=_DOCUMENT_ID,
         artifact_id=artifact.artifact_id,

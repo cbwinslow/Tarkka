@@ -135,18 +135,6 @@ class PostgresSourceObservationRepository:
         row = connection.execute(_SELECT_LINKS + " WHERE link_id = %s", (link_id,)).fetchone()
         return _link_from_row(row) if row is not None else None
 
-    @staticmethod
-    def _list_resource_links(
-        connection: Any, observation_id: UUID
-    ) -> tuple[ResourceLinkObservation, ...]:
-        return list_resource_links_with_connection(connection, observation_id)
-
-    @staticmethod
-    def _list_observations_for_artifact(
-        connection: Any, artifact_id: UUID
-    ) -> tuple[SourceObservation, ...]:
-        return list_observations_for_artifact_with_connection(connection, artifact_id)
-
     @contextmanager
     def _connection(self) -> Iterator[Any]:
         with managed_connection(

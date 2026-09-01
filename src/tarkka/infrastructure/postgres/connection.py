@@ -89,26 +89,39 @@ def managed_connection(
 ) -> Iterator[Any]:
     """Own one PostgreSQL connection with consistent transactions, errors, and cleanup.
 
-    When the body (or transaction context) raises, a later ``close()`` failure is
-    deliberately suppressed so cleanup cannot replace the primary exception.  A
-    safe note records that cleanup also failed.  If cleanup is the only failure it
-    is surfaced through the normal PostgreSQL driver-error taxonomy.
+    Body failures remain primary when transaction or connection cleanup also fails.
+    Cleanup-only driver failures still use the normal PostgreSQL error taxonomy.
     """
     with translate_postgres_errors():
         connection = connection_factory(settings)
 
     primary_error: BaseException | None = None
     try:
+        if transactional:
+            with translate_postgres_errors():
+                connection.__enter__()
         try:
             with translate_postgres_errors():
-                if transactional:
-                    with connection:
-                        yield connection
-                else:
-                    yield connection
-        except BaseException as exc:
-            primary_error = exc
+                yield connection
+        except BaseException as body_error:
+            primary_error = body_error
+            if transactional:
+                try:
+                    connection.__exit__(type(body_error), body_error, body_error.__traceback__)
+                except BaseException as transaction_error:
+                    body_error.add_note(
+                        "PostgreSQL transaction cleanup also failed "
+                        f"({type(transaction_error).__name__}); primary exception preserved"
+                    )
             raise
+        else:
+            if transactional:
+                with translate_postgres_errors():
+                    connection.__exit__(None, None, None)
+    except BaseException as exc:
+        if primary_error is None:
+            primary_error = exc
+        raise
     finally:
         try:
             connection.close()

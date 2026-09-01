@@ -56,16 +56,15 @@ def test_bounded_member_guard_rejects_reopened_member_over_limit() -> None:
         archive.writestr("research.json", b"12345")
     buffer.seek(0)
 
-    with zipfile.ZipFile(buffer, mode="r") as archive:
-        with pytest.raises(
-            FrozenResearchBundleInspectionError,
-            match="member exceeds configured limit",
-        ):
-            frozen_module._read_bounded_member(
-                archive,
-                "research.json",
-                maximum_size=4,
-            )
+    with zipfile.ZipFile(buffer, mode="r") as archive, pytest.raises(
+        FrozenResearchBundleInspectionError,
+        match="member exceeds configured limit",
+    ):
+        frozen_module._read_bounded_member(
+            archive,
+            "research.json",
+            maximum_size=4,
+        )
 
 
 def test_verified_digest_guard_translates_read_failure() -> None:

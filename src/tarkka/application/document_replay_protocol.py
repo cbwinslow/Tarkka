@@ -17,6 +17,7 @@ from tarkka.application.document_research_state import (
 )
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactIntegrityError,
+    ProofBundleArtifactLimitError,
     ProofBundleArtifactNotFoundError,
     ProofBundleDocumentNotFoundError,
     ProofBundleResearchStateIntegrityError,
@@ -47,6 +48,8 @@ def document_replay_response(
         )
     except ProofBundleArtifactNotFoundError as exc:
         return agent_error("artifact_not_found", _bounded_message(exc))
+    except ProofBundleArtifactLimitError as exc:
+        return agent_error("content_too_large", _bounded_message(exc))
     except ProofBundleArtifactIntegrityError as exc:
         return agent_error("artifact_integrity_error", _bounded_message(exc))
     except (ProofBundleResearchStateIntegrityError, DocumentResearchStateMismatchError) as exc:

@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
 
 _MIGRATION_ADVISORY_LOCK = 5_788_907_137
@@ -82,7 +83,7 @@ def upgrade(
     settings: PostgresSettings,
     *,
     directory: Path | None = None,
-    connection_factory: Any = connect,
+    connection_factory: ConnectionFactory = connect,
 ) -> MigrationUpgradeResult:
     """Explicitly apply missing migrations and record their immutable checksums.
 
@@ -92,48 +93,58 @@ def upgrade(
     startup.
     """
     migrations = discover_migrations(directory or default_migrations_directory())
-    connection = connection_factory(settings)
-    lock_acquired = False
-    try:
+    with managed_connection(
+        settings,
+        connection_factory=connection_factory,
+        transactional=False,
+    ) as connection:
         connection.autocommit = True
         connection.execute("SELECT pg_advisory_lock(%s)", (_MIGRATION_ADVISORY_LOCK,))
-        lock_acquired = True
-        _ensure_history_table(connection)
-        history = _read_history(connection)
-        catalog_versions = {migration.version for migration in migrations}
-        unexpected = sorted(set(history) - catalog_versions)
-        if unexpected:
-            raise MigrationHistoryError(f"database has unknown migration versions: {unexpected}")
-        applied: list[PostgresMigration] = []
-        skipped: list[PostgresMigration] = []
-        for migration in migrations:
-            recorded = history.get(migration.version)
-            if recorded is not None:
-                if recorded != (migration.name, migration.checksum):
-                    raise MigrationHistoryError(
-                        f"migration history mismatch for version {migration.version:04d}"
+        primary_error: BaseException | None = None
+        try:
+            _ensure_history_table(connection)
+            history = _read_history(connection)
+            catalog_versions = {migration.version for migration in migrations}
+            unexpected = sorted(set(history) - catalog_versions)
+            if unexpected:
+                raise MigrationHistoryError(
+                    f"database has unknown migration versions: {unexpected}"
+                )
+            applied: list[PostgresMigration] = []
+            skipped: list[PostgresMigration] = []
+            for migration in migrations:
+                recorded = history.get(migration.version)
+                if recorded is not None:
+                    if recorded != (migration.name, migration.checksum):
+                        raise MigrationHistoryError(
+                            f"migration history mismatch for version {migration.version:04d}"
+                        )
+                    skipped.append(migration)
+                    continue
+                connection.execute(migration.path.read_text(encoding="utf-8"), prepare=False)
+                connection.execute(
+                    """
+                    INSERT INTO tarkka.schema_migration (version, name, checksum)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (migration.version, migration.name, migration.checksum),
+                )
+                applied.append(migration)
+            return MigrationUpgradeResult(tuple(applied), tuple(skipped))
+        except BaseException as exc:
+            primary_error = exc
+            raise
+        finally:
+            try:
+                connection.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_ADVISORY_LOCK,))
+            except BaseException as unlock_exc:
+                if primary_error is not None:
+                    primary_error.add_note(
+                        "PostgreSQL migration advisory-lock cleanup also failed "
+                        f"({type(unlock_exc).__name__}); primary exception preserved"
                     )
-                skipped.append(migration)
-                continue
-            connection.execute(migration.path.read_text(encoding="utf-8"), prepare=False)
-            connection.execute(
-                """
-                INSERT INTO tarkka.schema_migration (version, name, checksum)
-                VALUES (%s, %s, %s)
-                """,
-                (migration.version, migration.name, migration.checksum),
-            )
-            applied.append(migration)
-        return MigrationUpgradeResult(tuple(applied), tuple(skipped))
-    except Exception as exc:
-        translated = translate_driver_error(exc)
-        if translated is not None:
-            raise translated from exc
-        raise
-    finally:
-        if lock_acquired:
-            connection.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_ADVISORY_LOCK,))
-        connection.close()
+                else:
+                    raise
 
 
 def _ensure_history_table(connection: Any) -> None:

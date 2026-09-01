@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -24,19 +23,22 @@ from tarkka.infrastructure.postgres.claim_lineage_readers import (
     PostgresClaimLineageSourceReader,
 )
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
+from tarkka.infrastructure.postgres.research_repository import (
+    get_artifact_with_connection,
+    get_document_with_connection,
+)
 from tarkka.infrastructure.postgres.source_observation_repository import (
-    PostgresSourceObservationRepository,
+    list_observations_for_artifact_with_connection,
+    list_resource_links_for_artifact_with_connection,
 )
 from tarkka.infrastructure.postgres.work_document_repository import (
-    PostgresWorkDocumentRepository,
+    list_document_work_links_with_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresProofBundleSnapshotReader:
@@ -55,19 +57,12 @@ class PostgresProofBundleSnapshotReader:
         return self._read_transaction(document_id)
 
     def _read_transaction(self, document_id: UUID) -> ProofBundleSnapshot | None:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-                    return _read_source_snapshot(connection, document_id)
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            return _read_source_snapshot(connection, document_id)
 
 
 class PostgresProofBundleV2SnapshotReader:
@@ -85,65 +80,53 @@ class PostgresProofBundleV2SnapshotReader:
         self._limits = limits
 
     def read(self, document_id: UUID) -> ProofBundleV2Snapshot | None:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-                    source = _read_source_snapshot(connection, document_id)
-                    if source is None:
-                        return None
-                    extraction_reader = PostgresClaimLineageSourceReader(connection)
-                    claims = extraction_reader.list_claims(
-                        document_id,
-                        limit=self._limits.max_claims + 1,
-                    )
-                    research_state = assemble_document_research_state(
-                        document_id,
-                        claims,
-                        ClaimLineageService(
-                            source=extraction_reader,
-                            relations=PostgresClaimLineageRelationReader(connection),
-                            documents=PostgresClaimLineageDocumentReader(connection),
-                            citations=PostgresClaimLineageCitationReader(connection),
-                        ),
-                        limits=self._limits,
-                    )
-                    return ProofBundleV2Snapshot(
-                        source=source,
-                        research_state=research_state,
-                    )
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            source = _read_source_snapshot(connection, document_id)
+            if source is None:
+                return None
+            extraction_reader = PostgresClaimLineageSourceReader(connection)
+            claims = extraction_reader.list_claims(
+                document_id,
+                limit=self._limits.max_claims + 1,
+            )
+            research_state = assemble_document_research_state(
+                document_id,
+                claims,
+                ClaimLineageService(
+                    source=extraction_reader,
+                    relations=PostgresClaimLineageRelationReader(connection),
+                    documents=PostgresClaimLineageDocumentReader(connection),
+                    citations=PostgresClaimLineageCitationReader(connection),
+                ),
+                limits=self._limits,
+            )
+            return ProofBundleV2Snapshot(
+                source=source,
+                research_state=research_state,
+            )
 
 
 def _read_source_snapshot(connection: Any, document_id: UUID) -> ProofBundleSnapshot | None:
-    document = PostgresResearchRepository._get_document(connection, document_id)
+    document = get_document_with_connection(connection, document_id)
     if document is None:
         return None
-    artifact = PostgresResearchRepository._get_artifact(connection, document.artifact_id)
+    artifact = get_artifact_with_connection(connection, document.artifact_id)
     if artifact is None:
         raise ProofBundleArtifactNotFoundError(
             f"artifact not found for document {document_id}: {document.artifact_id}"
         )
-    work_documents = PostgresWorkDocumentRepository._list_document_work_links(
+    work_documents = list_document_work_links_with_connection(connection, document_id)
+    observations = list_observations_for_artifact_with_connection(
         connection,
-        document_id,
+        artifact.artifact_id,
     )
-    observations = PostgresSourceObservationRepository._list_observations_for_artifact(
-        connection, artifact.artifact_id
-    )
-    resource_links = tuple(
-        link
-        for observation in observations
-        for link in PostgresSourceObservationRepository._list_resource_links(
-            connection, observation.observation_id
-        )
+    resource_links = list_resource_links_for_artifact_with_connection(
+        connection,
+        artifact.artifact_id,
     )
     return ProofBundleSnapshot(
         document=document,

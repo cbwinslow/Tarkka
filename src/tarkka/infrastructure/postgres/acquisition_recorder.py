@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 
 from tarkka.domain.models import Acquisition
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresAcquisitionRecorder:
@@ -67,18 +66,11 @@ class PostgresAcquisitionRecorder:
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
 
 
 def _from_row(row: tuple[Any, ...]) -> Acquisition:

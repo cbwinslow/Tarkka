@@ -6,6 +6,7 @@ from uuid import UUID
 
 import pytest
 
+import tarkka.infrastructure.postgres.connection as connection_module
 import tarkka.infrastructure.postgres.proof_bundle_snapshot as snapshot_module
 from tarkka.application.document_research_state import (
     DocumentResearchStateLimitError,
@@ -283,7 +284,7 @@ def test_postgres_v2_snapshot_translates_driver_failure_and_closes(
     original = RuntimeError("driver disconnected")
     translated = PostgresOperationError("translated")
     connection = _FailingConnection(original)
-    monkeypatch.setattr(snapshot_module, "translate_driver_error", lambda exc: translated)
+    monkeypatch.setattr(connection_module, "translate_driver_error", lambda exc: translated)
 
     with pytest.raises(PostgresOperationError, match="translated") as raised:
         PostgresProofBundleV2SnapshotReader(

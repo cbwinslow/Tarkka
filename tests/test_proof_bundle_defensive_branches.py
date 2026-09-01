@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 
-import tarkka.infrastructure.postgres.proof_bundle_snapshot as postgres_snapshot_module
+import tarkka.infrastructure.postgres.connection as postgres_connection_module
 import tarkka.infrastructure.proof_bundles as proof_bundle_io
 from tarkka.infrastructure.postgres.connection import PostgresOperationError, PostgresSettings
 from tarkka.infrastructure.postgres.proof_bundle_snapshot import PostgresProofBundleSnapshotReader
@@ -55,7 +55,7 @@ def test_postgres_snapshot_translates_driver_failures(
         assert exc is driver_error
         return translated
 
-    monkeypatch.setattr(postgres_snapshot_module, "translate_driver_error", translate)
+    monkeypatch.setattr(postgres_connection_module, "translate_driver_error", translate)
     reader = PostgresProofBundleSnapshotReader(
         PostgresSettings("postgresql://unused"),
         connection_factory=fail_connect,

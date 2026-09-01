@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+import tarkka.infrastructure.postgres.connection as connection_module
 import tarkka.infrastructure.postgres.migrations as migrations_module
 from tarkka.infrastructure.postgres.connection import PostgresOperationError, PostgresSettings
 from tarkka.infrastructure.postgres.migrations import (
@@ -52,6 +53,22 @@ class _LockFailureConnection(_Connection):
         if sql.startswith("SELECT pg_advisory_lock"):
             raise self.error
         return _Cursor()
+
+
+class _UnlockFailureConnection(_Connection):
+    def __init__(
+        self,
+        error: Exception,
+        history: list[tuple[Any, ...]] | None = None,
+    ) -> None:
+        super().__init__(history)
+        self.error = error
+
+    def execute(self, sql: str, params: tuple[Any, ...] | None = None, **kwargs: Any) -> _Cursor:
+        if sql.startswith("SELECT pg_advisory_unlock"):
+            self.calls.append((sql, params))
+            raise self.error
+        return super().execute(sql, params, **kwargs)
 
 
 class _PackageFiles:
@@ -195,7 +212,7 @@ def test_upgrade_translates_lock_failure_and_closes_without_unlocking(
     original = RuntimeError("driver disconnected")
     connection = _LockFailureConnection(original)
     translated = PostgresOperationError("translated")
-    monkeypatch.setattr(migrations_module, "translate_driver_error", lambda exc: translated)
+    monkeypatch.setattr(connection_module, "translate_driver_error", lambda exc: translated)
 
     with pytest.raises(PostgresOperationError, match="translated") as raised:
         upgrade(
@@ -210,6 +227,57 @@ def test_upgrade_translates_lock_failure_and_closes_without_unlocking(
     assert connection.closed
     assert len(connection.calls) == 1
     assert connection.calls[0][0].startswith("SELECT pg_advisory_lock")
+
+
+def test_upgrade_preserves_primary_error_when_unlock_also_fails(tmp_path: Path) -> None:
+    path = tmp_path / "0001_first.sql"
+    path.write_text("SELECT 1;", encoding="utf-8")
+    migration = discover_migrations(tmp_path)[0]
+    unlock_error = RuntimeError("unlock failed")
+    connection = _UnlockFailureConnection(
+        unlock_error,
+        [(1, migration.name, "0" * 64)],
+    )
+
+    with pytest.raises(MigrationHistoryError, match="history mismatch") as raised:
+        upgrade(
+            PostgresSettings("postgresql://unused"),
+            directory=tmp_path,
+            connection_factory=lambda _: connection,
+        )
+
+    assert raised.value.__notes__ == [
+        "PostgreSQL migration advisory-lock cleanup also failed (RuntimeError); "
+        "primary exception preserved"
+    ]
+    assert connection.closed
+
+
+def test_upgrade_surfaces_unlock_only_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "0001_first.sql"
+    path.write_text("SELECT 1;", encoding="utf-8")
+    migration = discover_migrations(tmp_path)[0]
+    unlock_error = RuntimeError("unlock failed")
+    connection = _UnlockFailureConnection(
+        unlock_error,
+        [(1, migration.name, migration.checksum)],
+    )
+    translated = PostgresOperationError("translated unlock")
+    monkeypatch.setattr(connection_module, "translate_driver_error", lambda exc: translated)
+
+    with pytest.raises(PostgresOperationError, match="translated unlock") as raised:
+        upgrade(
+            PostgresSettings("postgresql://unused"),
+            directory=tmp_path,
+            connection_factory=lambda _: connection,
+        )
+
+    assert raised.value is translated
+    assert raised.value.__cause__ is unlock_error
+    assert connection.closed
 
 
 def test_db_upgrade_cli_reports_missing_database_configuration(

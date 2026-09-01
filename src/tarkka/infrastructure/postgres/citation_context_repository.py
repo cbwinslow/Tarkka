@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any, cast
@@ -11,12 +11,11 @@ from uuid import UUID
 
 from tarkka.domain.citations import BibliographicReference, CitationContext, CitationMention
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresCitationConflictError(RuntimeError):
@@ -129,11 +128,7 @@ class PostgresCitationContextRepository:
 
     def get_context(self, document_id: UUID, context_id: UUID) -> CitationContext | None:
         with self._connection() as connection:
-            row = connection.execute(
-                _SELECT_CONTEXT + " WHERE document_id = %s AND context_id = %s",
-                (document_id, context_id),
-            ).fetchone()
-        return _context_from_row(row) if row is not None else None
+            return get_citation_context_with_connection(connection, document_id, context_id)
 
     def list_mentions_for_ids(
         self, document_id: UUID, mention_ids: frozenset[UUID]
@@ -228,18 +223,24 @@ class PostgresCitationContextRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
+
+
+def get_citation_context_with_connection(
+    connection: Any,
+    document_id: UUID,
+    context_id: UUID,
+) -> CitationContext | None:
+    """Read one citation context through a caller-owned PostgreSQL connection."""
+    row = connection.execute(
+        _SELECT_CONTEXT + " WHERE document_id = %s AND context_id = %s",
+        (document_id, context_id),
+    ).fetchone()
+    return _context_from_row(row) if row is not None else None
 
 
 _INSERTS = {

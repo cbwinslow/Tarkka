@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, cast
@@ -11,12 +11,11 @@ from uuid import UUID
 from tarkka.domain.extraction import HumanReviewState
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresVerificationRepository:
@@ -91,21 +90,13 @@ class PostgresVerificationRepository:
         self, claim_id: UUID, *, offset: int = 0, limit: int = 100
     ) -> tuple[int, tuple[EvidenceRelation, ...]]:
         """Return total and page from one PostgreSQL statement snapshot."""
-        if offset < 0 or limit < 0:
-            raise ValueError("verification offset and limit must be non-negative")
         with self._connection() as connection:
-            rows = connection.execute(
-                _SELECT_RELATION_PAGE,
-                (claim_id, offset, limit, claim_id),
-            ).fetchall()
-        first = cast(tuple[Any, ...], rows[0])
-        total = int(first[0])
-        relations = tuple(
-            _from_row(cast(tuple[Any, ...], row)[1:])
-            for row in rows
-            if cast(tuple[Any, ...], row)[1] is not None
-        )
-        return total, relations
+            return page_relations_with_connection(
+                connection,
+                claim_id,
+                offset=offset,
+                limit=limit,
+            )
 
     @staticmethod
     def _get_relation(connection: Any, relation_id: UUID) -> EvidenceRelation | None:
@@ -116,18 +107,37 @@ class PostgresVerificationRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
+
+
+def page_relations_with_connection(
+    connection: Any,
+    claim_id: UUID,
+    *,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[int, tuple[EvidenceRelation, ...]]:
+    """Read one relation page through a caller-owned PostgreSQL connection."""
+    if offset < 0 or limit < 0:
+        raise ValueError("verification offset and limit must be non-negative")
+    rows = connection.execute(
+        _SELECT_RELATION_PAGE,
+        (claim_id, offset, limit, claim_id),
+    ).fetchall()
+    if not rows:
+        raise RuntimeError("PostgreSQL relation page query returned no total row")
+    first = cast(tuple[Any, ...], rows[0])
+    total = int(first[0])
+    relations = tuple(
+        _from_row(cast(tuple[Any, ...], row)[1:])
+        for row in rows
+        if cast(tuple[Any, ...], row)[1] is not None
+    )
+    return total, relations
 
 
 _SELECT_RELATIONS = """

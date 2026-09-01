@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, cast
 from uuid import UUID
@@ -34,12 +34,11 @@ from tarkka.domain.extraction import (
 )
 from tarkka.domain.models import Document
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresExtractionConflictError(RuntimeError):
@@ -107,16 +106,12 @@ class PostgresExtractionRepository:
     def get_evidence(self, evidence_id: UUID) -> EvidenceRecord | None:
         """Return one stable evidence record for verification and expansion."""
         with self._connection() as connection:
-            row = connection.execute(
-                _SELECT_EVIDENCE + " WHERE evidence_id = %s", (evidence_id,)
-            ).fetchone()
-        return _evidence_from_row(row) if row is not None else None
+            return get_evidence_with_connection(connection, evidence_id)
 
     def get_run(self, run_id: UUID) -> ExtractionRun | None:
         """Return immutable extractor/model provenance for one extraction run."""
         with self._connection() as connection:
-            row = connection.execute(_SELECT_RUN + " WHERE run_id = %s", (run_id,)).fetchone()
-        return _run_from_row(row) if row is not None else None
+            return get_run_with_connection(connection, run_id)
 
     def list_extractions(
         self,
@@ -150,13 +145,7 @@ class PostgresExtractionRepository:
     def get_extraction(self, extraction_id: UUID) -> ResearchExtraction | None:
         """Return one stable research object with its ordered evidence links."""
         with self._connection() as connection:
-            row = connection.execute(
-                _SELECT_EXTRACTION + " WHERE extraction_id = %s", (extraction_id,)
-            ).fetchone()
-            if row is None:
-                return None
-            evidence_ids = _evidence_ids_by_extraction(connection, (extraction_id,))
-        return _extraction_from_row(row, evidence_ids[extraction_id])
+            return get_extraction_with_connection(connection, extraction_id)
 
     @staticmethod
     def _require_document(connection: Any, document_id: UUID) -> None:
@@ -199,18 +188,11 @@ class PostgresExtractionRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
 
 
 _INSERT_RUN = """INSERT INTO tarkka.extraction_run (
@@ -241,6 +223,63 @@ FROM tarkka.evidence"""
 _SELECT_EXTRACTION = """SELECT extraction_id, document_id, run_id, kind, attribution,
     confidence, human_review_state, reasoning_summary, payload
 FROM tarkka.research_extraction"""
+
+
+def get_evidence_with_connection(connection: Any, evidence_id: UUID) -> EvidenceRecord | None:
+    """Read one evidence record through a caller-owned PostgreSQL connection."""
+    row = connection.execute(
+        _SELECT_EVIDENCE + " WHERE evidence_id = %s",
+        (evidence_id,),
+    ).fetchone()
+    return _evidence_from_row(row) if row is not None else None
+
+
+def get_run_with_connection(connection: Any, run_id: UUID) -> ExtractionRun | None:
+    """Read one extraction run through a caller-owned PostgreSQL connection."""
+    row = connection.execute(_SELECT_RUN + " WHERE run_id = %s", (run_id,)).fetchone()
+    return _run_from_row(row) if row is not None else None
+
+
+def get_extraction_with_connection(
+    connection: Any,
+    extraction_id: UUID,
+) -> ResearchExtraction | None:
+    """Read one extraction and its ordered evidence links on a caller-owned connection."""
+    row = connection.execute(
+        _SELECT_EXTRACTION + " WHERE extraction_id = %s",
+        (extraction_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    evidence_ids = _evidence_ids_by_extraction(connection, (extraction_id,))
+    return _extraction_from_row(row, evidence_ids[extraction_id])
+
+
+def list_claims_with_connection(
+    connection: Any,
+    document_id: UUID,
+    *,
+    limit: int,
+) -> tuple[Claim, ...]:
+    """Read a bounded Claim set through a caller-owned PostgreSQL connection."""
+    if limit < 0:
+        raise ValueError("Claim snapshot limit must be non-negative")
+    rows = connection.execute(
+        _SELECT_EXTRACTION
+        + " WHERE document_id = %s AND kind = %s"
+        + " ORDER BY run_id, extraction_id LIMIT %s",
+        (document_id, ResearchObjectKind.CLAIM.value, limit),
+    ).fetchall()
+    extraction_ids = tuple(cast(UUID, row[0]) for row in rows)
+    evidence_ids = _evidence_ids_by_extraction(connection, extraction_ids)
+    claims: list[Claim] = []
+    for row in rows:
+        extraction_id = cast(UUID, row[0])
+        value = _extraction_from_row(row, evidence_ids[extraction_id])
+        if not isinstance(value, Claim):
+            raise RuntimeError("Claim-filtered PostgreSQL read returned a non-Claim record")
+        claims.append(value)
+    return tuple(claims)
 
 
 def _batch_has_same_content(existing: ExtractionBatch, submitted: ExtractionBatch) -> bool:

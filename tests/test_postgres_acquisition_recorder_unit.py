@@ -7,7 +7,7 @@ from uuid import UUID
 
 import pytest
 
-import tarkka.infrastructure.postgres.acquisition_recorder as recorder_module
+import tarkka.infrastructure.postgres.connection as connection_module
 from tarkka.domain.models import Acquisition
 from tarkka.infrastructure.postgres.acquisition_recorder import (
     PostgresAcquisitionRecorder,
@@ -140,7 +140,7 @@ def test_postgres_acquisition_recorder_translates_driver_failure_and_closes(
     original = RuntimeError("driver disconnected")
     connection = _FailingConnection(original)
     translated = PostgresOperationError("translated")
-    monkeypatch.setattr(recorder_module, "translate_driver_error", lambda exc: translated)
+    monkeypatch.setattr(connection_module, "translate_driver_error", lambda exc: translated)
 
     with pytest.raises(PostgresOperationError, match="translated") as raised:
         _recorder(connection).record(_acquisition())
@@ -155,7 +155,7 @@ def test_postgres_acquisition_recorder_preserves_untranslated_failure(
 ) -> None:
     original = RuntimeError("application failure")
     connection = _FailingConnection(original)
-    monkeypatch.setattr(recorder_module, "translate_driver_error", lambda exc: None)
+    monkeypatch.setattr(connection_module, "translate_driver_error", lambda exc: None)
 
     with pytest.raises(RuntimeError, match="application failure") as raised:
         _recorder(connection).record(_acquisition())

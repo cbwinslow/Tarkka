@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, cast
@@ -16,12 +16,11 @@ from tarkka.domain.source_observations import (
     SourceObservation,
 )
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresSourceObservationConflictError(RuntimeError):
@@ -79,11 +78,11 @@ class PostgresSourceObservationRepository:
 
     def list_resource_links(self, observation_id: UUID) -> tuple[ResourceLinkObservation, ...]:
         with self._connection() as connection:
-            return self._list_resource_links(connection, observation_id)
+            return list_resource_links_with_connection(connection, observation_id)
 
     def list_observations_for_artifact(self, artifact_id: UUID) -> tuple[SourceObservation, ...]:
         with self._connection() as connection:
-            return self._list_observations_for_artifact(connection, artifact_id)
+            return list_observations_for_artifact_with_connection(connection, artifact_id)
 
     def page_resource_links_for_artifact(
         self, artifact_id: UUID, *, offset: int, limit: int
@@ -136,42 +135,55 @@ class PostgresSourceObservationRepository:
         row = connection.execute(_SELECT_LINKS + " WHERE link_id = %s", (link_id,)).fetchone()
         return _link_from_row(row) if row is not None else None
 
-    @staticmethod
-    def _list_resource_links(
-        connection: Any, observation_id: UUID
-    ) -> tuple[ResourceLinkObservation, ...]:
-        rows = connection.execute(
-            _SELECT_LINKS
-            + " WHERE observation_id = %s ORDER BY resource_relation, target_uri, link_id",
-            (observation_id,),
-        ).fetchall()
-        return tuple(_link_from_row(row) for row in rows)
-
-    @staticmethod
-    def _list_observations_for_artifact(
-        connection: Any, artifact_id: UUID
-    ) -> tuple[SourceObservation, ...]:
-        rows = connection.execute(
-            _SELECT_OBSERVATIONS
-            + " WHERE native_artifact_id = %s ORDER BY source_name, observation_id",
-            (artifact_id,),
-        ).fetchall()
-        return tuple(_observation_from_row(row) for row in rows)
-
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
+
+
+def list_resource_links_with_connection(
+    connection: Any,
+    observation_id: UUID,
+) -> tuple[ResourceLinkObservation, ...]:
+    """Read one observation's resource links on a caller-owned PostgreSQL connection."""
+    rows = connection.execute(
+        _SELECT_LINKS
+        + " WHERE observation_id = %s ORDER BY resource_relation, target_uri, link_id",
+        (observation_id,),
+    ).fetchall()
+    return tuple(_link_from_row(row) for row in rows)
+
+
+def list_resource_links_for_artifact_with_connection(
+    connection: Any,
+    artifact_id: UUID,
+) -> tuple[ResourceLinkObservation, ...]:
+    """Read all links observed from an Artifact in one caller-owned query."""
+    rows = connection.execute(
+        _SELECT_LINKS
+        + """ JOIN tarkka.source_observation AS observation
+               ON observation.observation_id = resource_link_observation.observation_id
+            WHERE observation.native_artifact_id = %s
+            ORDER BY resource_relation, target_uri, link_id""",
+        (artifact_id,),
+    ).fetchall()
+    return tuple(_link_from_row(row) for row in rows)
+
+
+def list_observations_for_artifact_with_connection(
+    connection: Any,
+    artifact_id: UUID,
+) -> tuple[SourceObservation, ...]:
+    """Read Artifact observations through a caller-owned PostgreSQL connection."""
+    rows = connection.execute(
+        _SELECT_OBSERVATIONS
+        + " WHERE native_artifact_id = %s ORDER BY source_name, observation_id",
+        (artifact_id,),
+    ).fetchall()
+    return tuple(_observation_from_row(row) for row in rows)
 
 
 _SELECT_OBSERVATIONS = """SELECT observation_id, source_name, basis, source_version,

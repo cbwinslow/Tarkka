@@ -36,6 +36,8 @@ from tarkka.domain.source_observations import ResourceLinkObservation, SourceObs
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.ports.artifacts import ArtifactStore
 
+_DEFAULT_MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
+
 
 class ProofBundleDocumentNotFoundError(LookupError):
     """Raised when a bundle is requested for an unknown normalized Document."""
@@ -45,12 +47,30 @@ class ProofBundleArtifactNotFoundError(LookupError):
     """Raised when a Document references an Artifact missing from canonical state or storage."""
 
 
+class ProofBundleArtifactLimitError(ValueError):
+    """Raised before Artifact materialization when configured build limits would be exceeded."""
+
+
 class ProofBundleArtifactIntegrityError(RuntimeError):
     """Raised when preserved Artifact bytes do not match their immutable identity."""
 
 
 class ProofBundleResearchStateIntegrityError(RuntimeError):
     """Raised when v2+ research state contradicts its source Document snapshot."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProofBundleBuildLimits:
+    """Fail-before-read resource ceilings applied while building local proof bundles."""
+
+    max_artifact_bytes: int = _DEFAULT_MAX_ARTIFACT_BYTES
+
+    def __post_init__(self) -> None:
+        if self.max_artifact_bytes < 0:
+            raise ValueError("proof bundle build max_artifact_bytes must be non-negative")
+
+
+DEFAULT_PROOF_BUNDLE_BUILD_LIMITS = ProofBundleBuildLimits()
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,9 +153,16 @@ class ProofBundlePayload:
 class ProofBundleService:
     """Compose a v1 export payload without introducing new canonical research identities."""
 
-    def __init__(self, *, snapshots: ProofBundleSnapshotReader, artifacts: ArtifactStore) -> None:
+    def __init__(
+        self,
+        *,
+        snapshots: ProofBundleSnapshotReader,
+        artifacts: ArtifactStore,
+        limits: ProofBundleBuildLimits = DEFAULT_PROOF_BUNDLE_BUILD_LIMITS,
+    ) -> None:
         self._snapshots = snapshots
         self._artifacts = artifacts
+        self._limits = limits
 
     def build(self, document_id: UUID) -> ProofBundlePayload:
         snapshot = self._snapshots.read(document_id)
@@ -145,6 +172,7 @@ class ProofBundleService:
             snapshot,
             document_id=document_id,
             artifacts=self._artifacts,
+            limits=self._limits,
         )
         return ProofBundlePayload(
             manifest=_source_manifest(snapshot),
@@ -161,10 +189,12 @@ class ProofBundleV2Service:
         snapshots: ProofBundleV2SnapshotReader,
         artifacts: ArtifactStore,
         encode_research_state: ResearchStateEncoder,
+        limits: ProofBundleBuildLimits = DEFAULT_PROOF_BUNDLE_BUILD_LIMITS,
     ) -> None:
         self._snapshots = snapshots
         self._artifacts = artifacts
         self._encode_research_state = encode_research_state
+        self._limits = limits
 
     def build(self, document_id: UUID) -> ProofBundlePayload:
         snapshot = self._snapshots.read(document_id)
@@ -175,6 +205,7 @@ class ProofBundleV2Service:
             source,
             document_id=document_id,
             artifacts=self._artifacts,
+            limits=self._limits,
         )
         _validate_research_state_identity(snapshot)
         research_state_bytes = self._encode_research_state(
@@ -207,11 +238,13 @@ class ProofBundleV3Service:
         artifacts: ArtifactStore,
         encode_research_state: ResearchStateEncoder,
         encode_normalized_document: NormalizedDocumentEncoder,
+        limits: ProofBundleBuildLimits = DEFAULT_PROOF_BUNDLE_BUILD_LIMITS,
     ) -> None:
         self._snapshots = snapshots
         self._artifacts = artifacts
         self._encode_research_state = encode_research_state
         self._encode_normalized_document = encode_normalized_document
+        self._limits = limits
 
     def build(self, document_id: UUID) -> ProofBundlePayload:
         snapshot = self._snapshots.read(document_id)
@@ -222,6 +255,7 @@ class ProofBundleV3Service:
             source,
             document_id=document_id,
             artifacts=self._artifacts,
+            limits=self._limits,
         )
         _validate_research_state_identity(snapshot)
         research_state_bytes = self._encode_research_state(
@@ -281,6 +315,7 @@ def _validated_artifact_bytes(
     *,
     document_id: UUID,
     artifacts: ArtifactStore,
+    limits: ProofBundleBuildLimits,
 ) -> bytes:
     document = snapshot.document
     artifact = snapshot.artifact
@@ -291,6 +326,11 @@ def _validated_artifact_bytes(
     if document.artifact_id != artifact.artifact_id:
         raise ProofBundleArtifactIntegrityError(
             "snapshot document and artifact identities do not match"
+        )
+    if artifact.size_bytes > limits.max_artifact_bytes:
+        raise ProofBundleArtifactLimitError(
+            "proof bundle Artifact exceeds the configured build byte maximum: "
+            f"size={artifact.size_bytes}, maximum={limits.max_artifact_bytes}"
         )
 
     try:

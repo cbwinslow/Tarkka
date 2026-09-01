@@ -18,14 +18,52 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out PR base
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
-      - name: Submit uv.lock dependencies
+      - name: Submit PR base uv.lock dependencies
+        if: ${{ github.event_name == 'pull_request' }}
         uses: advanced-security/component-detection-dependency-submission-action@31f25a8de68ae5ce2ca274bc28546a78683c15ce # v0.1.4
         with:
           detectorArgs: "UvLock=EnableIfDefaultOff"
+          snapshot-sha: ${{ github.event.pull_request.base.sha }}
+          snapshot-ref: ${{ format('refs/heads/{0}', github.event.pull_request.base.ref) }}
+          correlator: dependency-submission-base
+
+      - name: Check out PR head
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Submit PR head uv.lock dependencies
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: advanced-security/component-detection-dependency-submission-action@31f25a8de68ae5ce2ca274bc28546a78683c15ce # v0.1.4
+        with:
+          detectorArgs: "UvLock=EnableIfDefaultOff"
+          snapshot-sha: ${{ github.event.pull_request.head.sha }}
+          snapshot-ref: ${{ format('refs/heads/{0}', github.event.pull_request.head.ref) }}
+          correlator: dependency-submission-head
+
+      - name: Check out pushed main
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Submit pushed main uv.lock dependencies
+        if: ${{ github.event_name == 'push' }}
+        uses: advanced-security/component-detection-dependency-submission-action@31f25a8de68ae5ce2ca274bc28546a78683c15ce # v0.1.4
+        with:
+          detectorArgs: "UvLock=EnableIfDefaultOff"
+          snapshot-sha: ${{ github.sha }}
+          snapshot-ref: ${{ github.ref }}
+          correlator: dependency-submission-main
 
   dependency-review:
     name: Review dependency changes

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from io import BytesIO
-from typing import cast
+from typing import BinaryIO, cast
 
 import pytest
 
@@ -53,7 +53,7 @@ class _StreamingAcquirer:
         self.assess_calls += 1
         return self._decision
 
-    def acquire(self, candidate: ArtifactCandidate, sink: BytesIO) -> AcquiredArtifact:
+    def acquire(self, candidate: ArtifactCandidate, sink: BinaryIO) -> AcquiredArtifact:
         for offset in range(0, len(self._payload), 3):
             sink.write(self._payload[offset : offset + 3])
         return AcquiredArtifact(
@@ -73,7 +73,7 @@ class _MustNotAssess:
     def assess(self, candidate: ArtifactCandidate) -> AcquisitionDecision:
         raise AssertionError(f"non-ACQUIRE adapter was assessed: {candidate.source_uri}")
 
-    def acquire(self, candidate: ArtifactCandidate, sink: BytesIO) -> AcquiredArtifact:
+    def acquire(self, candidate: ArtifactCandidate, sink: BinaryIO) -> AcquiredArtifact:
         raise AssertionError(f"non-ACQUIRE adapter was invoked: {candidate.source_uri}")
 
 

@@ -14,6 +14,7 @@ from tarkka.infrastructure.frozen_research_bundle import (
 )
 
 _MAX_PUBLIC_DETAIL_CHARS = 512
+_PATH_PUBLIC_DETAIL = "unable to resolve frozen proof-bundle path"
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
@@ -38,13 +39,14 @@ def _inspect_argument(value: str) -> FrozenResearchBundle:
         path = Path(value).expanduser().resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise FrozenResearchBundleInspectionError(
-            "unable to resolve frozen proof-bundle path"
+            _PATH_PUBLIC_DETAIL,
+            public_detail=_PATH_PUBLIC_DETAIL,
         ) from exc
     return inspect_frozen_research_bundle(path)
 
 
 def _print_problem(side: str, exc: FrozenResearchBundleInspectionError) -> None:
-    detail = str(exc)
+    detail = exc.public_detail
     if len(detail) > _MAX_PUBLIC_DETAIL_CHARS:
         detail = detail[: _MAX_PUBLIC_DETAIL_CHARS - 3] + "..."
     print(

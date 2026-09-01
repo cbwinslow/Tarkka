@@ -107,17 +107,32 @@ Discovery capabilities may include search, record lookup, references, citations,
 
 ### ArtifactAcquirer
 
-Acquires bytes or structured source material when permitted.
+Acquires bytes or structured source material when permitted. The current generic boundary is
+provider-neutral and stream-based:
 
 ```python
 class ArtifactAcquirer(Protocol):
-    async def can_acquire(self, candidate: ArtifactCandidate) -> AcquisitionDecision: ...
-    async def acquire(self, candidate: ArtifactCandidate) -> AcquiredArtifact: ...
+    @property
+    def manifest(self) -> CapabilityManifest: ...
+
+    def assess(self, candidate: ArtifactCandidate) -> AcquisitionDecision: ...
+
+    def acquire(self, candidate: ArtifactCandidate, sink: BinaryIO) -> AcquiredArtifact: ...
 ```
 
-The acquisition decision must distinguish technical unavailability from policy/rights denial.
+`assess()` is side-effect-free and distinguishes supported candidates from unsupported,
+policy/rights-denied, and technically unavailable candidates. Runtime acquisition failures also
+distinguish explicitly transient/retryable failures from terminal classes.
 
-Acquisition adapters should preserve requested/final URIs, redirects, HTTP metadata, source provenance, and media type when available.
+`acquire()` streams into a caller-owned binary sink instead of returning an entire payload in
+memory. The returned `AcquiredArtifact` is a receipt containing requested/final URI, exact byte
+count, SHA-256, optional media/filename hints, redirect provenance, and bounded metadata. It does
+not create canonical `Artifact` identity; the application must independently commit and verify the
+staged bytes first.
+
+Acquisition adapters should preserve source-native metadata through `SourceObservation` rather
+than expanding routing metadata into an unbounded JSON catch-all. See
+[`ACQUISITION_CONTRACT.md`](ACQUISITION_CONTRACT.md) for the complete contract and failure model.
 
 ### Web/CrawlDiscovery adapter
 

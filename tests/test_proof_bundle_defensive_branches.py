@@ -179,6 +179,26 @@ def test_member_offset_validator_rejects_noncanonical_layout() -> None:
         _validate_member_offsets([first, second])
 
 
+def test_atomic_publish_streams_archive_without_in_memory_builder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = proof_bundle_payload()
+    expected = build_proof_bundle_bytes(payload)
+    destination = tmp_path / "research.tarkka"
+
+    def fail_builder(_: Any) -> bytes:
+        raise AssertionError("atomic writer must not build a full in-memory archive")
+
+    monkeypatch.setattr(proof_bundle_io, "build_proof_bundle_bytes", fail_builder)
+
+    result = write_proof_bundle(destination, payload)
+
+    assert destination.read_bytes() == expected
+    assert result.byte_count == len(expected)
+    assert result.verification.bundle_sha256 == verify_proof_bundle(destination).bundle_sha256
+
+
 def test_atomic_publish_uses_fixed_short_temp_prefix_for_long_output_name(tmp_path: Path) -> None:
     payload = proof_bundle_payload()
     destination = tmp_path / (("x" * 240) + ".tarkka")

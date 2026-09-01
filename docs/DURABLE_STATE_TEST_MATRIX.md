@@ -28,7 +28,7 @@ Status meanings:
 
 Tarkka has the shared infrastructure expected by the persistence strategy:
 
-- reusable repository/adapter contracts under `tests/contracts/`;
+- reusable public repository/adapter contracts under `src/tarkka/conformance/`;
 - deterministic time and sleep primitives in `tests/support/deterministic.py`;
 - reusable failure injection through `FaultPlan` and helpers under `tests/support/`;
 - schema-corruption regressions for research, work, citation, extraction, source-observation, and traversal catalogs;
@@ -36,7 +36,7 @@ Tarkka has the shared infrastructure expected by the persistence strategy:
 - local concurrency and reopen regressions for append-only JSONL audit logs;
 - strict pytest markers, Python 3.11/3.12/3.13 CI, branch coverage, and changed-line coverage.
 
-New durable repositories should add or reuse a `tests/contracts/` suite instead of relying only on workflow-level tests. New audit sinks should document whether they are write-only or support historical reads and test that public contract directly.
+New durable repositories should add or reuse a `tarkka.conformance` contract instead of relying only on workflow-level tests. New audit sinks should document whether they are write-only or support historical reads and test that public contract directly.
 
 ## Future schema evolution
 

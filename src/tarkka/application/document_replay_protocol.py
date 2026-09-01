@@ -11,6 +11,10 @@ from tarkka.application.document_replay import (
     DocumentReplayer,
     DocumentReplayExecutionError,
 )
+from tarkka.application.document_research_state import (
+    DocumentResearchStateLimitError,
+    DocumentResearchStateMismatchError,
+)
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactIntegrityError,
     ProofBundleArtifactNotFoundError,
@@ -20,6 +24,12 @@ from tarkka.application.proof_bundles import (
 from tarkka.domain.manifest import estimate_tokens
 
 _MAX_PUBLIC_ERROR_CHARS = 512
+_REPLAY_BACKEND_UNAVAILABLE_MESSAGE = "configured document replay backend is unavailable"
+
+
+def document_replay_backend_unavailable_response() -> dict[str, object]:
+    """Return the stable public error used when replay runtime composition fails."""
+    return agent_error("backend_unavailable", _REPLAY_BACKEND_UNAVAILABLE_MESSAGE)
 
 
 def document_replay_response(
@@ -39,8 +49,10 @@ def document_replay_response(
         return agent_error("artifact_not_found", _bounded_message(exc))
     except ProofBundleArtifactIntegrityError as exc:
         return agent_error("artifact_integrity_error", _bounded_message(exc))
-    except ProofBundleResearchStateIntegrityError as exc:
+    except (ProofBundleResearchStateIntegrityError, DocumentResearchStateMismatchError) as exc:
         return agent_error("research_state_integrity_error", _bounded_message(exc))
+    except DocumentResearchStateLimitError as exc:
+        return agent_error("content_too_large", _bounded_message(exc))
     except DocumentReplayConfigurationError as exc:
         return agent_error("replay_configuration_error", _bounded_message(exc))
     except DocumentReplayExecutionError as exc:

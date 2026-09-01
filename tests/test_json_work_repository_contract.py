@@ -7,12 +7,12 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.conformance import WorkRepositoryContract
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.infrastructure.storage import json_work_repository
 from tarkka.infrastructure.storage.json_work_repository import JsonWorkRepository
-from tests.contracts.work_repository import WorkRepositoryContract
 
 _WORK_ID = UUID("00000000-0000-0000-0000-000000000c01")
 _SECOND_WORK_ID = UUID("00000000-0000-0000-0000-000000000c02")

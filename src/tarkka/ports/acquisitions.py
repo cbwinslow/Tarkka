@@ -11,6 +11,10 @@ from urllib.parse import urlsplit
 from tarkka.domain.models import Acquisition
 from tarkka.domain.source_observations import Capability, CapabilityManifest
 
+MAX_ACQUISITION_METADATA_ITEMS = 32
+MAX_ACQUISITION_METADATA_KEY_CHARS = 128
+MAX_ACQUISITION_METADATA_VALUE_CHARS = 4096
+
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -208,11 +212,26 @@ def _require_uri(value: object, field_name: str) -> None:
 def _freeze_metadata(value: Mapping[str, str]) -> Mapping[str, str]:
     if not isinstance(value, Mapping):
         raise ValueError("acquisition metadata must be a mapping")
+    if len(value) > MAX_ACQUISITION_METADATA_ITEMS:
+        raise ValueError(
+            f"acquisition metadata must contain at most {MAX_ACQUISITION_METADATA_ITEMS} items"
+        )
+
     frozen: dict[str, str] = {}
     for key, item in value.items():
         if not isinstance(key, str) or not key.strip():
             raise ValueError("acquisition metadata keys must be non-blank strings")
+        if len(key) > MAX_ACQUISITION_METADATA_KEY_CHARS:
+            raise ValueError(
+                "acquisition metadata keys must not exceed "
+                f"{MAX_ACQUISITION_METADATA_KEY_CHARS} characters"
+            )
         if not isinstance(item, str):
             raise ValueError("acquisition metadata values must be strings")
+        if len(item) > MAX_ACQUISITION_METADATA_VALUE_CHARS:
+            raise ValueError(
+                "acquisition metadata values must not exceed "
+                f"{MAX_ACQUISITION_METADATA_VALUE_CHARS} characters"
+            )
         frozen[key] = item
     return MappingProxyType(frozen)

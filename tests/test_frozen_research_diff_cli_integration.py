@@ -83,3 +83,17 @@ def test_public_diff_cli_compares_real_frozen_research_transition_offline(
     assert [item["claim_id"] for item in changed["claims"]] == expected_claim_ids
     assert [item["change"] for item in changed["claims"]] == ["added", "added"]
     assert all(len(item["evidence"]["added"]) == 1 for item in changed["claims"])
+
+    invalid = tmp_path / "invalid.tarkka"
+    invalid.write_bytes(b"not a ZIP archive")
+    assert main(["diff", str(before), str(invalid)]) == 2
+    captured = capsys.readouterr()
+    problem = json.loads(captured.err)
+    assert captured.out == ""
+    assert problem == {
+        "ok": False,
+        "code": "invalid_frozen_bundle",
+        "side": "after",
+        "detail": "frozen proof bundle inspection failed",
+    }
+    assert str(tmp_path) not in json.dumps(problem)

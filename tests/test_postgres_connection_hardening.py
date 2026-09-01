@@ -12,7 +12,9 @@ from tarkka.infrastructure.postgres.connection import (
     PostgresTransientOperationError,
     _is_transient_driver_error,
     connect,
+    managed_connection,
     translate_driver_error,
+    translate_postgres_errors,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
@@ -44,6 +46,34 @@ class _Driver:
         if isinstance(self._outcome, Exception):
             raise self._outcome
         return self._outcome
+
+
+class _Connection:
+    def __init__(
+        self,
+        *,
+        close_error: BaseException | None = None,
+        exit_error: Exception | None = None,
+    ) -> None:
+        self.close_error = close_error
+        self.exit_error = exit_error
+        self.entered = 0
+        self.exited = 0
+        self.closed = 0
+
+    def __enter__(self) -> _Connection:
+        self.entered += 1
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.exited += 1
+        if self.exit_error is not None:
+            raise self.exit_error
+
+    def close(self) -> None:
+        self.closed += 1
+        if self.close_error is not None:
+            raise self.close_error
 
 
 def _missing_module(_: str) -> Any:
@@ -121,6 +151,131 @@ def test_translate_driver_error_classifies_transient_permanent_and_unrelated(
     assert isinstance(permanent, PostgresOperationError)
     assert not isinstance(permanent, PostgresTransientOperationError)
     assert unrelated is None
+
+
+def test_translate_postgres_errors_translates_only_driver_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _Driver(object())
+    monkeypatch.setattr(postgres_connection, "import_module", lambda _: driver)
+    driver_error = _DriverError("constraint")
+
+    with pytest.raises(PostgresOperationError) as raised:
+        with translate_postgres_errors():
+            raise driver_error
+    assert raised.value.__cause__ is driver_error
+
+    application_error = RuntimeError("application")
+    with pytest.raises(RuntimeError) as unmodified:
+        with translate_postgres_errors():
+            raise application_error
+    assert unmodified.value is application_error
+
+
+def test_managed_connection_owns_transaction_and_close() -> None:
+    connection = _Connection()
+
+    with managed_connection(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    ) as yielded:
+        assert yielded is connection
+
+    assert (connection.entered, connection.exited, connection.closed) == (1, 1, 1)
+
+
+def test_managed_connection_supports_nontransactional_ownership() -> None:
+    connection = _Connection()
+
+    with managed_connection(
+        PostgresSettings("postgresql://unused"),
+        connection_factory=lambda _: connection,
+        transactional=False,
+    ) as yielded:
+        assert yielded is connection
+
+    assert (connection.entered, connection.exited, connection.closed) == (0, 0, 1)
+
+
+def test_managed_connection_translates_factory_and_transaction_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _Driver(object())
+    monkeypatch.setattr(postgres_connection, "import_module", lambda _: driver)
+    factory_error = _DriverError("factory")
+
+    with pytest.raises(PostgresOperationError) as factory_raised:
+        with managed_connection(
+            PostgresSettings("postgresql://unused"),
+            connection_factory=lambda _: (_ for _ in ()).throw(factory_error),
+        ):
+            pass
+    assert factory_raised.value.__cause__ is factory_error
+
+    exit_error = _OperationalError("commit")
+    connection = _Connection(exit_error=exit_error)
+    with pytest.raises(PostgresTransientOperationError) as transaction_raised:
+        with managed_connection(
+            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+        ):
+            pass
+    assert transaction_raised.value.__cause__ is exit_error
+    assert connection.closed == 1
+
+
+def test_managed_connection_preserves_primary_error_when_close_also_fails() -> None:
+    close_error = RuntimeError("close")
+    connection = _Connection(close_error=close_error)
+    primary = ValueError("primary")
+
+    with pytest.raises(ValueError) as raised:
+        with managed_connection(
+            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+        ):
+            raise primary
+
+    assert raised.value is primary
+    assert raised.value.__notes__ == [
+        "PostgreSQL connection cleanup also failed (RuntimeError); primary exception preserved"
+    ]
+    assert connection.closed == 1
+
+
+def test_managed_connection_surfaces_and_translates_cleanup_only_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _Driver(object())
+    monkeypatch.setattr(postgres_connection, "import_module", lambda _: driver)
+    close_error = _DriverError("close")
+    connection = _Connection(close_error=close_error)
+
+    with pytest.raises(PostgresOperationError) as translated:
+        with managed_connection(
+            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+        ):
+            pass
+    assert translated.value.__cause__ is close_error
+
+    application_close = RuntimeError("close")
+    connection = _Connection(close_error=application_close)
+    with pytest.raises(RuntimeError) as unmodified:
+        with managed_connection(
+            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+        ):
+            pass
+    assert unmodified.value is application_close
+
+
+def test_managed_connection_does_not_swallow_baseexception_cleanup() -> None:
+    cleanup = KeyboardInterrupt()
+    connection = _Connection(close_error=cleanup)
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        with managed_connection(
+            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+        ):
+            pass
+
+    assert raised.value is cleanup
 
 
 def test_transient_detection_ignores_missing_or_invalid_driver_error_types() -> None:

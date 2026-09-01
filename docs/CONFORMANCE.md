@@ -11,6 +11,7 @@ than copying examples from the repository test tree.
 from tarkka.conformance import (
     CONFORMANCE_API_VERSION,
     ArtifactStoreContract,
+    StreamingArtifactStoreContract,
     CitationRepositoryContract,
     ExtractionRepositoryContract,
     HostResolverContract,
@@ -36,7 +37,7 @@ local content-addressed store:
 from pathlib import Path
 
 from my_plugin import MyArtifactStore
-from tarkka.conformance import ArtifactStoreContract
+from tarkka.conformance import ArtifactStoreContract, StreamingArtifactStoreContract
 
 
 def test_my_store_conforms(tmp_path: Path) -> None:
@@ -58,15 +59,36 @@ def test_my_store_conforms(tmp_path: Path) -> None:
         store,
         tmp_path / "missing.txt",
     )
+
+
+def test_my_store_optional_streaming_capability(tmp_path: Path) -> None:
+    # MyArtifactStore implements the optional StreamingArtifactStore capability.
+    store = MyArtifactStore(tmp_path / "objects")
+    payload = b"large immutable bytes can be read incrementally\n"
+    artifact = store.put_bytes(payload, original_name="streamed.txt")
+
+    StreamingArtifactStoreContract.assert_streaming_read(
+        store,
+        artifact,
+        payload,
+    )
 ```
 
 `ArtifactStoreContract.assert_round_trip` exercises both `put_file` and
 `put_bytes`, requires identical content identity and storage keys for identical
 bytes, and verifies digest-based reads with `read_bytes_by_sha256`.
 
+`StreamingArtifactStoreContract` covers the optional `StreamingArtifactStore`
+capability. Its assertion accepts an already-persisted `Artifact` and tests only
+context-managed bounded reading through `open_reader`. This intentionally keeps
+fixture creation outside the streaming capability contract: object-store and
+remote adapters can implement streaming without exposing a local filesystem path
+or inheriting unrelated persistence methods.
+
 The adapter remains responsible for constructing domain fixtures required by
-repository contracts. This keeps conformance focused on public port behavior
-rather than imposing a Tarkka-specific test framework or fixture loader.
+repository and optional capability contracts. This keeps conformance focused on
+public port behavior rather than imposing a Tarkka-specific test framework or
+fixture loader.
 
 ## How to run
 
@@ -114,6 +136,7 @@ adapter and port semantics agree.
 | Contract | Port behavior protected |
 | --- | --- |
 | `ArtifactStoreContract` | file/byte content identity, digest reads, round trip, duplicate idempotency, missing-source behavior |
+| `StreamingArtifactStoreContract` | optional context-managed bounded reads of immutable Artifact bytes |
 | `ResearchRepositoryContract` | Artifact/Document/manifest persistence and idempotent saves |
 | `ExtractionRepositoryContract` | extraction/evidence round trip, filtering, idempotency, conflict failure |
 | `CitationRepositoryContract` | citation graph persistence, resolution evolution, relation identity/atomicity/bounds |

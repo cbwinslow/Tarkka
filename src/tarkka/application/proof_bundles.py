@@ -53,6 +53,8 @@ _DEFAULT_MAX_ARTIFACT_BYTES = _DEFAULT_MAX_ARCHIVE_BYTES - (
     + _DEFAULT_ZIP_CONTAINER_RESERVE_BYTES
 )
 
+ProofBundleManifestType = ProofBundleManifest | ProofBundleManifestV2 | ProofBundleManifestV3
+
 
 class ProofBundleDocumentNotFoundError(LookupError):
     """Raised when a bundle is requested for an unknown normalized Document."""
@@ -127,42 +129,47 @@ NormalizedDocumentEncoder = Callable[[Document], bytes]
 class ProofBundlePayload:
     """Validated manifest plus the exact immutable bytes embedded in a proof bundle."""
 
-    manifest: ProofBundleManifest | ProofBundleManifestV2 | ProofBundleManifestV3
+    manifest: ProofBundleManifestType
     artifact_bytes: bytes
     research_state_bytes: bytes | None = None
     normalized_document_bytes: bytes | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.manifest, ProofBundleManifestV3):
-            if self.research_state_bytes is None or self.normalized_document_bytes is None:
-                raise ValueError(
-                    "proof bundle v3 requires research-state and normalized-document bytes"
-                )
-            _validate_member_bytes(
-                self.research_state_bytes,
-                sha256=self.manifest.research_state.sha256,
-                size_bytes=self.manifest.research_state.size_bytes,
-                label="research-state",
+        _validate_payload_members(
+            self.manifest,
+            research_state_bytes=self.research_state_bytes,
+            normalized_document_bytes=self.normalized_document_bytes,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProofBundleStreamingPayload:
+    """Validated proof-bundle metadata with an Artifact streamed only during publication."""
+
+    manifest: ProofBundleManifestType
+    artifact: Artifact
+    research_state_bytes: bytes | None = None
+    normalized_document_bytes: bytes | None = None
+
+    def __post_init__(self) -> None:
+        _validate_payload_members(
+            self.manifest,
+            research_state_bytes=self.research_state_bytes,
+            normalized_document_bytes=self.normalized_document_bytes,
+        )
+        manifest_artifact = self.manifest.artifact
+        if (
+            self.artifact.artifact_id != manifest_artifact.artifact_id
+            or self.artifact.sha256 != manifest_artifact.sha256
+            or self.artifact.size_bytes != manifest_artifact.size_bytes
+            or self.artifact.media_type != manifest_artifact.media_type
+            or self.artifact.original_name != manifest_artifact.original_name
+            or self.artifact.source_uri != manifest_artifact.source_uri
+            or self.artifact.acquired_at.isoformat() != manifest_artifact.acquired_at
+        ):
+            raise ProofBundleArtifactIntegrityError(
+                "proof bundle streaming Artifact does not match manifest metadata"
             )
-            _validate_member_bytes(
-                self.normalized_document_bytes,
-                sha256=self.manifest.normalized_document.sha256,
-                size_bytes=self.manifest.normalized_document.size_bytes,
-                label="normalized-document",
-            )
-        elif isinstance(self.manifest, ProofBundleManifestV2):
-            if self.research_state_bytes is None:
-                raise ValueError("proof bundle v2 requires research-state bytes")
-            if self.normalized_document_bytes is not None:
-                raise ValueError("proof bundle v2 must not carry normalized-document bytes")
-            _validate_member_bytes(
-                self.research_state_bytes,
-                sha256=self.manifest.research_state.sha256,
-                size_bytes=self.manifest.research_state.size_bytes,
-                label="research-state",
-            )
-        elif self.research_state_bytes is not None or self.normalized_document_bytes is not None:
-            raise ValueError("proof bundle v1 must not carry research-state or replay bytes")
 
 
 class ProofBundleService:
@@ -194,6 +201,17 @@ class ProofBundleService:
             artifact_bytes=artifact_bytes,
         )
 
+    def build_streaming(self, document_id: UUID) -> ProofBundleStreamingPayload:
+        """Prepare v1 metadata without loading the immutable Artifact into memory."""
+        snapshot = self._snapshots.read(document_id)
+        if snapshot is None:
+            raise ProofBundleDocumentNotFoundError(f"document not found: {document_id}")
+        _validate_source_snapshot(snapshot, document_id=document_id, limits=self._limits)
+        return ProofBundleStreamingPayload(
+            manifest=_source_manifest(snapshot),
+            artifact=snapshot.artifact,
+        )
+
 
 class ProofBundleV2Service:
     """Compose a deterministic v2 payload from one coherent research-state snapshot."""
@@ -222,23 +240,30 @@ class ProofBundleV2Service:
             artifacts=self._artifacts,
             limits=self._limits,
         )
-        _validate_research_state_identity(snapshot)
-        research_state_bytes = self._encode_research_state(
-            document_research_state_view(snapshot.research_state)
-        )
-        research_state = _research_state_descriptor(research_state_bytes)
-        base = _source_manifest(source)
-        manifest = ProofBundleManifestV2(
-            document=base.document,
-            artifact=base.artifact,
-            research_state=research_state,
-            work_documents=base.work_documents,
-            source_observations=base.source_observations,
-            resource_links=base.resource_links,
+        manifest, research_state_bytes = _v2_manifest(
+            snapshot,
+            encode_research_state=self._encode_research_state,
         )
         return ProofBundlePayload(
             manifest=manifest,
             artifact_bytes=artifact_bytes,
+            research_state_bytes=research_state_bytes,
+        )
+
+    def build_streaming(self, document_id: UUID) -> ProofBundleStreamingPayload:
+        """Prepare v2 metadata without loading the immutable Artifact into memory."""
+        snapshot = self._snapshots.read(document_id)
+        if snapshot is None:
+            raise ProofBundleDocumentNotFoundError(f"document not found: {document_id}")
+        source = snapshot.source
+        _validate_source_snapshot(source, document_id=document_id, limits=self._limits)
+        manifest, research_state_bytes = _v2_manifest(
+            snapshot,
+            encode_research_state=self._encode_research_state,
+        )
+        return ProofBundleStreamingPayload(
+            manifest=manifest,
+            artifact=source.artifact,
             research_state_bytes=research_state_bytes,
         )
 
@@ -272,24 +297,10 @@ class ProofBundleV3Service:
             artifacts=self._artifacts,
             limits=self._limits,
         )
-        _validate_research_state_identity(snapshot)
-        research_state_bytes = self._encode_research_state(
-            document_research_state_view(snapshot.research_state)
-        )
-        normalized_document_bytes = self._encode_normalized_document(source.document)
-        base = _source_manifest(source)
-        manifest = ProofBundleManifestV3(
-            document=base.document,
-            artifact=base.artifact,
-            research_state=_research_state_descriptor(research_state_bytes),
-            normalized_document=ProofBundleNormalizedDocument(
-                path=PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
-                sha256=hashlib.sha256(normalized_document_bytes).hexdigest(),
-                size_bytes=len(normalized_document_bytes),
-            ),
-            work_documents=base.work_documents,
-            source_observations=base.source_observations,
-            resource_links=base.resource_links,
+        manifest, research_state_bytes, normalized_document_bytes = _v3_manifest(
+            snapshot,
+            encode_research_state=self._encode_research_state,
+            encode_normalized_document=self._encode_normalized_document,
         )
         return ProofBundlePayload(
             manifest=manifest,
@@ -297,6 +308,63 @@ class ProofBundleV3Service:
             research_state_bytes=research_state_bytes,
             normalized_document_bytes=normalized_document_bytes,
         )
+
+    def build_streaming(self, document_id: UUID) -> ProofBundleStreamingPayload:
+        """Prepare v3 metadata without loading the immutable Artifact into memory."""
+        snapshot = self._snapshots.read(document_id)
+        if snapshot is None:
+            raise ProofBundleDocumentNotFoundError(f"document not found: {document_id}")
+        source = snapshot.source
+        _validate_source_snapshot(source, document_id=document_id, limits=self._limits)
+        manifest, research_state_bytes, normalized_document_bytes = _v3_manifest(
+            snapshot,
+            encode_research_state=self._encode_research_state,
+            encode_normalized_document=self._encode_normalized_document,
+        )
+        return ProofBundleStreamingPayload(
+            manifest=manifest,
+            artifact=source.artifact,
+            research_state_bytes=research_state_bytes,
+            normalized_document_bytes=normalized_document_bytes,
+        )
+
+
+def _validate_payload_members(
+    manifest: ProofBundleManifestType,
+    *,
+    research_state_bytes: bytes | None,
+    normalized_document_bytes: bytes | None,
+) -> None:
+    if isinstance(manifest, ProofBundleManifestV3):
+        if research_state_bytes is None or normalized_document_bytes is None:
+            raise ValueError(
+                "proof bundle v3 requires research-state and normalized-document bytes"
+            )
+        _validate_member_bytes(
+            research_state_bytes,
+            sha256=manifest.research_state.sha256,
+            size_bytes=manifest.research_state.size_bytes,
+            label="research-state",
+        )
+        _validate_member_bytes(
+            normalized_document_bytes,
+            sha256=manifest.normalized_document.sha256,
+            size_bytes=manifest.normalized_document.size_bytes,
+            label="normalized-document",
+        )
+    elif isinstance(manifest, ProofBundleManifestV2):
+        if research_state_bytes is None:
+            raise ValueError("proof bundle v2 requires research-state bytes")
+        if normalized_document_bytes is not None:
+            raise ValueError("proof bundle v2 must not carry normalized-document bytes")
+        _validate_member_bytes(
+            research_state_bytes,
+            sha256=manifest.research_state.sha256,
+            size_bytes=manifest.research_state.size_bytes,
+            label="research-state",
+        )
+    elif research_state_bytes is not None or normalized_document_bytes is not None:
+        raise ValueError("proof bundle v1 must not carry research-state or replay bytes")
 
 
 def _validate_member_bytes(
@@ -325,19 +393,70 @@ def _research_state_descriptor(data: bytes) -> ProofBundleResearchState:
     )
 
 
-def _validated_artifact_bytes(
+def _v2_manifest(
+    snapshot: ProofBundleV2Snapshot,
+    *,
+    encode_research_state: ResearchStateEncoder,
+) -> tuple[ProofBundleManifestV2, bytes]:
+    _validate_research_state_identity(snapshot)
+    research_state_bytes = encode_research_state(
+        document_research_state_view(snapshot.research_state)
+    )
+    base = _source_manifest(snapshot.source)
+    return (
+        ProofBundleManifestV2(
+            document=base.document,
+            artifact=base.artifact,
+            research_state=_research_state_descriptor(research_state_bytes),
+            work_documents=base.work_documents,
+            source_observations=base.source_observations,
+            resource_links=base.resource_links,
+        ),
+        research_state_bytes,
+    )
+
+
+def _v3_manifest(
+    snapshot: ProofBundleV2Snapshot,
+    *,
+    encode_research_state: ResearchStateEncoder,
+    encode_normalized_document: NormalizedDocumentEncoder,
+) -> tuple[ProofBundleManifestV3, bytes, bytes]:
+    _validate_research_state_identity(snapshot)
+    research_state_bytes = encode_research_state(
+        document_research_state_view(snapshot.research_state)
+    )
+    normalized_document_bytes = encode_normalized_document(snapshot.source.document)
+    base = _source_manifest(snapshot.source)
+    return (
+        ProofBundleManifestV3(
+            document=base.document,
+            artifact=base.artifact,
+            research_state=_research_state_descriptor(research_state_bytes),
+            normalized_document=ProofBundleNormalizedDocument(
+                path=PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
+                sha256=hashlib.sha256(normalized_document_bytes).hexdigest(),
+                size_bytes=len(normalized_document_bytes),
+            ),
+            work_documents=base.work_documents,
+            source_observations=base.source_observations,
+            resource_links=base.resource_links,
+        ),
+        research_state_bytes,
+        normalized_document_bytes,
+    )
+
+
+def _validate_source_snapshot(
     snapshot: ProofBundleSnapshot,
     *,
     document_id: UUID,
-    artifacts: ArtifactStore,
     limits: ProofBundleBuildLimits,
-) -> bytes:
+) -> None:
     document = snapshot.document
     artifact = snapshot.artifact
     if document.document_id != document_id:
-        raise ProofBundleArtifactIntegrityError(
-            "snapshot returned a different document identity"
-        )
+        raise ProofBundleArtifactIntegrityError("snapshot returned a different document identity")
     if document.artifact_id != artifact.artifact_id:
         raise ProofBundleArtifactIntegrityError(
             "snapshot document and artifact identities do not match"
@@ -348,6 +467,16 @@ def _validated_artifact_bytes(
             f"size={artifact.size_bytes}, maximum={limits.max_artifact_bytes}"
         )
 
+
+def _validated_artifact_bytes(
+    snapshot: ProofBundleSnapshot,
+    *,
+    document_id: UUID,
+    artifacts: ArtifactStore,
+    limits: ProofBundleBuildLimits,
+) -> bytes:
+    _validate_source_snapshot(snapshot, document_id=document_id, limits=limits)
+    artifact = snapshot.artifact
     try:
         artifact_bytes = artifacts.read_bytes(artifact)
     except FileNotFoundError as exc:

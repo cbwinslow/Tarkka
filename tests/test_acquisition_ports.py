@@ -206,7 +206,7 @@ def test_acquisition_error_rejects_invalid_kind_and_message() -> None:
         AcquisitionError(AcquisitionFailureKind.TRANSIENT, " ")
 
 
-def test_acquired_artifact_accepts_direct_and_redirected_receipts() -> None:
+def test_acquired_artifact_accepts_direct_normalized_and_redirected_receipts() -> None:
     direct = AcquiredArtifact(
         requested_uri="file:///tmp/paper.pdf",
         final_uri="file:///tmp/paper.pdf",
@@ -215,6 +215,12 @@ def test_acquired_artifact_accepts_direct_and_redirected_receipts() -> None:
         media_type="application/pdf",
         filename="paper.pdf",
         metadata={"source": "local"},
+    )
+    normalized = AcquiredArtifact(
+        requested_uri="HTTPS://Example.test/paper",
+        final_uri="https://example.test/paper",
+        size_bytes=3,
+        sha256=hashlib.sha256(b"pdf").hexdigest(),
     )
     redirected = AcquiredArtifact(
         requested_uri="https://example.test/latest",
@@ -239,6 +245,7 @@ def test_acquired_artifact_accepts_direct_and_redirected_receipts() -> None:
 
     assert direct.redirect_chain == ()
     assert direct.metadata == {"source": "local"}
+    assert normalized.redirect_chain == ()
     assert redirected.redirect_chain[-1] == redirected.final_uri
     assert returned_to_origin.redirect_chain[-1] == returned_to_origin.final_uri
     with pytest.raises(TypeError):
@@ -284,13 +291,6 @@ def test_acquired_artifact_rejects_invalid_redirect_semantics() -> None:
             size_bytes=3,
             sha256=digest,
             redirect_chain=("relative",),
-        )
-    with pytest.raises(ValueError, match="changed final_uri requires"):
-        AcquiredArtifact(
-            requested_uri="https://example.test/source",
-            final_uri="https://example.test/final",
-            size_bytes=3,
-            sha256=digest,
         )
     with pytest.raises(ValueError, match="redirect chain must end at final_uri"):
         AcquiredArtifact(

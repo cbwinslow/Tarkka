@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from uuid import UUID
 
+from tarkka.application.document_research_state import (
+    DOCUMENT_RESEARCH_STATE_FORMAT,
+    DOCUMENT_RESEARCH_STATE_SCHEMA_VERSION,
+)
 from tarkka.application.frozen_research_diff import (
     FrozenArtifactState,
     FrozenClaimState,
@@ -19,10 +23,6 @@ from tarkka.application.frozen_research_diff import (
 from tarkka.application.normalized_document_view import (
     NORMALIZED_DOCUMENT_FORMAT,
     NORMALIZED_DOCUMENT_SCHEMA_VERSION,
-)
-from tarkka.application.document_research_state import (
-    DOCUMENT_RESEARCH_STATE_FORMAT,
-    DOCUMENT_RESEARCH_STATE_SCHEMA_VERSION,
 )
 from tarkka.domain.proof_bundle_v3 import PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH
 from tarkka.domain.proof_bundles import PROOF_BUNDLE_MANIFEST_PATH
@@ -56,7 +56,10 @@ def inspect_frozen_research_bundle(
 ) -> FrozenResearchBundle:
     """Verify and project one immutable schema-v3 bundle without reading Artifact bytes twice."""
     effective_limits = limits or ProofBundleVerificationLimits()
-    verification = verify_proof_bundle(path, limits=effective_limits)
+    try:
+        verification = verify_proof_bundle(path, limits=effective_limits)
+    except ProofBundleVerificationError as exc:
+        raise FrozenResearchBundleInspectionError(str(exc)) from exc
     if verification.member_count != 4:
         raise FrozenResearchBundleInspectionError(
             "frozen research diff requires proof bundle schema version 3"
@@ -99,6 +102,7 @@ def inspect_frozen_research_bundle(
 
     research = _mapping(research_value, "research state")
     document = _mapping(document_value, "normalized document")
+    _validate_member_contracts(research, document)
     document_id = _canonical_uuid(document.get("document_id"), "normalized document document_id")
     if document_id != verification.document_id:
         raise FrozenResearchBundleInspectionError(
@@ -125,6 +129,20 @@ def inspect_frozen_research_bundle(
     )
 
 
+def _validate_member_contracts(
+    research: Mapping[str, Any],
+    document: Mapping[str, Any],
+) -> None:
+    if document.get("format") != NORMALIZED_DOCUMENT_FORMAT:
+        raise FrozenResearchBundleInspectionError("unsupported normalized Document format")
+    if document.get("schema_version") != NORMALIZED_DOCUMENT_SCHEMA_VERSION:
+        raise FrozenResearchBundleInspectionError("unsupported normalized Document schema version")
+    if research.get("format") != DOCUMENT_RESEARCH_STATE_FORMAT:
+        raise FrozenResearchBundleInspectionError("unsupported frozen research-state format")
+    if research.get("schema_version") != DOCUMENT_RESEARCH_STATE_SCHEMA_VERSION:
+        raise FrozenResearchBundleInspectionError("unsupported frozen research-state schema version")
+
+
 def _project_claims(
     research: Mapping[str, Any],
     *,
@@ -135,10 +153,6 @@ def _project_claims(
         raise FrozenResearchBundleInspectionError(
             "frozen research state has unexpected or missing fields"
         )
-    if research["format"] != DOCUMENT_RESEARCH_STATE_FORMAT:
-        raise FrozenResearchBundleInspectionError("unsupported frozen research-state format")
-    if research["schema_version"] != DOCUMENT_RESEARCH_STATE_SCHEMA_VERSION:
-        raise FrozenResearchBundleInspectionError("unsupported frozen research-state schema version")
     research_document_id = _canonical_uuid(research["document_id"], "research-state document_id")
     if research_document_id != expected_document_id:
         raise FrozenResearchBundleInspectionError(
@@ -316,6 +330,4 @@ def _require_verified_digest(handle: BinaryIO, expected_sha256: str) -> None:
             "unable to hash frozen proof bundle during inspection"
         ) from exc
     if digest.hexdigest() != expected_sha256:
-        raise FrozenResearchBundleInspectionError(
-            "proof bundle changed after verification"
-        )
+        raise FrozenResearchBundleInspectionError("proof bundle changed after verification")

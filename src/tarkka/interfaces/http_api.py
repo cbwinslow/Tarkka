@@ -16,7 +16,10 @@ from tarkka.application.claim_lineage_protocol import (
     claim_lineage_response,
 )
 from tarkka.application.document_replay import DocumentReplayer
-from tarkka.application.document_replay_protocol import document_replay_response
+from tarkka.application.document_replay_protocol import (
+    document_replay_backend_unavailable_response,
+    document_replay_response,
+)
 from tarkka.application.research_capabilities import (
     ResearchField,
     UnknownResearchOperationError,
@@ -43,6 +46,7 @@ _REPLAY_OPERATION_ID = "research.documents.replay"
 _ALLOWED_LINEAGE_QUERY = frozenset({"offset", "limit", "evidence_offset", "evidence_limit"})
 _MAX_QUERY_STRING_BYTES = 4096
 _MAX_QUERY_FIELDS = 16
+_DEFAULT_MAX_CONCURRENT_REPLAYS = 1
 _NOT_FOUND_CODES = frozenset(
     {
         "claim_not_found",
@@ -87,12 +91,16 @@ class TarkkaHttpApp:
         lineage: ClaimLineageService | None = None,
         replay: DocumentReplayer | None = None,
         max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
+        max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
     ) -> None:
         if max_estimated_tokens < 0:
             raise ValueError("max_estimated_tokens must be non-negative")
+        if max_concurrent_replays < 1:
+            raise ValueError("max_concurrent_replays must be positive")
         self._lineage = lineage
         self._replay = replay
         self._max_estimated_tokens = max_estimated_tokens
+        self._replay_slots = asyncio.Semaphore(max_concurrent_replays)
 
     def _lineage_service(self) -> ClaimLineageService:
         """Construct the configured durable lineage backend only when first requested."""
@@ -138,10 +146,13 @@ class TarkkaHttpApp:
             )
             return
 
-        if _blocking_handle_from_path(path) is None:
-            status, payload = self._dispatch(path, scope)
-        else:
+        if _document_replay_handle_from_path(path) is not None:
+            async with self._replay_slots:
+                status, payload = await asyncio.to_thread(self._dispatch, path, scope)
+        elif _claim_handle_from_path(path) is not None:
             status, payload = await asyncio.to_thread(self._dispatch, path, scope)
+        else:
+            status, payload = self._dispatch(path, scope)
         await _send_json(send, status, payload)
 
     def _dispatch(self, path: str, scope: ASGIScope) -> tuple[int, dict[str, object]]:
@@ -197,8 +208,8 @@ class TarkkaHttpApp:
             )
         try:
             service = self._replay_service()
-        except (OSError, RuntimeError, ValueError) as exc:
-            response = agent_error("backend_unavailable", str(exc))
+        except (OSError, RuntimeError, ValueError):
+            response = document_replay_backend_unavailable_response()
         else:
             response = document_replay_response(service, document_id)
         return _status_for_agent_response(response), response
@@ -247,12 +258,14 @@ def create_app(
     lineage: ClaimLineageService | None = None,
     replay: DocumentReplayer | None = None,
     max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
+    max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
 ) -> TarkkaHttpApp:
     """Build the dependency-free ASGI adapter with lazy configured persistence."""
     return TarkkaHttpApp(
         lineage=lineage,
         replay=replay,
         max_estimated_tokens=max_estimated_tokens,
+        max_concurrent_replays=max_concurrent_replays,
     )
 
 
@@ -305,6 +318,7 @@ def openapi_document() -> dict[str, object]:
         "400": error_responses["400"],
         "404": error_responses["404"],
         "409": error_responses["409"],
+        "413": error_responses["413"],
         "503": error_responses["503"],
     }
     operation_responses: dict[str, object] = {

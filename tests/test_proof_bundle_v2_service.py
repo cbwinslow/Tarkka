@@ -49,6 +49,11 @@ class _ArtifactStore:
         return _BYTES
 
 
+class _UnreadableArtifactStore:
+    def read_bytes(self, artifact: Artifact) -> bytes:
+        raise AssertionError(f"streaming build must not read Artifact bytes: {artifact.artifact_id}")
+
+
 def _snapshot() -> ProofBundleV2Snapshot:
     artifact = Artifact(
         artifact_id=_ARTIFACT_ID,
@@ -105,6 +110,23 @@ def test_v2_service_builds_deterministic_integrity_bound_payload() -> None:
     assert verification.member_count == 3
 
 
+def test_v2_streaming_build_matches_manifest_without_reading_artifact_bytes() -> None:
+    snapshot = _snapshot()
+    service = ProofBundleV2Service(
+        snapshots=_SnapshotReader(snapshot),
+        artifacts=_UnreadableArtifactStore(),  # type: ignore[arg-type]
+        encode_research_state=canonical_research_state_bytes,
+    )
+
+    payload = service.build_streaming(_DOCUMENT_ID)
+
+    assert isinstance(payload.manifest, ProofBundleManifestV2)
+    assert payload.artifact is snapshot.source.artifact
+    assert payload.research_state_bytes == canonical_research_state_bytes(
+        document_research_state_view(snapshot.research_state)
+    )
+
+
 def test_v2_service_rejects_unknown_document() -> None:
     service = ProofBundleV2Service(
         snapshots=_SnapshotReader(None),
@@ -114,6 +136,8 @@ def test_v2_service_rejects_unknown_document() -> None:
 
     with pytest.raises(ProofBundleDocumentNotFoundError, match="document not found"):
         service.build(_DOCUMENT_ID)
+    with pytest.raises(ProofBundleDocumentNotFoundError, match="document not found"):
+        service.build_streaming(_DOCUMENT_ID)
 
 
 def test_v2_service_rejects_research_state_for_another_document() -> None:
@@ -130,3 +154,5 @@ def test_v2_service_rejects_research_state_for_another_document() -> None:
 
     with pytest.raises(ProofBundleResearchStateIntegrityError, match="different Document"):
         service.build(_DOCUMENT_ID)
+    with pytest.raises(ProofBundleResearchStateIntegrityError, match="different Document"):
+        service.build_streaming(_DOCUMENT_ID)

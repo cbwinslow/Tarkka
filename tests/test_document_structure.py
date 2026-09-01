@@ -6,6 +6,8 @@ from uuid import UUID
 import pytest
 
 from tarkka.domain.document_structure import (
+    DocumentStructureError,
+    DocumentStructureErrorCode,
     document_sections_parent_first,
     validate_document_structure,
 )
@@ -62,6 +64,17 @@ def _document(sections: tuple[Section, ...]) -> Document:
     )
 
 
+def _assert_structure_error(
+    document: Document,
+    *,
+    code: DocumentStructureErrorCode,
+    message: str,
+) -> None:
+    with pytest.raises(DocumentStructureError, match=message) as exc_info:
+        validate_document_structure(document)
+    assert exc_info.value.code == code
+
+
 def test_document_structure_accepts_empty_and_valid_nested_documents() -> None:
     empty = _document(())
     validate_document_structure(empty)
@@ -89,6 +102,29 @@ def test_document_structure_accepts_empty_and_valid_nested_documents() -> None:
     assert root.level == 1
 
 
+def test_document_structure_orders_deep_hierarchy_without_recursion() -> None:
+    section_count = 1_500
+    sections: list[Section] = []
+    parent_id: UUID | None = None
+    for ordinal in range(section_count):
+        section_id = UUID(int=ordinal + 1)
+        sections.append(
+            _section(
+                section_id,
+                ordinal,
+                parent_section_id=parent_id,
+                level=(ordinal % 6) + 1,
+            )
+        )
+        parent_id = section_id
+
+    ordered = document_sections_parent_first(_document(tuple(reversed(sections))))
+
+    assert len(ordered) == section_count
+    assert ordered[0].section_id == UUID(int=1)
+    assert ordered[-1].section_id == UUID(int=section_count)
+
+
 @pytest.mark.parametrize("duplicate", ["id", "ordinal"])
 def test_document_structure_rejects_duplicate_section_identity(duplicate: str) -> None:
     root = _section(_ROOT_ID, 0)
@@ -97,8 +133,11 @@ def test_document_structure_rejects_duplicate_section_identity(duplicate: str) -
         1 if duplicate == "id" else 0,
     )
 
-    with pytest.raises(ValueError, match="section IDs and ordinals must be unique"):
-        validate_document_structure(_document((root, other)))
+    _assert_structure_error(
+        _document((root, other)),
+        code="duplicate_sections",
+        message="section IDs and ordinals must be unique",
+    )
 
 
 def test_document_structure_rejects_duplicate_passage_ids_across_sections() -> None:
@@ -106,8 +145,11 @@ def test_document_structure_rejects_duplicate_passage_ids_across_sections() -> N
     root = _section(_ROOT_ID, 0, passages=(_passage(_ROOT_ID, passage_id),))
     other = _section(_OTHER_ID, 1, passages=(_passage(_OTHER_ID, passage_id),))
 
-    with pytest.raises(ValueError, match="passage IDs must be unique"):
-        validate_document_structure(_document((root, other)))
+    _assert_structure_error(
+        _document((root, other)),
+        code="duplicate_passage_ids",
+        message="passage IDs must be unique",
+    )
 
 
 def test_document_structure_rejects_duplicate_passage_ordinals_within_section() -> None:
@@ -115,16 +157,22 @@ def test_document_structure_rejects_duplicate_passage_ordinals_within_section() 
     second = _passage(_ROOT_ID, UUID("00000000-0000-0000-0000-00000000d032"))
     root = _section(_ROOT_ID, 0, passages=(first, second))
 
-    with pytest.raises(ValueError, match="passage ordinals must be unique within each section"):
-        validate_document_structure(_document((root,)))
+    _assert_structure_error(
+        _document((root,)),
+        code="duplicate_passage_ordinals",
+        message="passage ordinals must be unique within each section",
+    )
 
 
 def test_document_structure_rejects_missing_parent() -> None:
     missing_parent = UUID("00000000-0000-0000-0000-00000000d099")
     child = _section(_CHILD_ID, 0, parent_section_id=missing_parent)
 
-    with pytest.raises(ValueError, match="missing or cyclic parent: missing parent"):
-        validate_document_structure(_document((child,)))
+    _assert_structure_error(
+        _document((child,)),
+        code="missing_parent",
+        message="missing or cyclic parent: missing parent",
+    )
 
 
 @pytest.mark.parametrize("two_node_cycle", [False, True])
@@ -136,8 +184,11 @@ def test_document_structure_rejects_parent_cycles(two_node_cycle: bool) -> None:
     else:
         sections = (_section(_ROOT_ID, 0, parent_section_id=_ROOT_ID),)
 
-    with pytest.raises(ValueError, match="missing or cyclic parent: cycle detected"):
-        validate_document_structure(_document(sections))
+    _assert_structure_error(
+        _document(sections),
+        code="cyclic_parent",
+        message="missing or cyclic parent: cycle detected",
+    )
 
 
 def test_document_structure_is_rechecked_after_dataclass_replace() -> None:
@@ -145,5 +196,7 @@ def test_document_structure_is_rechecked_after_dataclass_replace() -> None:
     document = _document((root,))
     invalid = replace(document, sections=(root, replace(root, ordinal=1)))
 
-    with pytest.raises(ValueError, match="section IDs and ordinals must be unique"):
+    with pytest.raises(DocumentStructureError, match="section IDs and ordinals must be unique") as exc:
         document_sections_parent_first(invalid)
+
+    assert exc.value.code == "duplicate_sections"

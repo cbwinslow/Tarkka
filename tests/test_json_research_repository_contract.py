@@ -5,13 +5,13 @@ from pathlib import Path
 from uuid import uuid4
 
 from tarkka.application.ingest import IngestResult, IngestService
+from tarkka.conformance import ResearchRepositoryContract
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.storage import json_repository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.latex_parser import LatexParser
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
-from tests.contracts.research_repository import ResearchRepositoryContract
 
 
 def _ingest_sample(tmp_path: Path) -> IngestResult:

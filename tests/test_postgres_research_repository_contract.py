@@ -7,13 +7,13 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.conformance import ResearchRepositoryContract
 from tarkka.domain.manifest import ResourceManifest, build_document_manifest
 from tarkka.domain.models import Artifact, Document
 from tarkka.infrastructure.postgres.connection import PostgresSettings, connect
 from tarkka.infrastructure.postgres.migrations import upgrade
 from tarkka.infrastructure.postgres.research_repository import PostgresResearchRepository
 from tarkka.infrastructure.storage.latex_parser import LatexParser
-from tests.contracts.research_repository import ResearchRepositoryContract
 
 pytestmark = [pytest.mark.integration, pytest.mark.external]
 

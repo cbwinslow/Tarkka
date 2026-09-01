@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
 from uuid import UUID
 
+from tarkka.conformance._assertions import _expect_exception
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.ports.works import WorkRepository
+
+
+class _RollbackSentinel(RuntimeError):
+    """Internal exception used only to prove repository transaction rollback."""
 
 
 class WorkRepositoryContract:
@@ -134,7 +138,7 @@ class WorkRepositoryContract:
             repository.save_work(first_work)
             repository.save_identifier(first_identifier)
 
-        WorkRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: WorkRepositoryContract._save_conflicting_identifier_in_transaction(
                 repository,
@@ -169,7 +173,7 @@ class WorkRepositoryContract:
             repository.save_work(first_work)
             repository.save_source_record(first_record)
 
-        WorkRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: WorkRepositoryContract._save_conflicting_source_record_in_transaction(
                 repository,
@@ -191,17 +195,14 @@ class WorkRepositoryContract:
         assert identifier.work_id == work.work_id
         assert source_record.work_id == work.work_id
 
-        try:
+        def persist_then_abort() -> None:
             with repository.transaction():
                 repository.save_work(work)
                 repository.save_identifier(identifier)
                 repository.save_source_record(source_record)
-                raise RuntimeError("contract rollback sentinel")
-        except RuntimeError as exc:
-            if str(exc) != "contract rollback sentinel":
-                raise
-        else:
-            raise AssertionError("transaction sentinel must escape the transaction")
+                raise _RollbackSentinel
+
+        _expect_exception(_RollbackSentinel, persist_then_abort)
 
         assert repository.get_work(work.work_id) is None
         assert repository.find_work_by_identifier(identifier.scheme, identifier.value) is None
@@ -227,18 +228,3 @@ class WorkRepositoryContract:
         with repository.transaction():
             repository.save_work(work)
             repository.save_source_record(source_record)
-
-    @staticmethod
-    def _expect_conflict(
-        conflict_error: type[Exception],
-        operation: Callable[[], object],
-    ) -> None:
-        try:
-            operation()
-        except conflict_error:
-            return
-        except Exception as exc:
-            raise AssertionError(
-                f"expected {conflict_error.__name__}, got {type(exc).__name__}"
-            ) from exc
-        raise AssertionError(f"expected {conflict_error.__name__} to be raised")

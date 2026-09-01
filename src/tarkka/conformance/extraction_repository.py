@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from uuid import UUID
 
+from tarkka.conformance._assertions import _expect_exception
 from tarkka.domain.extraction import ExtractionBatch, ResearchObjectKind
 from tarkka.ports.extraction import ExtractionRepository
 
@@ -107,7 +107,7 @@ class ExtractionRepositoryContract:
         assert original != conflicting
 
         repository.save_batch(original)
-        ExtractionRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: repository.save_batch(conflicting),
         )
@@ -120,18 +120,3 @@ class ExtractionRepositoryContract:
             original.document_id,
             run_id=original.run.run_id,
         ) == original.extractions
-
-    @staticmethod
-    def _expect_conflict(
-        conflict_error: type[Exception],
-        operation: Callable[[], object],
-    ) -> None:
-        try:
-            operation()
-        except conflict_error:
-            return
-        except Exception as exc:
-            raise AssertionError(
-                f"expected {conflict_error.__name__}, got {type(exc).__name__}"
-            ) from exc
-        raise AssertionError(f"expected {conflict_error.__name__} to be raised")

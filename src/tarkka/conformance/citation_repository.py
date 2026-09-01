@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from uuid import UUID
 
+from tarkka.conformance._assertions import _expect_exception
 from tarkka.domain.citations import (
     BibliographicReference,
     CitationContext,
@@ -71,7 +71,7 @@ class CitationRepositoryContract:
         assert original != conflicting
 
         repository.save_reference(original)
-        CitationRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: repository.save_reference(conflicting),
         )
@@ -102,7 +102,7 @@ class CitationRepositoryContract:
         repository.save_resolution(evolved)
         assert repository.get_resolution(first.reference_id) == evolved
 
-        CitationRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: repository.save_resolution(conflicting_identity),
         )
@@ -153,7 +153,7 @@ class CitationRepositoryContract:
         assert original != conflicting
 
         repository.get_or_create_relation(original)
-        CitationRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: repository.get_or_create_relation(conflicting),
         )
@@ -195,18 +195,3 @@ class CitationRepositoryContract:
             exclude_ids=frozenset({relation.relation_id}),
             limit=1,
         ) == (inbound_peer,)
-
-    @staticmethod
-    def _expect_conflict(
-        conflict_error: type[Exception],
-        operation: Callable[[], object],
-    ) -> None:
-        try:
-            operation()
-        except conflict_error:
-            return
-        except Exception as exc:
-            raise AssertionError(
-                f"expected {conflict_error.__name__}, got {type(exc).__name__}"
-            ) from exc
-        raise AssertionError(f"expected {conflict_error.__name__} to be raised")

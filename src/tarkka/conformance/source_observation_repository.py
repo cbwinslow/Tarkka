@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
+from tarkka.conformance._assertions import _expect_exception
 from tarkka.domain.source_observations import ResourceLinkObservation, SourceObservation
 from tarkka.ports.source_observations import SourceObservationRepository
 
@@ -48,7 +47,7 @@ class SourceObservationRepositoryContract:
         conflict_error: type[Exception],
     ) -> None:
         repository.save_observation(first)
-        SourceObservationRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: repository.save_observation(conflicting),
         )
@@ -65,24 +64,9 @@ class SourceObservationRepositoryContract:
     ) -> None:
         repository.save_observation(observation)
         repository.save_resource_link(first)
-        SourceObservationRepositoryContract._expect_conflict(
+        _expect_exception(
             conflict_error,
             lambda: repository.save_resource_link(conflicting),
         )
 
         assert repository.list_resource_links(observation.observation_id) == (first,)
-
-    @staticmethod
-    def _expect_conflict(
-        conflict_error: type[Exception],
-        operation: Callable[[], object],
-    ) -> None:
-        try:
-            operation()
-        except conflict_error:
-            return
-        except Exception as exc:
-            raise AssertionError(
-                f"expected {conflict_error.__name__}, got {type(exc).__name__}"
-            ) from exc
-        raise AssertionError(f"expected {conflict_error.__name__} to be raised")

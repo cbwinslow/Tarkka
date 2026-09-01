@@ -15,14 +15,26 @@ class ArtifactStoreContract:
         source.write_bytes(payload)
 
         artifact = store.put_file(source)
+        byte_artifact = store.put_bytes(
+            payload,
+            original_name=source.name,
+            source_uri=source.resolve().as_uri(),
+        )
 
-        assert artifact.sha256 == hashlib.sha256(payload).hexdigest()
-        assert artifact.artifact_id == uuid5(NAMESPACE_URL, f"urn:sha256:{artifact.sha256}")
+        expected_sha256 = hashlib.sha256(payload).hexdigest()
+        expected_artifact_id = uuid5(NAMESPACE_URL, f"urn:sha256:{expected_sha256}")
+        assert artifact.sha256 == expected_sha256
+        assert artifact.artifact_id == expected_artifact_id
         assert artifact.size_bytes == len(payload)
         assert artifact.original_name == source.name
         assert artifact.source_uri == source.resolve().as_uri()
+        assert byte_artifact.sha256 == artifact.sha256
+        assert byte_artifact.artifact_id == artifact.artifact_id
+        assert byte_artifact.storage_key == artifact.storage_key
+        assert byte_artifact.size_bytes == artifact.size_bytes
         assert store.exists(artifact.sha256)
         assert store.read_bytes(artifact) == payload
+        assert store.read_bytes_by_sha256(artifact.sha256) == payload
         assert store.path_for(artifact).read_bytes() == payload
 
     @staticmethod

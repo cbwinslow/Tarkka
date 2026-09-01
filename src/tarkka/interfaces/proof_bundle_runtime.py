@@ -46,6 +46,15 @@ def tarkka_home() -> Path:
     return Path(os.environ.get("TARKKA_HOME", "~/.tarkka")).expanduser().resolve()
 
 
+def _artifact_store_for_home(home: Path) -> LocalArtifactStore:
+    return LocalArtifactStore(home / "artifacts")
+
+
+def proof_bundle_artifact_store() -> LocalArtifactStore:
+    """Compose the stream-capable ArtifactStore used by proof-bundle publication."""
+    return _artifact_store_for_home(tarkka_home())
+
+
 def proof_bundle_service(
     schema_version: int = PROOF_BUNDLE_SCHEMA_VERSION,
 ) -> ProofBundleService | ProofBundleV2Service | ProofBundleV3Service:
@@ -69,7 +78,7 @@ def proof_bundle_service(
             snapshots = PostgresProofBundleSnapshotReader(PostgresSettings.from_environment())
         return ProofBundleService(
             snapshots=snapshots,
-            artifacts=LocalArtifactStore(home / "artifacts"),
+            artifacts=_artifact_store_for_home(home),
         )
 
     v2_snapshots: ProofBundleV2SnapshotReader
@@ -84,7 +93,7 @@ def proof_bundle_service(
         )
     else:
         v2_snapshots = PostgresProofBundleV2SnapshotReader(PostgresSettings.from_environment())
-    artifacts = LocalArtifactStore(home / "artifacts")
+    artifacts = _artifact_store_for_home(home)
     if schema_version == PROOF_BUNDLE_SCHEMA_VERSION_V2:
         return ProofBundleV2Service(
             snapshots=v2_snapshots,

@@ -59,6 +59,7 @@ def test_streaming_export_is_byte_identical_and_never_uses_whole_artifact_read(
     assert write_result.verification.bundle_sha256
     assert read_requests
     assert all(size > 0 for size in read_requests)
+    assert max(read_requests) <= 1024 * 1024
     assert -1 not in read_requests
 
 

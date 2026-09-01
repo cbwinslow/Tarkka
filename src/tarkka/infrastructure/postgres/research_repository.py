@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import PurePosixPath
@@ -18,12 +18,11 @@ from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
 from tarkka.domain.source_artifacts import Equation, Figure, Table
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresResearchRepository:
@@ -67,7 +66,7 @@ class PostgresResearchRepository:
 
     def get_artifact(self, artifact_id: UUID) -> Artifact | None:
         with self._connection() as connection:
-            return self._get_artifact(connection, artifact_id)
+            return get_artifact_with_connection(connection, artifact_id)
 
     def save_document(self, document: Document, manifest: ResourceManifest) -> None:
         validate_document_structure(document)
@@ -113,7 +112,7 @@ class PostgresResearchRepository:
 
     def get_document(self, document_id: UUID) -> Document | None:
         with self._connection() as connection:
-            return self._get_document(connection, document_id)
+            return get_document_with_connection(connection, document_id)
 
     def get_manifest(self, document_id: UUID) -> ResourceManifest | None:
         with self._connection() as connection:
@@ -302,18 +301,21 @@ class PostgresResearchRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
+
+
+def get_artifact_with_connection(connection: Any, artifact_id: UUID) -> Artifact | None:
+    """Read one Artifact through a caller-owned PostgreSQL connection."""
+    return PostgresResearchRepository._get_artifact(connection, artifact_id)
+
+
+def get_document_with_connection(connection: Any, document_id: UUID) -> Document | None:
+    """Read one normalized Document through a caller-owned PostgreSQL connection."""
+    return PostgresResearchRepository._get_document(connection, document_id)
 
 
 def _artifact_from_row(row: tuple[Any, ...]) -> Artifact:

@@ -60,15 +60,60 @@ def test_my_store_conforms(tmp_path: Path) -> None:
     )
 ```
 
+`ArtifactStoreContract.assert_round_trip` exercises both `put_file` and
+`put_bytes`, requires identical content identity and storage keys for identical
+bytes, and verifies digest-based reads with `read_bytes_by_sha256`.
+
 The adapter remains responsible for constructing domain fixtures required by
 repository contracts. This keeps conformance focused on public port behavior
 rather than imposing a Tarkka-specific test framework or fixture loader.
+
+## How to run
+
+Install the Tarkka version or source revision that the adapter intends to support
+into the adapter's test environment. For local development with Tarkka checked
+out next to the adapter project, the repository-supported `uv` workflow is:
+
+```bash
+uv add --dev --editable ../Tarkka
+uv run pytest -q tests/test_tarkka_conformance.py
+```
+
+Other dependency managers and test runners are fine; the requirement is simply
+that the selected Tarkka package is importable and the adapter invokes the
+published contract methods from its own tests.
+
+When an HTTP adapter rejects an oversized body instead of returning a capped
+`HttpTransportResponse`, pass the adapter's documented overflow exception type:
+
+```python
+HttpTransportContract.assert_body_cap_is_explicit(
+    transport,
+    overflow_error=ResponseTooLargeError,
+)
+```
+
+The contract accepts that exception type and its subclasses only. Unadvertised
+transport failures are re-raised rather than mistaken for successful
+conformance.
+
+For a failing contract, rerun the smallest failing adapter test verbosely, for
+example:
+
+```bash
+uv run pytest -vv tests/test_tarkka_conformance.py::test_my_store_conforms
+```
+
+Treat the resulting assertion or advertised adapter exception as the contract
+boundary to debug. Compare the failing assertion with the corresponding port
+protocol under `src/tarkka/ports/`; do not patch around a failure until the
+adapter and port semantics agree.
 
 ## Published contracts
 
 | Contract | Port behavior protected |
 | --- | --- |
-| `ArtifactStoreContract` | content identity, round trip, duplicate idempotency, missing-source behavior |
+| `ArtifactStoreContract` | file/byte content identity, digest reads, round trip, duplicate idempotency, missing-source behavior |
 | `ResearchRepositoryContract` | Artifact/Document/manifest persistence and idempotent saves |
 | `ExtractionRepositoryContract` | extraction/evidence round trip, filtering, idempotency, conflict failure |
 | `CitationRepositoryContract` | citation graph persistence, resolution evolution, relation identity/atomicity/bounds |

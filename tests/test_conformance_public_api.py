@@ -75,6 +75,16 @@ def test_exception_assertion_accepts_expected_exception() -> None:
     _expect_exception(ValueError, fail_as_expected)
 
 
+def test_exception_assertion_accepts_subclass_of_advertised_exception() -> None:
+    class SpecificValueError(ValueError):
+        pass
+
+    def fail_more_specifically() -> None:
+        raise SpecificValueError("specific")
+
+    _expect_exception(ValueError, fail_more_specifically)
+
+
 def test_exception_assertion_reports_wrong_exception_type() -> None:
     def fail_differently() -> None:
         raise RuntimeError("different")

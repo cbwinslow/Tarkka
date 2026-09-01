@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from tarkka.domain.citations import BibliographicReference, CitationContext, CitationMention
+from tarkka.domain.document_structure import validate_document_structure
 from tarkka.domain.models import Artifact, Document
 from tarkka.domain.source_observations import (
     CapabilityManifest,
@@ -31,6 +32,7 @@ class NativeDocumentParseResult:
     resource_links: tuple[ResourceLinkObservation, ...] = ()
 
     def __post_init__(self) -> None:
+        validate_document_structure(self.document)
         document_id = self.document.document_id
         if any(reference.document_id != document_id for reference in self.references):
             raise ValueError("native parse references must belong to parsed document")

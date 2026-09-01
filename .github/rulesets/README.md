@@ -20,6 +20,10 @@ The ruleset requires pull requests, resolution of review threads, and determinis
 
 It also requires the PR branch to be up to date before merge and blocks branch deletion and force pushes.
 
+The repository owner's GitHub account is an explicit always-bypass actor. Coding agents manage
+ordinary PR creation, review disposition, updates, and merging autonomously. Prefer normal checks;
+record the reason when using the bypass for urgent recovery or an automation limitation.
+
 Docling and package validation are intentionally not required statuses because those workflows are path-filtered and do not run on every pull request. AI reviewers are intentionally advisory rather than required merge gates so provider outages or model availability cannot block deterministic development. CodeQL remains managed by GitHub's repository-level default setup rather than a duplicate advanced workflow.
 
 Updating this JSON file does not mutate an already-created GitHub ruleset automatically. After changing required checks here, update the live repository ruleset in **Settings -> Rules -> Rulesets** or re-import the reference configuration.

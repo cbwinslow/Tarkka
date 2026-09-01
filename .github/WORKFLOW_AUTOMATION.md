@@ -72,7 +72,10 @@ These deterministic checks are authoritative merge gates through the repository 
 - up-to-date branches before merge
 - no deletion or force-push of the protected branch
 
-The live GitHub ruleset must be checked for drift from this reference; the checked-in JSON is not proof that native repository settings have already been applied. Track current live drift and its resolution in #192 so transient repository state has a single source of truth.
+The authenticated repository owner has an explicit always-bypass actor. Coding agents own routine
+PR lifecycle work and may use that bypass for urgent recovery or GitHub automation limitations;
+they should record the reason in the PR. The checked-in JSON remains the reference configuration
+for the live ruleset.
 
 Keep path-filtered workflows such as package and Docling validation out of the global required-status list unless they are changed to report a result on every pull request.
 
@@ -83,15 +86,17 @@ Keep path-filtered workflows such as package and Docling validation out of the g
    - verify secret scanning and push protection are enabled where GitHub permits them
 
 2. Repository lifecycle settings
-   - consider automatically deleting merged head branches to reduce stale-branch clutter
-   - consider enabling GitHub auto-merge now that deterministic merge gates are established
-   - keep branch-update behavior aligned with the ruleset's strict freshness requirement
+   - merged head branches are deleted automatically;
+   - auto-merge and the native update-branch action are enabled;
+   - coding agents manage routine PR lifecycle actions without owner intervention.
 
 3. Release automation
    - finalize the project license and public package/release policy first
    - then add tag-driven builds, GitHub Release artifacts, and optional PyPI trusted publishing
 
 4. Reviewer operations
+   - Codex automatic GitHub code review is prohibited for this repository; do not enable it or
+     request `@codex review` without explicit owner direction;
    - configure `OPENCODE_API_KEY` to activate the Zen reviewer
    - optionally set `OPENCODE_REVIEW_MODEL` when a different current Zen model is preferred
    - periodically review hosted reviewer overlap and rate limits; remove integrations that add noise without distinct findings

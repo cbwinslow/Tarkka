@@ -4,6 +4,8 @@ Tarkka uses multiple independent review signals. Automated reviewers provide evi
 
 ## Current roles
 
+- Codex automatic GitHub code review: prohibited for this repository to avoid duplicate hosted-review
+  usage. Do not enable it or request `@codex review` without explicit owner direction.
 - CodeRabbit: broad PR review and maintainability feedback.
 - KiloCode: independent review and bounded fix delegation.
 - Greptile: repository-context review while free credits are available.

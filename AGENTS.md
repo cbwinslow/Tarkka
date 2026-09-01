@@ -117,7 +117,15 @@ Read `docs/TESTING.md` before changing coverage policy or test infrastructure.
 
 ## Pull-request review contract
 
-Automated reviewers are advisory but useful. Every coding agent working on an open pull request must actively review their feedback rather than waiting for a human to triage it.
+Automated reviewers are advisory but useful. Coding agents own routine pull-request execution: they
+create branches and pull requests, address or document automated-review findings, enable
+auto-merge, merge qualifying work, and use the repository owner's configured bypass when needed.
+Do not require manual owner intervention for ordinary pull-request lifecycle actions.
+
+Prefer the normal protected-branch path and deterministic checks. Use the owner bypass only for
+urgent recovery or a GitHub automation limitation; record the reason in the pull request.
+Every coding agent working on an open pull request must actively review automated feedback rather
+than waiting for a human to triage it.
 
 After each meaningful push, and again before declaring a PR ready:
 

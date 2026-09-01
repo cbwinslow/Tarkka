@@ -80,9 +80,10 @@ The receipt itself is not a canonical `Artifact`. The application layer must com
 bytes to an `ArtifactStore`, independently verify that the committed size and digest match the
 receipt, and only then record canonical acquisition/provenance state.
 
-Redirect invariants record only facts the generic layer can prove. With no redirect hops,
-`final_uri` must equal `requested_uri`. When a redirect chain is present, its last hop must equal
-`final_uri`; the chain may legitimately return to the original requested URI.
+`requested_uri`, `final_uri`, and `redirect_chain` are separate observations. A transport may
+normalize URI spelling without redirecting, so a changed `final_uri` does not by itself imply a
+redirect. When redirect hops are recorded, the last hop must equal `final_uri`; a chain may also
+legitimately return to the original requested URI.
 
 ## Failure model
 

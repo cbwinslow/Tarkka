@@ -37,6 +37,10 @@ def document_sections_parent_first(document: Document) -> tuple[Section, ...]:
     return _validated_parent_first_sections(document)
 
 
+def _section_order_key(section: Section) -> tuple[int, str]:
+    return section.ordinal, str(section.section_id)
+
+
 def _validated_parent_first_sections(document: Document) -> tuple[Section, ...]:
     sections = document.sections
     section_ids = [section.section_id for section in sections]
@@ -91,13 +95,18 @@ def _validated_parent_first_sections(document: Document) -> tuple[Section, ...]:
         else:
             children_by_parent[section.parent_section_id].append(section)
 
-    key = lambda item: (item.ordinal, str(item.section_id))
-    stack = sorted(roots, key=key, reverse=True)
+    stack = sorted(roots, key=_section_order_key, reverse=True)
     ordered: list[Section] = []
     while stack:
         section = stack.pop()
         ordered.append(section)
-        stack.extend(sorted(children_by_parent[section.section_id], key=key, reverse=True))
+        stack.extend(
+            sorted(
+                children_by_parent[section.section_id],
+                key=_section_order_key,
+                reverse=True,
+            )
+        )
 
     if len(ordered) != len(sections):
         raise DocumentStructureError(

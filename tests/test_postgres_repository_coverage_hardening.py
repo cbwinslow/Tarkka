@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 
-import tarkka.infrastructure.postgres.work_repository as work_module
+import tarkka.infrastructure.postgres.connection as connection_module
 from tarkka.domain.citations import BibliographicReference, CitationContext
 from tarkka.domain.models import Work
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
@@ -297,7 +297,7 @@ def test_work_transaction_translates_query_failure_and_allows_reuse(
     def _translate(exc: Exception) -> PostgresOperationError | None:
         return translated if isinstance(exc, _DriverFailure) else None
 
-    monkeypatch.setattr(work_module, "translate_driver_error", _translate)
+    monkeypatch.setattr(connection_module, "translate_driver_error", _translate)
 
     with (
         pytest.raises(PostgresOperationError, match="translated") as raised,
@@ -328,7 +328,7 @@ def test_work_transaction_preserves_untranslated_query_failure_and_allows_reuse(
     repository = PostgresWorkRepository(
         _SETTINGS, connection_factory=lambda _: next(connections)
     )
-    monkeypatch.setattr(work_module, "translate_driver_error", lambda exc: None)
+    monkeypatch.setattr(connection_module, "translate_driver_error", lambda exc: None)
 
     with (
         pytest.raises(RuntimeError, match="application query failure") as raised,

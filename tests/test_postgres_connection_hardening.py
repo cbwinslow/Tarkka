@@ -218,6 +218,24 @@ def test_managed_connection_translates_factory_and_transaction_errors(
     assert connection.closed == 1
 
 
+def test_managed_connection_preserves_body_error_when_transaction_exit_also_fails() -> None:
+    transaction_error = RuntimeError("rollback")
+    connection = _Connection(exit_error=transaction_error)
+    primary = ValueError("body")
+
+    with pytest.raises(ValueError, match="body") as raised, managed_connection(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    ):
+        raise primary
+
+    assert raised.value is primary
+    assert raised.value.__notes__ == [
+        "PostgreSQL transaction cleanup also failed (RuntimeError); primary exception preserved"
+    ]
+    assert connection.exited == 1
+    assert connection.closed == 1
+
+
 def test_managed_connection_preserves_primary_error_when_close_also_fails() -> None:
     close_error = RuntimeError("close")
     connection = _Connection(close_error=close_error)

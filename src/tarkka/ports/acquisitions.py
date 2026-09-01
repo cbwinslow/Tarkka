@@ -9,6 +9,7 @@ from typing import BinaryIO, Protocol, TypeVar
 from urllib.parse import urlsplit
 
 from tarkka.domain.models import Acquisition
+from tarkka.domain.path_safety import is_safe_filename_component
 from tarkka.domain.source_observations import Capability, CapabilityManifest
 
 MAX_ACQUISITION_METADATA_ITEMS = 32
@@ -37,7 +38,7 @@ class ArtifactCandidate:
     def __post_init__(self) -> None:
         _require_uri(self.source_uri, "artifact candidate source URI")
         _require_optional_non_blank(self.media_type_hint, "artifact candidate media type hint")
-        _require_optional_non_blank(self.filename_hint, "artifact candidate filename hint")
+        _require_optional_safe_filename(self.filename_hint, "artifact candidate filename hint")
         if self.expected_size_bytes is not None:
             _require_non_negative_int(
                 self.expected_size_bytes,
@@ -133,7 +134,7 @@ class AcquiredArtifact:
                 "acquired Artifact sha256 must be 64 lowercase hexadecimal characters"
             )
         _require_optional_non_blank(self.media_type, "acquired Artifact media type")
-        _require_optional_non_blank(self.filename, "acquired Artifact filename")
+        _require_optional_safe_filename(self.filename, "acquired Artifact filename")
 
         redirects = tuple(self.redirect_chain)
         if any(not _is_uri(uri) for uri in redirects):
@@ -192,6 +193,12 @@ def _require_non_negative_int(value: object, field_name: str) -> None:
 def _require_optional_non_blank(value: object, field_name: str) -> None:
     if value is not None and (not isinstance(value, str) or not value.strip()):
         raise ValueError(f"{field_name} must be a non-blank string when provided")
+
+
+def _require_optional_safe_filename(value: object, field_name: str) -> None:
+    _require_optional_non_blank(value, field_name)
+    if value is not None and not is_safe_filename_component(value):
+        raise ValueError(f"{field_name} must be one safe path component")
 
 
 def _is_uri(value: object) -> bool:

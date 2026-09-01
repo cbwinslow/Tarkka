@@ -166,6 +166,15 @@ def _claims(state: dict[str, object]) -> list[dict[str, object]]:
     return values  # type: ignore[return-value]
 
 
+def _clear_verification(lineage: dict[str, object]) -> None:
+    lineage["verification"] = {
+        "offset": 0,
+        "limit": 0,
+        "total": 0,
+        "assessments": [],
+    }
+
+
 def _with_state(payload: ProofBundlePayload, state: object) -> ProofBundlePayload:
     state_bytes = canonical_research_state_bytes(state)
     manifest = replace(payload.manifest, research_state=research_state_descriptor(state_bytes))
@@ -239,11 +248,14 @@ def test_inspection_rejects_incomplete_research_root(tmp_path: Path) -> None:
         inspect_frozen_research_bundle(path)
 
 
-@pytest.mark.parametrize(("field", "value", "message"), [
-    ("format", "wrong", "unsupported frozen research-state format"),
-    ("schema_version", 2, "unsupported frozen research-state schema version"),
-    ("claims", {}, "claims must be an array"),
-])
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("format", "wrong", "unsupported frozen research-state format"),
+        ("schema_version", 2, "unsupported frozen research-state schema version"),
+        ("claims", {}, "claims must be an array"),
+    ],
+)
 def test_inspection_rejects_invalid_research_root_contract(
     tmp_path: Path,
     field: str,
@@ -262,11 +274,16 @@ def test_bundle_builder_owns_research_document_identity_invariant(tmp_path: Path
     state = _valid_state(tmp_path / "state")
     state["document_id"] = str(UUID(int=999))
 
-    with pytest.raises(ProofBundleVerificationError, match="document identity does not match manifest"):
+    with pytest.raises(
+        ProofBundleVerificationError,
+        match="document identity does not match manifest",
+    ):
         build_proof_bundle_bytes(_with_state(_v3_payload(), state))
 
 
-def test_inspection_rejects_incomplete_claim_evidence_and_verification_shapes(tmp_path: Path) -> None:
+def test_inspection_rejects_incomplete_claim_evidence_and_verification_shapes(
+    tmp_path: Path,
+) -> None:
     cases: list[tuple[str, str]] = [
         ("claim", "Claim has unexpected or missing fields"),
         ("evidence", "Evidence has unexpected or missing fields"),
@@ -310,6 +327,7 @@ def test_inspection_allows_same_evidence_identity_with_identical_content_across_
     assert isinstance(claim, dict)
     claim["claim_id"] = str(UUID(int=800))
     claim["text"] = "A second Claim can cite the same exact Evidence."
+    _clear_verification(second)
     _claims(state).append(second)
     path = _write_bundle(tmp_path, _with_state(_v3_payload(), state))
 
@@ -332,6 +350,7 @@ def test_inspection_rejects_same_evidence_identity_with_conflicting_content(
     claim["claim_id"] = str(UUID(int=800))
     claim["text"] = "Second Claim"
     evidence[0]["text"] = "omega"
+    _clear_verification(second)
     _claims(state).append(second)
     path = _write_bundle(tmp_path, _with_state(_v3_payload(), state))
 

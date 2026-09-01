@@ -13,10 +13,13 @@ or network access.
 
 ## Run the walkthrough
 
-The commands below assume a POSIX-compatible shell from the repository root.
+The commands below assume a POSIX-compatible shell from the repository root. The walkthrough pins
+the local JSON document backend explicitly so an existing shell-level PostgreSQL configuration
+cannot redirect demo reads or writes into another backend.
 
 ```bash
 export TARKKA_HOME="$(mktemp -d)"
+export TARKKA_DOCUMENT_BACKEND=json
 tarkka_demo() { PYTHONPATH=src python -m tarkka "$@"; }
 
 INGEST_OUTPUT="$(tarkka_demo ingest examples/proof-replay-demo.txt)"

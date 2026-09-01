@@ -22,6 +22,12 @@ contain a provider or format allowlist.
 Large or source-native provider records do not belong in candidate metadata. Preserve them as a
 `SourceObservation` or immutable Artifact and reference them from canonical provenance.
 
+Candidate and receipt metadata are deliberately small: at most 32 items, with keys no longer than
+128 characters and string values no longer than 4096 characters. These public limits are exposed
+as `MAX_ACQUISITION_METADATA_ITEMS`, `MAX_ACQUISITION_METADATA_KEY_CHARS`, and
+`MAX_ACQUISITION_METADATA_VALUE_CHARS` so adapters can validate or trim routing metadata before
+constructing the contract objects.
+
 ## Side-effect-free assessment
 
 An `ArtifactAcquirer` exposes a `CapabilityManifest` and two operations:

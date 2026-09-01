@@ -100,7 +100,9 @@ semantic version and from Tarkka's package release number.
   sandboxed, or safe to grant arbitrary network/filesystem credentials.
 
 When upgrading Tarkka, plugin CI should import `CONFORMANCE_API_VERSION` and fail
-clearly if the plugin has not been validated against that major.
+clearly if the plugin has not been validated against that major. The detailed
+versioning policy and suggested guard live in
+[`CONFORMANCE_VERSIONING.md`](CONFORMANCE_VERSIONING.md).
 
 ## Why this lives in `src/`
 

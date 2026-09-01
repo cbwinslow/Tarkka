@@ -160,15 +160,13 @@ def test_translate_postgres_errors_translates_only_driver_failures(
     monkeypatch.setattr(postgres_connection, "import_module", lambda _: driver)
     driver_error = _DriverError("constraint")
 
-    with pytest.raises(PostgresOperationError) as raised:
-        with translate_postgres_errors():
-            raise driver_error
+    with pytest.raises(PostgresOperationError) as raised, translate_postgres_errors():
+        raise driver_error
     assert raised.value.__cause__ is driver_error
 
     application_error = RuntimeError("application")
-    with pytest.raises(RuntimeError) as unmodified:
-        with translate_postgres_errors():
-            raise application_error
+    with pytest.raises(RuntimeError) as unmodified, translate_postgres_errors():
+        raise application_error
     assert unmodified.value is application_error
 
 
@@ -203,12 +201,11 @@ def test_managed_connection_translates_factory_and_transaction_errors(
     monkeypatch.setattr(postgres_connection, "import_module", lambda _: driver)
     factory_error = _DriverError("factory")
 
-    with pytest.raises(PostgresOperationError) as factory_raised:
-        with managed_connection(
-            PostgresSettings("postgresql://unused"),
-            connection_factory=lambda _: (_ for _ in ()).throw(factory_error),
-        ):
-            pass
+    with pytest.raises(PostgresOperationError) as factory_raised, managed_connection(
+        PostgresSettings("postgresql://unused"),
+        connection_factory=lambda _: (_ for _ in ()).throw(factory_error),
+    ):
+        pass
     assert factory_raised.value.__cause__ is factory_error
 
     exit_error = _OperationalError("commit")
@@ -227,11 +224,10 @@ def test_managed_connection_preserves_primary_error_when_close_also_fails() -> N
     connection = _Connection(close_error=close_error)
     primary = ValueError("primary")
 
-    with pytest.raises(ValueError) as raised:
-        with managed_connection(
-            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
-        ):
-            raise primary
+    with pytest.raises(ValueError) as raised, managed_connection(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    ):
+        raise primary
 
     assert raised.value is primary
     assert raised.value.__notes__ == [
@@ -248,20 +244,18 @@ def test_managed_connection_surfaces_and_translates_cleanup_only_failure(
     close_error = _DriverError("close")
     connection = _Connection(close_error=close_error)
 
-    with pytest.raises(PostgresOperationError) as translated:
-        with managed_connection(
-            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
-        ):
-            pass
+    with pytest.raises(PostgresOperationError) as translated, managed_connection(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    ):
+        pass
     assert translated.value.__cause__ is close_error
 
     application_close = RuntimeError("close")
     connection = _Connection(close_error=application_close)
-    with pytest.raises(RuntimeError) as unmodified:
-        with managed_connection(
-            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
-        ):
-            pass
+    with pytest.raises(RuntimeError) as unmodified, managed_connection(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    ):
+        pass
     assert unmodified.value is application_close
 
 
@@ -269,11 +263,10 @@ def test_managed_connection_does_not_swallow_baseexception_cleanup() -> None:
     cleanup = KeyboardInterrupt()
     connection = _Connection(close_error=cleanup)
 
-    with pytest.raises(KeyboardInterrupt) as raised:
-        with managed_connection(
-            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
-        ):
-            pass
+    with pytest.raises(KeyboardInterrupt) as raised, managed_connection(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    ):
+        pass
 
     assert raised.value is cleanup
 

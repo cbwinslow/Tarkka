@@ -10,6 +10,10 @@ from pathlib import PurePosixPath
 from typing import Any, cast
 from uuid import UUID
 
+from tarkka.domain.document_structure import (
+    document_sections_parent_first,
+    validate_document_structure,
+)
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
 from tarkka.domain.source_artifacts import Equation, Figure, Table
@@ -66,6 +70,7 @@ class PostgresResearchRepository:
             return self._get_artifact(connection, artifact_id)
 
     def save_document(self, document: Document, manifest: ResourceManifest) -> None:
+        validate_document_structure(document)
         with self._connection() as connection:
             if self._get_artifact(connection, document.artifact_id) is None:
                 raise ValueError(f"artifact not found for document: {document.artifact_id}")
@@ -166,7 +171,7 @@ class PostgresResearchRepository:
                 (document_id,),
             ).fetchall(),
         )
-        return Document(
+        document = Document(
             document_id=cast(UUID, row[0]),
             artifact_id=cast(UUID, row[1]),
             title=cast(str, row[2]),
@@ -200,6 +205,8 @@ class PostgresResearchRepository:
             ),
             normalized_at=cast(datetime, row[5]),
         )
+        validate_document_structure(document)
+        return document
 
     @staticmethod
     def _get_manifest(connection: Any, document_id: UUID) -> ResourceManifest | None:
@@ -210,51 +217,39 @@ class PostgresResearchRepository:
 
     @staticmethod
     def _save_sections(connection: Any, document: Document) -> None:
-        pending = {section.section_id: section for section in document.sections}
-        inserted: set[UUID] = set()
-        while pending:
-            ready = [
-                section
-                for section in pending.values()
-                if section.parent_section_id is None or section.parent_section_id in inserted
-            ]
-            if not ready:
-                raise ValueError("document sections have a missing or cyclic parent")
-            for section in sorted(ready, key=lambda item: (item.ordinal, item.section_id)):
+        for section in document_sections_parent_first(document):
+            connection.execute(
+                """
+                INSERT INTO tarkka.section (
+                    section_id, document_id, parent_section_id, ordinal, level, title
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    section.section_id,
+                    document.document_id,
+                    section.parent_section_id,
+                    section.ordinal,
+                    section.level,
+                    section.title,
+                ),
+            )
+            for passage in section.passages:
                 connection.execute(
                     """
-                    INSERT INTO tarkka.section (
-                        section_id, document_id, parent_section_id, ordinal, level, title
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO tarkka.passage (
+                        passage_id, document_id, section_id, ordinal, text, char_start, char_end
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
-                        section.section_id,
+                        passage.passage_id,
                         document.document_id,
-                        section.parent_section_id,
-                        section.ordinal,
-                        section.level,
-                        section.title,
+                        section.section_id,
+                        passage.ordinal,
+                        passage.text,
+                        passage.char_start,
+                        passage.char_end,
                     ),
                 )
-                for passage in section.passages:
-                    connection.execute(
-                        """
-                        INSERT INTO tarkka.passage (
-                            passage_id, document_id, section_id, ordinal, text, char_start, char_end
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            passage.passage_id,
-                            document.document_id,
-                            section.section_id,
-                            passage.ordinal,
-                            passage.text,
-                            passage.char_start,
-                            passage.char_end,
-                        ),
-                    )
-                inserted.add(section.section_id)
-                del pending[section.section_id]
 
     @staticmethod
     def _save_source_artifacts(connection: Any, document: Document) -> None:

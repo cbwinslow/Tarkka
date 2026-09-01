@@ -95,19 +95,29 @@ class HttpTransportContract:
         assert _ContractHandler.seen_hosts == [f"unresolvable.invalid:{port}"]
 
     @staticmethod
-    def assert_body_cap_is_explicit(transport: HttpTransport) -> None:
+    def assert_body_cap_is_explicit(
+        transport: HttpTransport,
+        *,
+        overflow_error: type[Exception] | None = None,
+    ) -> None:
+        """Require explicit truncation or an advertised oversized-response exception."""
         _ContractHandler.seen_paths.clear()
         server = ThreadingHTTPServer(("127.0.0.1", 0), _ContractHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
             port = server.server_address[1]
-            response = transport.request(
-                uri=f"http://example.org:{port}/body",
-                resolved_address="127.0.0.1",
-                max_response_bytes=5,
-                timeout_seconds=1.0,
-            )
+            try:
+                response = transport.request(
+                    uri=f"http://example.org:{port}/body",
+                    resolved_address="127.0.0.1",
+                    max_response_bytes=5,
+                    timeout_seconds=1.0,
+                )
+            except Exception as exc:
+                if overflow_error is not None and isinstance(exc, overflow_error):
+                    return
+                raise
         finally:
             server.shutdown()
             server.server_close()

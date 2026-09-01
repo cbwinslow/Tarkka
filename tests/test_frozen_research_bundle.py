@@ -309,7 +309,10 @@ def test_inspection_rejects_noncanonical_research_identity_fields(tmp_path: Path
         _state(
             {
                 **_claim(_CLAIM_A),
-                "claim": {"claim_id": "{00000000-0000-0000-0000-00000000c101}", "document_id": str(_DOCUMENT_ID)},
+                "claim": {
+                    "claim_id": "{00000000-0000-0000-0000-00000000c101}",
+                    "document_id": str(_DOCUMENT_ID),
+                },
             }
         ),
     )

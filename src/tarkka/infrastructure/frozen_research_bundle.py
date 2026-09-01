@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import zipfile
 from pathlib import Path
 from typing import BinaryIO
@@ -12,7 +13,8 @@ from tarkka.application.frozen_research_diff import (
     FrozenNormalizedDocumentState,
     FrozenResearchBundle,
 )
-from tarkka.domain.proof_bundle_v3 import PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH
+from tarkka.domain.proof_bundle_v2 import proof_bundle_manifest_from_versioned_dict
+from tarkka.domain.proof_bundle_v3 import ProofBundleManifestV3
 from tarkka.domain.proof_bundles import PROOF_BUNDLE_MANIFEST_PATH
 from tarkka.infrastructure.frozen_research_view import (
     FrozenResearchStateProjectionError,
@@ -32,12 +34,22 @@ from tarkka.infrastructure.proof_bundles import (
     verify_proof_bundle,
 )
 
-_RESEARCH_STATE_PATH = "research/claim-lineage.json"
 _READ_CHUNK_BYTES = 1024 * 1024
+_DEFAULT_PUBLIC_DETAIL = "frozen proof bundle inspection failed"
+_SCHEMA_V3_PUBLIC_DETAIL = "frozen research diff requires proof bundle schema version 3"
 
 
 class FrozenResearchBundleInspectionError(ProofBundleVerificationError):
     """Raised when verified v3 content cannot be projected into the diff contract."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        public_detail: str = _DEFAULT_PUBLIC_DETAIL,
+    ) -> None:
+        super().__init__(message)
+        self.public_detail = public_detail
 
 
 def inspect_frozen_research_bundle(
@@ -51,10 +63,6 @@ def inspect_frozen_research_bundle(
         verification = verify_proof_bundle(path, limits=effective_limits)
     except ProofBundleVerificationError as exc:
         raise FrozenResearchBundleInspectionError(str(exc)) from exc
-    if verification.member_count != 4:
-        raise FrozenResearchBundleInspectionError(
-            "frozen research diff requires proof bundle schema version 3"
-        )
 
     try:
         with path.open("rb") as handle:
@@ -66,14 +74,20 @@ def inspect_frozen_research_bundle(
                     PROOF_BUNDLE_MANIFEST_PATH,
                     maximum_size=effective_limits.max_manifest_bytes,
                 )
+                manifest = proof_bundle_manifest_from_versioned_dict(json.loads(manifest_bytes))
+                if not isinstance(manifest, ProofBundleManifestV3):
+                    raise FrozenResearchBundleInspectionError(
+                        _SCHEMA_V3_PUBLIC_DETAIL,
+                        public_detail=_SCHEMA_V3_PUBLIC_DETAIL,
+                    )
                 research_bytes = _read_bounded_member(
                     archive,
-                    _RESEARCH_STATE_PATH,
+                    manifest.research_state.path,
                     maximum_size=effective_limits.max_research_state_bytes,
                 )
                 document_bytes = _read_bounded_member(
                     archive,
-                    PROOF_BUNDLE_NORMALIZED_DOCUMENT_PATH,
+                    manifest.normalized_document.path,
                     maximum_size=effective_limits.max_normalized_document_bytes,
                 )
             handle.seek(0)
@@ -81,15 +95,14 @@ def inspect_frozen_research_bundle(
     except FrozenResearchBundleInspectionError:
         raise
     except (OSError, zipfile.BadZipFile, KeyError, RuntimeError) as exc:
-        raise FrozenResearchBundleInspectionError(
-            f"unable to inspect frozen proof bundle: {path}"
-        ) from exc
+        raise FrozenResearchBundleInspectionError("unable to inspect frozen proof bundle") from exc
 
     try:
         research = parse_canonical_research_state_bytes(research_bytes)
         document = parse_canonical_normalized_document_bytes(document_bytes)
-        document_id = str(document["document_id"])
-        artifact_id = str(document["artifact_id"])
+        document_id = str(manifest.document.document_id)
+        artifact_id = str(manifest.document.artifact_id)
+        _require_normalized_identity(document, manifest)
         claims = project_frozen_claims(
             research,
             expected_document_id=document_id,
@@ -102,10 +115,6 @@ def inspect_frozen_research_bundle(
     ) as exc:
         raise FrozenResearchBundleInspectionError(str(exc)) from exc
 
-    if document_id != verification.document_id:
-        raise FrozenResearchBundleInspectionError(
-            "normalized Document identity changed after proof-bundle verification"
-        )
     return FrozenResearchBundle(
         bundle_sha256=verification.bundle_sha256,
         manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
@@ -118,11 +127,30 @@ def inspect_frozen_research_bundle(
         normalized_document=FrozenNormalizedDocumentState(
             document_id=document_id,
             sha256=hashlib.sha256(document_bytes).hexdigest(),
-            parser_name=str(document["parser_name"]),
-            parser_version=str(document["parser_version"]),
+            parser_name=manifest.document.parser_name,
+            parser_version=manifest.document.parser_version,
         ),
         claims=claims,
     )
+
+
+def _require_normalized_identity(
+    document: object,
+    manifest: ProofBundleManifestV3,
+) -> None:
+    if not isinstance(document, dict):
+        raise FrozenResearchStateProjectionError("normalized Document must be an object")
+    expected = {
+        "document_id": str(manifest.document.document_id),
+        "artifact_id": str(manifest.document.artifact_id),
+        "title": manifest.document.title,
+        "parser_name": manifest.document.parser_name,
+        "parser_version": manifest.document.parser_version,
+    }
+    if any(document.get(field) != expected_value for field, expected_value in expected.items()):
+        raise FrozenResearchStateProjectionError(
+            "normalized Document identity changed after proof-bundle verification"
+        )
 
 
 def _read_bounded_member(

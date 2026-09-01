@@ -34,26 +34,32 @@ def test_local_artifact_store_round_trips_content(
 
 def test_local_artifact_store_streams_content(
     store: LocalArtifactStore,
-    tmp_path: Path,
 ) -> None:
-    StreamingArtifactStoreContract.assert_streaming_round_trip(
+    payload = b"evidence streamed without whole-object reads"
+    artifact = store.put_bytes(payload, original_name="streamed-paper.txt")
+
+    StreamingArtifactStoreContract.assert_streaming_read(
         store,
-        tmp_path / "streamed-paper.txt",
-        b"evidence streamed without whole-object reads",
+        artifact,
+        payload,
         chunk_size=5,
     )
 
 
+@pytest.mark.parametrize("chunk_size", [0, -1])
 def test_streaming_artifact_contract_rejects_nonpositive_chunk_size(
     store: LocalArtifactStore,
-    tmp_path: Path,
+    chunk_size: int,
 ) -> None:
+    payload = b"unused"
+    artifact = store.put_bytes(payload, original_name="unused.txt")
+
     with pytest.raises(ValueError, match="chunk_size must be positive"):
-        StreamingArtifactStoreContract.assert_streaming_round_trip(
+        StreamingArtifactStoreContract.assert_streaming_read(
             store,
-            tmp_path / "unused.txt",
-            b"unused",
-            chunk_size=0,
+            artifact,
+            payload,
+            chunk_size=chunk_size,
         )
 
 

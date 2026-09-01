@@ -9,6 +9,7 @@ from tarkka.infrastructure.web.pinned_http_transport import (
     PinnedHttpTransport,
     SystemHostResolver,
 )
+from tarkka.ports.http_transport import HttpTransportResponse
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
@@ -24,6 +25,41 @@ class _PermissiveHostResolver(SystemHostResolver):
     ) -> tuple[str, ...]:
         del hostname, timeout_seconds
         return ("127.0.0.1",)
+
+
+class _OverflowRejected(RuntimeError):
+    """Advertised oversized-response rejection used by a synthetic adapter."""
+
+
+class _RejectingOverflowTransport:
+    def request(
+        self,
+        *,
+        uri: str,
+        resolved_address: str,
+        max_response_bytes: int,
+        timeout_seconds: float | None = None,
+    ) -> HttpTransportResponse:
+        del uri, resolved_address, max_response_bytes, timeout_seconds
+        raise _OverflowRejected("response exceeded configured byte limit")
+
+
+class _UnexpectedFailureTransport:
+    def request(
+        self,
+        *,
+        uri: str,
+        resolved_address: str,
+        max_response_bytes: int,
+        timeout_seconds: float | None = None,
+    ) -> HttpTransportResponse:
+        del uri, resolved_address, max_response_bytes, timeout_seconds
+        raise RuntimeError("unexpected transport failure")
+
+
+@pytest.fixture
+def store(tmp_path: object) -> None:
+    del tmp_path
 
 
 def test_system_host_resolver_contract_returns_valid_unique_addresses(
@@ -90,6 +126,21 @@ def test_pinned_http_transport_contract_uses_exact_approved_address() -> None:
 
 def test_pinned_http_transport_contract_reports_body_overflow() -> None:
     HttpTransportContract.assert_body_cap_is_explicit(PinnedHttpTransport(timeout_seconds=2.0))
+
+
+def test_http_transport_contract_accepts_advertised_overflow_rejection() -> None:
+    HttpTransportContract.assert_body_cap_is_explicit(
+        _RejectingOverflowTransport(),
+        overflow_error=_OverflowRejected,
+    )
+
+
+def test_http_transport_contract_does_not_swallow_unadvertised_failure() -> None:
+    with pytest.raises(RuntimeError, match="unexpected transport failure"):
+        HttpTransportContract.assert_body_cap_is_explicit(
+            _UnexpectedFailureTransport(),
+            overflow_error=_OverflowRejected,
+        )
 
 
 def test_pinned_http_transport_contract_accepts_exact_body_limit() -> None:

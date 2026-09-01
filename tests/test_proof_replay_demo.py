@@ -26,7 +26,7 @@ def test_offline_proof_replay_walkthrough_uses_public_cli_end_to_end(
 ) -> None:
     home = tmp_path / "home"
     monkeypatch.setenv("TARKKA_HOME", str(home))
-    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+    monkeypatch.setenv("TARKKA_DOCUMENT_BACKEND", "json")
     monkeypatch.delenv("TARKKA_MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("TARKKA_MODEL_NAME", raising=False)
     monkeypatch.delenv("TARKKA_MODEL_API_KEY", raising=False)
@@ -113,7 +113,7 @@ def test_demo_source_has_stable_document_identity_across_clean_local_homes(
     handles: list[str] = []
     for name in ("first-home", "second-home"):
         monkeypatch.setenv("TARKKA_HOME", str(tmp_path / name))
-        monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+        monkeypatch.setenv("TARKKA_DOCUMENT_BACKEND", "json")
         assert main(["ingest", str(_FIXTURE)]) == 0
         handles.append(_manifest_document_handle(capsys.readouterr().out))
 

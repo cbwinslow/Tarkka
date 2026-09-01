@@ -73,15 +73,16 @@ Tarkka must not publish or record it as a canonical Artifact.
 - exact byte count;
 - lowercase SHA-256 digest;
 - optional media type and filename;
-- explicit redirect chain when the final URI differs;
+- explicit redirect hops when any redirects occurred;
 - small string metadata useful for acquisition provenance/routing.
 
 The receipt itself is not a canonical `Artifact`. The application layer must commit the staged
 bytes to an `ArtifactStore`, independently verify that the committed size and digest match the
 receipt, and only then record canonical acquisition/provenance state.
 
-Redirect invariants are explicit: an unchanged URI has no redirect chain, while a changed final
-URI requires a non-empty chain whose last entry is exactly `final_uri`.
+Redirect invariants record only facts the generic layer can prove. With no redirect hops,
+`final_uri` must equal `requested_uri`. When a redirect chain is present, its last hop must equal
+`final_uri`; the chain may legitimately return to the original requested URI.
 
 ## Failure model
 

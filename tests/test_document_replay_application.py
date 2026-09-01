@@ -12,6 +12,10 @@ from tarkka.application.document_replay import (
     DocumentReplayService,
 )
 from tarkka.application.document_replay_protocol import document_replay_response
+from tarkka.application.document_research_state import (
+    DocumentResearchStateLimitError,
+    DocumentResearchStateMismatchError,
+)
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactIntegrityError,
     ProofBundleArtifactNotFoundError,
@@ -182,6 +186,11 @@ def test_document_replay_response_returns_shared_success_envelope() -> None:
             ProofBundleResearchStateIntegrityError("bad research state"),
             "research_state_integrity_error",
         ),
+        (
+            DocumentResearchStateMismatchError("inconsistent research state"),
+            "research_state_integrity_error",
+        ),
+        (DocumentResearchStateLimitError("too many claims"), "content_too_large"),
         (DocumentReplayConfigurationError("bad runtime"), "replay_configuration_error"),
         (
             DocumentReplayExecutionError("replay_parser_unavailable", "missing parser"),

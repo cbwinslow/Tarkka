@@ -122,6 +122,36 @@ def test_diff_cli_keeps_short_problem_detail_unchanged(
     assert json.loads(capsys.readouterr().err)["detail"] == "bad bundle"
 
 
+def test_diff_cli_normalizes_expanduser_failure_before_inspection(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert diff_cli.main(["~tarkka-user-that-does-not-exist/before.tarkka", "after"]) == 2
+    problem = json.loads(capsys.readouterr().err)
+    assert problem == {
+        "ok": False,
+        "code": "invalid_frozen_bundle",
+        "side": "before",
+        "detail": "unable to resolve frozen proof-bundle path",
+    }
+
+
+def test_diff_cli_normalizes_symlink_loop_for_after_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    before = tmp_path / "before.tarkka"
+    before.write_bytes(b"unused")
+    loop = tmp_path / "loop.tarkka"
+    loop.symlink_to(loop)
+    monkeypatch.setattr(diff_cli, "inspect_frozen_research_bundle", lambda _path: _bundle())
+
+    assert diff_cli.main([str(before), str(loop)]) == 2
+    problem = json.loads(capsys.readouterr().err)
+    assert problem["side"] == "after"
+    assert problem["detail"] == "unable to resolve frozen proof-bundle path"
+
+
 def test_top_level_entrypoint_routes_explicit_diff_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -362,6 +362,10 @@ def _document_identity(document: Document) -> tuple[object, ...]:
 def _sections_from_rows(
     document_id: UUID, section_rows: list[tuple[Any, ...]], passage_rows: list[tuple[Any, ...]]
 ) -> tuple[Section, ...]:
+    section_ids = {cast(UUID, row[0]) for row in section_rows}
+    if any(cast(UUID, row[1]) not in section_ids for row in passage_rows):
+        raise RuntimeError("PostgreSQL passage references section outside document")
+
     passages_by_section: dict[UUID, list[Passage]] = {}
     for row in passage_rows:
         section_id = cast(UUID, row[1])

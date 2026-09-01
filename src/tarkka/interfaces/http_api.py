@@ -61,7 +61,6 @@ _REPLAY_CONFLICT_CODES = frozenset(
     {
         "artifact_integrity_error",
         "research_state_integrity_error",
-        "replay_configuration_error",
         "replay_bundle_invalid",
         "replay_bundle_changed",
         "replay_material_unavailable",
@@ -73,6 +72,7 @@ _REPLAY_CONFLICT_CODES = frozenset(
 )
 _REPLAY_UNAVAILABLE_CODES = frozenset(
     {
+        "replay_configuration_error",
         "replay_io_error",
         "replay_parser_unavailable",
         "replay_parser_support_failed",
@@ -114,6 +114,20 @@ class TarkkaHttpApp:
             self._replay = configured_document_replay_service()
         return self._replay
 
+    async def _dispatch_replay_off_loop(
+        self,
+        path: str,
+        scope: ASGIScope,
+    ) -> tuple[int, dict[str, object]]:
+        """Hold replay capacity until the worker exits, including after request cancellation."""
+        async with self._replay_slots:
+            worker = asyncio.create_task(asyncio.to_thread(self._dispatch, path, scope))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError as cancellation:
+                await asyncio.gather(worker, return_exceptions=True)
+                raise cancellation
+
     async def __call__(
         self,
         scope: ASGIScope,
@@ -147,8 +161,7 @@ class TarkkaHttpApp:
             return
 
         if _document_replay_handle_from_path(path) is not None:
-            async with self._replay_slots:
-                status, payload = await asyncio.to_thread(self._dispatch, path, scope)
+            status, payload = await self._dispatch_replay_off_loop(path, scope)
         elif _claim_handle_from_path(path) is not None:
             status, payload = await asyncio.to_thread(self._dispatch, path, scope)
         else:

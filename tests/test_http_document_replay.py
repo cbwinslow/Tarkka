@@ -8,7 +8,11 @@ from uuid import UUID
 
 import pytest
 
-from tarkka.application.document_replay import DocumentReplayer, DocumentReplayExecutionError
+from tarkka.application.document_replay import (
+    DocumentReplayConfigurationError,
+    DocumentReplayer,
+    DocumentReplayExecutionError,
+)
 from tarkka.application.document_replay_protocol import document_replay_response
 from tarkka.application.document_research_state import (
     DocumentResearchStateLimitError,
@@ -175,6 +179,11 @@ def test_http_document_replay_maps_stable_failures_to_semantic_statuses() -> Non
             "research_state_integrity_error",
         ),
         (
+            DocumentReplayConfigurationError("invalid exact replay runtime"),
+            503,
+            "replay_configuration_error",
+        ),
+        (
             DocumentReplayExecutionError("replay_bundle_invalid", "invalid bundle"),
             409,
             "replay_bundle_invalid",
@@ -266,6 +275,33 @@ def test_http_document_replay_serializes_expensive_execution_by_default() -> Non
     assert service.max_active == 1
 
 
+def test_http_document_replay_cancellation_holds_slot_until_worker_finishes() -> None:
+    service = _BlockingReplayService()
+    app = create_app(replay=service)
+    path = f"/v1/documents/{_DOCUMENT_ID}/replay"
+
+    async def exercise() -> tuple[int, dict[str, Any]]:
+        first = asyncio.create_task(_http_request_async(app, path))
+        assert await asyncio.to_thread(service.started.wait, 1)
+        first.cancel()
+        await asyncio.sleep(0.05)
+        assert not first.done()
+
+        second = asyncio.create_task(_http_request_async(app, path))
+        await asyncio.sleep(0.05)
+        assert service.max_active == 1
+
+        service.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        return await second
+
+    second_response = asyncio.run(exercise())
+
+    assert second_response[0] == 200
+    assert service.max_active == 1
+
+
 def test_http_document_replay_rejects_nonpositive_concurrency_limit() -> None:
     with pytest.raises(ValueError, match="max_concurrent_replays must be positive"):
         create_app(max_concurrent_replays=0)
@@ -304,4 +340,7 @@ def test_http_replay_status_mapping_covers_conflict_and_unavailable_codes() -> N
     ) == 409
     assert _status_for_agent_response(
         {"ok": False, "error": {"code": "replay_io_error"}}
+    ) == 503
+    assert _status_for_agent_response(
+        {"ok": False, "error": {"code": "replay_configuration_error"}}
     ) == 503

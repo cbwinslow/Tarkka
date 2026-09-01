@@ -145,6 +145,21 @@ def test_entrypoint_delegates_explicit_existing_commands_without_behavior_change
     assert captured == [["existing", "command"]]
 
 
+def test_entrypoint_delegates_empty_explicit_arguments_without_behavior_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+
+    def fake_research_main(arguments: list[str]) -> int:
+        captured.append(arguments)
+        return 19
+
+    monkeypatch.setattr(entrypoint.research_interface, "main", fake_research_main)
+
+    assert main([]) == 19
+    assert captured == [[]]
+
+
 def test_entrypoint_preserves_existing_process_argument_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

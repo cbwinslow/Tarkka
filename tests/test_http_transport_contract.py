@@ -4,11 +4,11 @@ import socket
 
 import pytest
 
+from tarkka.conformance import HostResolverContract, HttpTransportContract
 from tarkka.infrastructure.web.pinned_http_transport import (
     PinnedHttpTransport,
     SystemHostResolver,
 )
-from tests.contracts.http_transport import HostResolverContract, HttpTransportContract
 
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 

@@ -35,7 +35,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 def _inspect_argument(value: str) -> FrozenResearchBundle:
     try:
-        path = Path(value).expanduser().resolve()
+        path = Path(value).expanduser().resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise FrozenResearchBundleInspectionError(
             "unable to resolve frozen proof-bundle path"

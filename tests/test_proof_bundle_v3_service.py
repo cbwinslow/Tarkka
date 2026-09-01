@@ -27,6 +27,7 @@ from tarkka.domain.proof_bundle_v3 import ProofBundleManifestV3
 from tarkka.infrastructure.normalized_document_json import canonical_normalized_document_bytes
 from tarkka.infrastructure.proof_bundle_v2 import canonical_research_state_bytes
 from tarkka.infrastructure.proof_bundles import (
+    ProofBundleVerificationError,
     ProofBundleVerificationLimits,
     build_proof_bundle_bytes,
     verify_proof_bundle_bytes,
@@ -163,11 +164,41 @@ def test_v3_service_rejects_oversized_artifact_before_reading_bytes() -> None:
         service.build(_DOCUMENT_ID)
 
 
-def test_proof_bundle_build_limit_is_validated_and_matches_verifier_default() -> None:
+def test_proof_bundle_build_limit_reserves_complete_v3_archive_headroom() -> None:
     with pytest.raises(ValueError, match="max_artifact_bytes must be non-negative"):
         ProofBundleBuildLimits(max_artifact_bytes=-1)
 
-    assert (
-        ProofBundleBuildLimits().max_artifact_bytes
-        == ProofBundleVerificationLimits().max_artifact_bytes
+    build_limits = ProofBundleBuildLimits()
+    verification_limits = ProofBundleVerificationLimits()
+    reserved_bytes = verification_limits.max_archive_bytes - build_limits.max_artifact_bytes
+    required_member_headroom = (
+        verification_limits.max_manifest_bytes
+        + verification_limits.max_research_state_bytes
+        + verification_limits.max_normalized_document_bytes
     )
+
+    assert build_limits.max_artifact_bytes < verification_limits.max_artifact_bytes
+    assert reserved_bytes > required_member_headroom
+
+
+def test_v3_archive_round_trips_at_exact_complete_archive_boundary() -> None:
+    payload = _service(_snapshot()).build(_DOCUMENT_ID)
+    archive = build_proof_bundle_bytes(payload)
+    assert payload.research_state_bytes is not None
+    assert payload.normalized_document_bytes is not None
+    limits = ProofBundleVerificationLimits(
+        max_archive_bytes=len(archive),
+        max_manifest_bytes=ProofBundleVerificationLimits().max_manifest_bytes,
+        max_artifact_bytes=len(payload.artifact_bytes),
+        max_research_state_bytes=len(payload.research_state_bytes),
+        max_normalized_document_bytes=len(payload.normalized_document_bytes),
+    )
+
+    verification = verify_proof_bundle_bytes(archive, limits=limits)
+
+    assert verification.member_count == 4
+    with pytest.raises(ProofBundleVerificationError, match="archive exceeds"):
+        verify_proof_bundle_bytes(
+            archive,
+            limits=replace(limits, max_archive_bytes=len(archive) - 1),
+        )

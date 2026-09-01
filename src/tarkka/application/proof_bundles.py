@@ -337,7 +337,9 @@ def _validate_payload_members(
 ) -> None:
     if isinstance(manifest, ProofBundleManifestV3):
         if research_state_bytes is None or normalized_document_bytes is None:
-            raise ValueError("proof bundle v3 requires research-state and normalized-document bytes")
+            raise ValueError(
+                "proof bundle v3 requires research-state and normalized-document bytes"
+            )
         _validate_member_bytes(
             research_state_bytes,
             sha256=manifest.research_state.sha256,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from tarkka.domain.document_structure import validate_document_structure
 from tarkka.domain.models import Artifact, Document, Passage, Section, new_id
 from tarkka.infrastructure.storage.parser_identity import parser_stable_id
 
@@ -54,7 +55,7 @@ def document_from_markdown(
             )
         )
 
-    return Document(
+    document = Document(
         document_id=resolved_document_id,
         artifact_id=artifact.artifact_id,
         title=title or artifact.original_name or "Document",
@@ -62,6 +63,8 @@ def document_from_markdown(
         parser_version=parser_version,
         sections=tuple(sections),
     )
+    validate_document_structure(document)
+    return document
 
 
 def _section_spans(text: str, *, initial_title: str) -> list[tuple[str, int, int, int]]:

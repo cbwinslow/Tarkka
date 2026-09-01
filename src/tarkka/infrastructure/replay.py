@@ -146,6 +146,8 @@ def replay_proof_bundle(path: Path, registry: ReplayParserRegistry) -> ReplayRes
         _extract_verified_artifact(path, manifest, verification.bundle_sha256, artifact_path)
         try:
             actual_document = registration.parser.parse(artifact, artifact_path)
+            actual_bytes = canonical_normalized_document_bytes(actual_document)
+            actual_document_value = normalized_document_view(actual_document)
         except (OSError, RuntimeError, UnicodeError, ValueError) as exc:
             detail = _bounded_error_detail(exc)
             raise ReplayProblem(
@@ -156,8 +158,6 @@ def replay_proof_bundle(path: Path, registry: ReplayParserRegistry) -> ReplayRes
                 determinism=registration.determinism,
             ) from exc
 
-        actual_bytes = canonical_normalized_document_bytes(actual_document)
-        actual_document_value = normalized_document_view(actual_document)
         mismatches = replay_mismatches(expected_document, actual_document_value)
         status = ReplayStatus.MATCHED if not mismatches else ReplayStatus.MISMATCH
         return ReplayResult(

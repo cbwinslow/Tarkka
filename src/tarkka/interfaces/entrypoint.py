@@ -13,6 +13,7 @@ from tarkka.interfaces.why_cli import main as why_main
 
 CommandMain = Callable[[list[str] | None], int]
 
+# Keep handlers late-bound so tests and embedders can replace module-global command functions.
 _COMMANDS: dict[str, CommandMain] = {
     "bundle": lambda argv: bundle_main(argv),
     "diff": lambda argv: diff_main(argv),

@@ -22,10 +22,11 @@ HTTP transport suites consume this same public package.
 
 Additive API 1 extensions:
 
-- `StreamingArtifactStoreContract.assert_streaming_round_trip` covers the
-  optional `StreamingArtifactStore` capability for context-managed bounded reads
-  from local files, object stores, or other durable backends without requiring
-  whole-Artifact materialization.
+- `StreamingArtifactStoreContract.assert_streaming_read` covers the optional
+  `StreamingArtifactStore` capability for context-managed bounded reads of an
+  already-persisted `Artifact` from local files, object stores, or other durable
+  backends without requiring whole-Artifact materialization or unrelated
+  persistence methods on the streaming capability itself.
 
 Publication hardening completed before the API 1 merge:
 

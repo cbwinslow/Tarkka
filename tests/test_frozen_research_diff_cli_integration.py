@@ -65,6 +65,7 @@ def test_public_diff_cli_compares_real_frozen_research_transition_offline(
     extraction = json.loads(capsys.readouterr().out)
     assert extraction["claims"] == 2
     assert extraction["evidence"] == 2
+    expected_claim_ids = sorted(extraction["claim_ids"])
     _create_bundle(document_handle, after, capsys=capsys)
 
     assert main(["diff", str(before), str(before)]) == 0
@@ -79,6 +80,6 @@ def test_public_diff_cli_compares_real_frozen_research_transition_offline(
     assert changed["same_document"] is True
     assert changed["artifact"]["changed"] is False
     assert changed["normalized_document"]["changed"] is False
-    assert len(changed["claims"]) == 2
+    assert [item["claim_id"] for item in changed["claims"]] == expected_claim_ids
     assert [item["change"] for item in changed["claims"]] == ["added", "added"]
     assert all(len(item["evidence"]["added"]) == 1 for item in changed["claims"])

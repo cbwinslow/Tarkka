@@ -7,7 +7,7 @@ def _expect_exception(
     expected: type[Exception],
     operation: Callable[[], object],
 ) -> None:
-    """Require exactly the advertised exception type from one contract operation."""
+    """Require the advertised exception type or one of its subclasses."""
     try:
         operation()
     except expected:

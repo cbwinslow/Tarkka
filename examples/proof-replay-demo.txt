@@ -1,0 +1,6 @@
+Tarkka Offline Proof Replay Demo
+
+The local experiment found that deterministic replay reproduced the normalized document exactly from its preserved source artifact.
+The audit also demonstrated that each extracted claim remained linked to the exact passage used as evidence.
+
+This project-authored fixture is intentionally small, redistributable, deterministic, and independent of network or model services.

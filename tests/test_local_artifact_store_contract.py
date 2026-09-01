@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from tarkka.conformance import ArtifactStoreContract
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
-from tests.contracts.artifact_store import ArtifactStoreContract
 
 
 @pytest.fixture

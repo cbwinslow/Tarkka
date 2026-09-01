@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
+from tarkka.conformance import CitationRepositoryContract
 from tarkka.domain.citations import (
     BibliographicReference,
     CitationContext,
@@ -19,7 +20,6 @@ from tarkka.infrastructure.storage.json_citation_repository import (
     CitationConflictError,
     JsonCitationRepository,
 )
-from tests.contracts.citation_repository import CitationRepositoryContract
 
 _DOCUMENT_ID = UUID("00000000-0000-0000-0000-000000000b01")
 _REFERENCE_ID = UUID("00000000-0000-0000-0000-000000000b02")

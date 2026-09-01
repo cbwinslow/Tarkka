@@ -58,7 +58,12 @@ def inspect_frozen_research_bundle(
     *,
     limits: ProofBundleVerificationLimits | None = None,
 ) -> FrozenResearchBundle:
-    """Verify and project one immutable schema-v3 bundle without rereading Artifact bytes."""
+    """Verify and project v3 metadata without separately decompressing the Artifact member.
+
+    The archive is intentionally rehashed before and after metadata inspection so a file replaced
+    between verification and projection is rejected. Those hashes reread the archive bytes from
+    storage; they do not decompress or materialize the Artifact payload a second time.
+    """
     effective_limits = limits or ProofBundleVerificationLimits()
     try:
         verification = verify_proof_bundle(path, limits=effective_limits)

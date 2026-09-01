@@ -14,6 +14,8 @@ pytestmark = [pytest.mark.unit, pytest.mark.regression]
         (123, False),
         ("", False),
         ("   ", False),
+        (" paper.pdf", False),
+        ("paper.pdf ", False),
         (".", False),
         ("..", False),
         ("bad\x00name.pdf", False),

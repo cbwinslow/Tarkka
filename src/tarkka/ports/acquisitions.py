@@ -18,6 +18,7 @@ MAX_ACQUISITION_METADATA_VALUE_CHARS = 4096
 
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_URI_REQUIRES_PERCENT_ENCODING = frozenset(' <>"{}|\\^`')
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +137,10 @@ class AcquiredArtifact:
         _require_optional_non_blank(self.media_type, "acquired Artifact media type")
         _require_optional_safe_filename(self.filename, "acquired Artifact filename")
 
-        redirects = tuple(self.redirect_chain)
+        try:
+            redirects = tuple(self.redirect_chain)
+        except TypeError as exc:
+            raise ValueError("acquired Artifact redirect chain must be iterable") from exc
         if any(not _is_uri(uri) for uri in redirects):
             raise ValueError("acquired Artifact redirect chain must contain valid URIs")
         if redirects and redirects[-1] != self.final_uri:
@@ -203,6 +207,13 @@ def _require_optional_safe_filename(value: object, field_name: str) -> None:
 
 def _is_uri(value: object) -> bool:
     if not isinstance(value, str) or not value.strip():
+        return False
+    if any(
+        ord(character) < 0x21
+        or ord(character) > 0x7E
+        or character in _URI_REQUIRES_PERCENT_ENCODING
+        for character in value
+    ):
         return False
     try:
         scheme = urlsplit(value).scheme

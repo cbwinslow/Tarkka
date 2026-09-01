@@ -96,26 +96,29 @@ def test_artifact_candidate_normalizes_scheme_and_freezes_metadata() -> None:
 
 @pytest.mark.parametrize(
     "source_uri",
-    ["", "relative/path", "1bad://example.test", "https://[broken"],
+    [
+        "",
+        "relative/path",
+        "1bad://example.test",
+        "https://[broken",
+        "https://example.test/paper with spaces",
+        "https://example.test/paper\n",
+        "https://example.test/<paper>",
+        "https://example.test/café",
+    ],
 )
 def test_artifact_candidate_rejects_invalid_source_uri(source_uri: str) -> None:
     with pytest.raises(ValueError, match="source URI must be an absolute URI"):
         ArtifactCandidate(source_uri=source_uri)
 
 
-@pytest.mark.parametrize(
-    ("field", "kwargs"),
-    [
-        ("media type hint", {"media_type_hint": " "}),
-        ("filename hint", {"filename_hint": ""}),
-    ],
-)
-def test_artifact_candidate_rejects_blank_optional_hints(
-    field: str,
-    kwargs: dict[str, str],
-) -> None:
+@pytest.mark.parametrize("field", ["media type hint", "filename hint"])
+def test_artifact_candidate_rejects_blank_optional_hints(field: str) -> None:
     with pytest.raises(ValueError, match=field):
-        ArtifactCandidate(source_uri="file:///tmp/source", **kwargs)
+        if field == "media type hint":
+            ArtifactCandidate(source_uri="file:///tmp/source", media_type_hint=" ")
+        else:
+            ArtifactCandidate(source_uri="file:///tmp/source", filename_hint="")
 
 
 @pytest.mark.parametrize("expected_size_bytes", [-1, True])
@@ -250,6 +253,17 @@ def test_acquired_artifact_accepts_direct_normalized_and_redirected_receipts() -
     assert returned_to_origin.redirect_chain[-1] == returned_to_origin.final_uri
     with pytest.raises(TypeError):
         direct.metadata["new"] = "value"  # type: ignore[index]
+
+
+def test_acquired_artifact_rejects_non_iterable_redirect_chain() -> None:
+    with pytest.raises(ValueError, match="redirect chain must be iterable"):
+        AcquiredArtifact(
+            requested_uri="https://example.test/paper",
+            final_uri="https://example.test/paper",
+            size_bytes=0,
+            sha256=hashlib.sha256(b"").hexdigest(),
+            redirect_chain=cast(tuple[str, ...], None),
+        )
 
 
 @pytest.mark.parametrize(

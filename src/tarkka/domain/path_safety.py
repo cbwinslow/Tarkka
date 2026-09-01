@@ -8,6 +8,7 @@ def is_safe_filename_component(value: object) -> bool:
     if (
         not isinstance(value, str)
         or not value.strip()
+        or value != value.strip()
         or value in {".", ".."}
         or "\x00" in value
     ):

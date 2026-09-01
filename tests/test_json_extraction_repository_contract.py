@@ -6,6 +6,7 @@ from uuid import UUID
 
 import pytest
 
+from tarkka.conformance import ExtractionRepositoryContract
 from tarkka.domain.extraction import (
     Claim,
     Evidence,
@@ -20,7 +21,6 @@ from tarkka.infrastructure.storage.json_extraction_repository import (
     ExtractionConflictError,
     JsonExtractionRepository,
 )
-from tests.contracts.extraction_repository import ExtractionRepositoryContract
 
 pytestmark = pytest.mark.contract
 
@@ -129,6 +129,18 @@ def test_json_extraction_repository_preserves_kind_and_evidence_links(tmp_path: 
         repository,
         _batch(),
     )
+
+
+def test_extraction_contract_rejects_single_kind_fixture(tmp_path: Path) -> None:
+    repository = JsonExtractionRepository(tmp_path / "extractions.json")
+    batch = _batch()
+    single_kind = replace(batch, extractions=batch.extractions[:1])
+
+    with pytest.raises(AssertionError, match="at least two extraction kinds"):
+        ExtractionRepositoryContract.assert_kind_filter_preserves_evidence_links(
+            repository,
+            single_kind,
+        )
 
 
 def test_json_extraction_repository_rejects_conflicting_run_content(tmp_path: Path) -> None:

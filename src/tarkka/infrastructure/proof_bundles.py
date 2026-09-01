@@ -8,12 +8,17 @@ import json
 import os
 import tempfile
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, cast
 
-from tarkka.application.proof_bundles import ProofBundlePayload
+from tarkka.application.proof_bundles import (
+    ProofBundleArtifactIntegrityError,
+    ProofBundleArtifactNotFoundError,
+    ProofBundlePayload,
+    ProofBundleStreamingPayload,
+)
 from tarkka.domain.proof_bundle_v2 import (
     ProofBundleManifestV2,
     proof_bundle_manifest_from_versioned_dict,
@@ -30,6 +35,7 @@ from tarkka.infrastructure.proof_bundle_v2 import (
     validate_canonical_research_state_bytes,
 )
 from tarkka.infrastructure.storage.filesystem import fsync_directory
+from tarkka.ports.artifacts import StreamingArtifactStore
 
 _FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 _FILE_MODE = 0o100644
@@ -101,33 +107,48 @@ def canonical_manifest_bytes(
     ).encode("utf-8")
 
 
-def _proof_bundle_members(payload: ProofBundlePayload) -> list[tuple[str, bytes]]:
-    """Return validated canonical members in deterministic archive order."""
-    members = [
-        (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
-        (payload.manifest.artifact.path, payload.artifact_bytes),
-    ]
-    if isinstance(payload.manifest, ProofBundleManifestV3):
-        state_bytes = cast(bytes, payload.research_state_bytes)
-        document_bytes = cast(bytes, payload.normalized_document_bytes)
+def _proof_bundle_tail_members(
+    manifest: ProofBundleManifest | ProofBundleManifestV2 | ProofBundleManifestV3,
+    *,
+    research_state_bytes: bytes | None,
+    normalized_document_bytes: bytes | None,
+) -> list[tuple[str, bytes]]:
+    """Validate and return canonical members that follow the source Artifact."""
+    members: list[tuple[str, bytes]] = []
+    if isinstance(manifest, ProofBundleManifestV3):
+        state_bytes = cast(bytes, research_state_bytes)
+        document_bytes = cast(bytes, normalized_document_bytes)
         try:
             state_value = parse_canonical_research_state_bytes(state_bytes)
             document_value = parse_canonical_normalized_document_bytes(document_bytes)
         except (ProofBundleResearchStateJsonError, NormalizedDocumentJsonError) as exc:
             raise ProofBundleVerificationError(str(exc)) from exc
-        _validate_research_state_identity(state_value, payload.manifest)
-        _validate_normalized_document_identity(document_value, payload.manifest)
+        _validate_research_state_identity(state_value, manifest)
+        _validate_normalized_document_identity(document_value, manifest)
         members.extend(
             (
-                (payload.manifest.research_state.path, state_bytes),
-                (payload.manifest.normalized_document.path, document_bytes),
+                (manifest.research_state.path, state_bytes),
+                (manifest.normalized_document.path, document_bytes),
             )
         )
-    elif isinstance(payload.manifest, ProofBundleManifestV2):
-        state_bytes = cast(bytes, payload.research_state_bytes)
+    elif isinstance(manifest, ProofBundleManifestV2):
+        state_bytes = cast(bytes, research_state_bytes)
         validate_canonical_research_state_bytes(state_bytes)
-        members.append((payload.manifest.research_state.path, state_bytes))
+        members.append((manifest.research_state.path, state_bytes))
     return members
+
+
+def _proof_bundle_members(payload: ProofBundlePayload) -> list[tuple[str, bytes]]:
+    """Return validated canonical members in deterministic archive order."""
+    return [
+        (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest)),
+        (payload.manifest.artifact.path, payload.artifact_bytes),
+        *_proof_bundle_tail_members(
+            payload.manifest,
+            research_state_bytes=payload.research_state_bytes,
+            normalized_document_bytes=payload.normalized_document_bytes,
+        ),
+    ]
 
 
 def _write_members(archive: zipfile.ZipFile, members: list[tuple[str, bytes]]) -> None:
@@ -144,9 +165,11 @@ def build_proof_bundle_bytes(payload: ProofBundlePayload) -> bytes:
     return buffer.getvalue()
 
 
-def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWriteResult:
-    """Stream the canonical archive to verified sibling storage before atomic publication."""
-    members = _proof_bundle_members(payload)
+def _write_verified_archive(
+    path: Path,
+    write_archive: Callable[[zipfile.ZipFile], None],
+) -> ProofBundleWriteResult:
+    """Write, fsync, verify, and atomically publish one sibling temporary archive."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=".tarkka-bundle-", suffix=".tmp", dir=path.parent)
     temp_path = Path(temp_name)
@@ -154,7 +177,7 @@ def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWr
     try:
         with os.fdopen(fd, "w+b") as handle:
             with zipfile.ZipFile(handle, mode="w", compression=zipfile.ZIP_STORED) as archive:
-                _write_members(archive, members)
+                write_archive(archive)
             handle.flush()
             os.fsync(handle.fileno())
             byte_count = os.fstat(handle.fileno()).st_size
@@ -165,6 +188,64 @@ def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWr
     finally:
         temp_path.unlink(missing_ok=True)
     return ProofBundleWriteResult(byte_count=byte_count, verification=verification)
+
+
+def write_proof_bundle(path: Path, payload: ProofBundlePayload) -> ProofBundleWriteResult:
+    """Publish an in-memory payload without materializing a second archive-sized buffer."""
+    members = _proof_bundle_members(payload)
+    return _write_verified_archive(path, lambda archive: _write_members(archive, members))
+
+
+def _write_streaming_artifact(
+    archive: zipfile.ZipFile,
+    payload: ProofBundleStreamingPayload,
+    artifacts: StreamingArtifactStore,
+) -> None:
+    expected = payload.manifest.artifact
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with (
+            artifacts.open_reader(payload.artifact) as source,
+            archive.open(_zip_info(expected.path), mode="w") as member,
+        ):
+            while chunk := source.read(_READ_CHUNK_BYTES):
+                size += len(chunk)
+                if size > expected.size_bytes:
+                    raise ProofBundleArtifactIntegrityError(
+                        f"artifact bytes exceed immutable size: {payload.artifact.artifact_id}"
+                    )
+                digest.update(chunk)
+                member.write(chunk)
+    except FileNotFoundError as exc:
+        raise ProofBundleArtifactNotFoundError(
+            f"artifact bytes not found: {payload.artifact.artifact_id}"
+        ) from exc
+    if size != expected.size_bytes or digest.hexdigest() != expected.sha256:
+        raise ProofBundleArtifactIntegrityError(
+            f"artifact bytes do not match immutable identity: {payload.artifact.artifact_id}"
+        )
+
+
+def write_streaming_proof_bundle(
+    path: Path,
+    payload: ProofBundleStreamingPayload,
+    artifacts: StreamingArtifactStore,
+) -> ProofBundleWriteResult:
+    """Stream an immutable Artifact into a canonical verified archive in bounded chunks."""
+    manifest_member = (PROOF_BUNDLE_MANIFEST_PATH, canonical_manifest_bytes(payload.manifest))
+    tail_members = _proof_bundle_tail_members(
+        payload.manifest,
+        research_state_bytes=payload.research_state_bytes,
+        normalized_document_bytes=payload.normalized_document_bytes,
+    )
+
+    def write_archive(archive: zipfile.ZipFile) -> None:
+        _write_members(archive, [manifest_member])
+        _write_streaming_artifact(archive, payload, artifacts)
+        _write_members(archive, tail_members)
+
+    return _write_verified_archive(path, write_archive)
 
 
 def verify_proof_bundle(

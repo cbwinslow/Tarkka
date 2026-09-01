@@ -7,6 +7,7 @@ Initial public adapter conformance surface.
 Published contracts:
 
 - `ArtifactStoreContract`
+- `StreamingArtifactStoreContract`
 - `ResearchRepositoryContract`
 - `ExtractionRepositoryContract`
 - `CitationRepositoryContract`
@@ -18,6 +19,14 @@ Published contracts:
 The API 1 implementation was promoted from Tarkka's existing shared reference
 adapter contracts. Tarkka's own JSON, PostgreSQL, local artifact, resolver, and
 HTTP transport suites consume this same public package.
+
+Additive API 1 extensions:
+
+- `StreamingArtifactStoreContract.assert_streaming_read` covers the optional
+  `StreamingArtifactStore` capability for context-managed bounded reads of an
+  already-persisted `Artifact` from local files, object stores, or other durable
+  backends without requiring whole-Artifact materialization or unrelated
+  persistence methods on the streaming capability itself.
 
 Publication hardening completed before the API 1 merge:
 

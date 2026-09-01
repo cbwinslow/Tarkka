@@ -4,7 +4,8 @@ import hashlib
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from tarkka.ports.artifacts import ArtifactStore
+from tarkka.domain.models import Artifact
+from tarkka.ports.artifacts import ArtifactStore, StreamingArtifactStore
 
 
 class ArtifactStoreContract:
@@ -67,3 +68,29 @@ class ArtifactStoreContract:
         except FileNotFoundError:
             return
         raise AssertionError("ArtifactStore.put_file must reject a missing source file")
+
+
+class StreamingArtifactStoreContract:
+    """Reusable assertions for the optional bounded-read ArtifactStore capability."""
+
+    @staticmethod
+    def assert_streaming_read(
+        store: StreamingArtifactStore,
+        artifact: Artifact,
+        payload: bytes,
+        *,
+        chunk_size: int = 3,
+    ) -> None:
+        """Assert bounded reading without assuming how the Artifact was persisted."""
+        if chunk_size <= 0:
+            raise ValueError("streaming artifact conformance chunk_size must be positive")
+        expected_digest = hashlib.sha256(payload).digest()
+        digest = hashlib.sha256()
+        size = 0
+        with store.open_reader(artifact) as reader:
+            while chunk := reader.read(chunk_size):
+                digest.update(chunk)
+                size += len(chunk)
+        assert size == len(payload)
+        assert digest.digest() == expected_digest
+        assert reader.closed

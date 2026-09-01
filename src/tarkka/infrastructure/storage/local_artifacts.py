@@ -5,7 +5,10 @@ import mimetypes
 import os
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
+from typing import BinaryIO
 
 from tarkka.domain.identifiers import artifact_id_from_sha256, require_sha256
 from tarkka.domain.models import Artifact
@@ -143,6 +146,12 @@ class LocalArtifactStore:
         if not path.is_file():
             raise FileNotFoundError(path)
         return path
+
+    @contextmanager
+    def open_reader(self, artifact: Artifact) -> Iterator[BinaryIO]:
+        """Yield a bounded-memory reader for one immutable Artifact."""
+        with self.path_for(artifact).open("rb") as handle:
+            yield handle
 
     def read_bytes(self, artifact: Artifact) -> bytes:
         return self.path_for(artifact).read_bytes()

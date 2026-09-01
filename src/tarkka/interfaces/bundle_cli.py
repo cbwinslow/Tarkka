@@ -20,10 +20,11 @@ from tarkka.domain.proof_bundles import PROOF_BUNDLE_SCHEMA_VERSION
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
     verify_proof_bundle,
-    write_proof_bundle,
+    write_streaming_proof_bundle,
 )
 from tarkka.interfaces.proof_bundle_runtime import (
     SUPPORTED_PROOF_BUNDLE_SCHEMA_VERSIONS,
+    proof_bundle_artifact_store,
     proof_bundle_service,
 )
 
@@ -47,8 +48,13 @@ def _bundle_service(
 def _cmd_create(args: argparse.Namespace) -> int:
     output = Path(args.output).expanduser().resolve()
     try:
-        payload = _bundle_service(args.schema_version).build(args.document_id)
-        write_result = write_proof_bundle(output, payload)
+        service = _bundle_service(args.schema_version)
+        payload = service.build_streaming(args.document_id)
+        write_result = write_streaming_proof_bundle(
+            output,
+            payload,
+            proof_bundle_artifact_store(),
+        )
     except (
         ProofBundleArtifactIntegrityError,
         ProofBundleArtifactNotFoundError,

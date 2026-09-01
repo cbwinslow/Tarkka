@@ -59,7 +59,7 @@ class _ArtifactStore:
 
 class _UnreadableArtifactStore:
     def read_bytes(self, artifact: Artifact) -> bytes:
-        raise AssertionError(f"oversized Artifact must not be read: {artifact.artifact_id}")
+        raise AssertionError(f"Artifact must not be read: {artifact.artifact_id}")
 
 
 def _snapshot() -> ProofBundleV2Snapshot:
@@ -127,9 +127,33 @@ def test_v3_service_builds_deterministic_integrity_bound_payload() -> None:
     assert verification.member_count == 4
 
 
+def test_v3_streaming_build_matches_manifest_without_reading_artifact_bytes() -> None:
+    snapshot = _snapshot()
+    service = ProofBundleV3Service(
+        snapshots=_SnapshotReader(snapshot),
+        artifacts=_UnreadableArtifactStore(),  # type: ignore[arg-type]
+        encode_research_state=canonical_research_state_bytes,
+        encode_normalized_document=canonical_normalized_document_bytes,
+    )
+
+    payload = service.build_streaming(_DOCUMENT_ID)
+
+    assert isinstance(payload.manifest, ProofBundleManifestV3)
+    assert payload.artifact is snapshot.source.artifact
+    assert payload.research_state_bytes == canonical_research_state_bytes(
+        document_research_state_view(snapshot.research_state)
+    )
+    assert payload.normalized_document_bytes == canonical_normalized_document_bytes(
+        snapshot.source.document
+    )
+
+
 def test_v3_service_rejects_unknown_document() -> None:
+    service = _service(None)
     with pytest.raises(ProofBundleDocumentNotFoundError, match="document not found"):
-        _service(None).build(_DOCUMENT_ID)
+        service.build(_DOCUMENT_ID)
+    with pytest.raises(ProofBundleDocumentNotFoundError, match="document not found"):
+        service.build_streaming(_DOCUMENT_ID)
 
 
 def test_v3_service_rejects_research_state_for_another_document() -> None:
@@ -138,9 +162,12 @@ def test_v3_service_rejects_research_state_for_another_document() -> None:
         snapshot,
         research_state=DocumentResearchState(document_id=UUID(int=999), claim_lineages=()),
     )
+    service = _service(mismatched)
 
     with pytest.raises(ProofBundleResearchStateIntegrityError, match="different Document"):
-        _service(mismatched).build(_DOCUMENT_ID)
+        service.build(_DOCUMENT_ID)
+    with pytest.raises(ProofBundleResearchStateIntegrityError, match="different Document"):
+        service.build_streaming(_DOCUMENT_ID)
 
 
 def test_v3_service_rejects_oversized_artifact_before_reading_bytes() -> None:
@@ -162,6 +189,8 @@ def test_v3_service_rejects_oversized_artifact_before_reading_bytes() -> None:
 
     with pytest.raises(ProofBundleArtifactLimitError, match="configured build byte maximum"):
         service.build(_DOCUMENT_ID)
+    with pytest.raises(ProofBundleArtifactLimitError, match="configured build byte maximum"):
+        service.build_streaming(_DOCUMENT_ID)
 
 
 def test_proof_bundle_build_limit_reserves_complete_v3_archive_headroom() -> None:

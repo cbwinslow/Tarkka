@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from tarkka.domain.models import Document, Section
 
 
@@ -27,7 +29,7 @@ def _validated_parent_first_sections(document: Document) -> tuple[Section, ...]:
     ):
         raise ValueError("document section IDs and ordinals must be unique")
 
-    passage_ids: set[object] = set()
+    passage_ids: set[UUID] = set()
     for section in sections:
         passage_ordinals: set[int] = set()
         for passage in section.passages:
@@ -57,7 +59,7 @@ def _validated_parent_first_sections(document: Document) -> tuple[Section, ...]:
         )
 
     pending = {section.section_id: section for section in sections}
-    inserted: set[object] = set()
+    inserted: set[UUID] = set()
     ordered: list[Section] = []
     while pending:
         ready = [

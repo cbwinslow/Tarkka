@@ -18,6 +18,7 @@ from tarkka.application.document_research_state import (
 )
 from tarkka.application.proof_bundles import (
     ProofBundleArtifactIntegrityError,
+    ProofBundleArtifactLimitError,
     ProofBundleArtifactNotFoundError,
     ProofBundleDocumentNotFoundError,
     ProofBundlePayload,
@@ -181,6 +182,7 @@ def test_document_replay_response_returns_shared_success_envelope() -> None:
     [
         (ProofBundleDocumentNotFoundError("missing document"), "document_not_found"),
         (ProofBundleArtifactNotFoundError("missing artifact"), "artifact_not_found"),
+        (ProofBundleArtifactLimitError("artifact too large"), "content_too_large"),
         (ProofBundleArtifactIntegrityError("bad artifact"), "artifact_integrity_error"),
         (
             ProofBundleResearchStateIntegrityError("bad research state"),

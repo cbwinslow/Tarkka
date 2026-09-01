@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib import import_module
 from os import environ
@@ -28,6 +30,9 @@ class PostgresSettings:
         if not dsn:
             raise ValueError("TARKKA_DATABASE_URL is required for PostgreSQL operations")
         return cls(dsn=dsn)
+
+
+ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 def connect(settings: PostgresSettings) -> Any:
@@ -61,6 +66,65 @@ def translate_driver_error(
     if isinstance(exc, psycopg.Error):
         return PostgresOperationError("PostgreSQL operation failed")
     return None
+
+
+@contextmanager
+def translate_postgres_errors() -> Iterator[None]:
+    """Translate driver failures without taking ownership of a caller's connection."""
+    try:
+        yield
+    except Exception as exc:
+        translated = translate_driver_error(exc)
+        if translated is not None:
+            raise translated from exc
+        raise
+
+
+@contextmanager
+def managed_connection(
+    settings: PostgresSettings,
+    *,
+    connection_factory: ConnectionFactory = connect,
+    transactional: bool = True,
+) -> Iterator[Any]:
+    """Own one PostgreSQL connection with consistent transactions, errors, and cleanup.
+
+    When the body (or transaction context) raises, a later ``close()`` failure is
+    deliberately suppressed so cleanup cannot replace the primary exception.  A
+    safe note records that cleanup also failed.  If cleanup is the only failure it
+    is surfaced through the normal PostgreSQL driver-error taxonomy.
+    """
+    with translate_postgres_errors():
+        connection = connection_factory(settings)
+
+    primary_error: BaseException | None = None
+    try:
+        try:
+            with translate_postgres_errors():
+                if transactional:
+                    with connection:
+                        yield connection
+                else:
+                    yield connection
+        except BaseException as exc:
+            primary_error = exc
+            raise
+    finally:
+        try:
+            connection.close()
+        except BaseException as close_exc:
+            if primary_error is not None:
+                primary_error.add_note(
+                    "PostgreSQL connection cleanup also failed "
+                    f"({type(close_exc).__name__}); primary exception preserved"
+                )
+            elif isinstance(close_exc, Exception):
+                translated = translate_driver_error(close_exc)
+                if translated is not None:
+                    raise translated from close_exc
+                raise
+            else:
+                raise
 
 
 def _is_transient_driver_error(psycopg: Any, exc: Exception) -> bool:

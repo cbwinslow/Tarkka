@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 from tarkka.domain.models import Artifact
 
@@ -38,3 +39,13 @@ class ArtifactStore(Protocol):
     def read_bytes_by_sha256(self, sha256: str) -> bytes: ...
 
     def exists(self, sha256: str) -> bool: ...
+
+
+class StreamingArtifactStore(ArtifactStore, Protocol):
+    """Optional ArtifactStore capability for bounded sequential reads.
+
+    Implementations may stream from local files, object storage, or another durable backend.
+    Callers own neither the returned reader nor its backend resources beyond the context manager.
+    """
+
+    def open_reader(self, artifact: Artifact) -> AbstractContextManager[BinaryIO]: ...

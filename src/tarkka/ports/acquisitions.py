@@ -125,18 +125,20 @@ class AcquiredArtifact:
         _require_uri(self.final_uri, "acquired Artifact final URI")
         _require_non_negative_int(self.size_bytes, "acquired Artifact size_bytes")
         if not isinstance(self.sha256, str) or _SHA256_RE.fullmatch(self.sha256) is None:
-            raise ValueError("acquired Artifact sha256 must be 64 lowercase hexadecimal characters")
+            raise ValueError(
+                "acquired Artifact sha256 must be 64 lowercase hexadecimal characters"
+            )
         _require_optional_non_blank(self.media_type, "acquired Artifact media type")
         _require_optional_non_blank(self.filename, "acquired Artifact filename")
 
         redirects = tuple(self.redirect_chain)
         if any(not _is_uri(uri) for uri in redirects):
             raise ValueError("acquired Artifact redirect chain must contain valid URIs")
-        if self.final_uri == self.requested_uri:
-            if redirects:
-                raise ValueError("unchanged acquired URI must not carry a redirect chain")
-        elif not redirects or redirects[-1] != self.final_uri:
-            raise ValueError("redirected acquisition must end its redirect chain at final_uri")
+        if redirects:
+            if redirects[-1] != self.final_uri:
+                raise ValueError("acquisition redirect chain must end at final_uri")
+        elif self.final_uri != self.requested_uri:
+            raise ValueError("changed final_uri requires an explicit redirect chain")
         object.__setattr__(self, "redirect_chain", redirects)
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 

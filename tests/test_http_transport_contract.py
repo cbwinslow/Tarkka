@@ -13,6 +13,19 @@ from tarkka.infrastructure.web.pinned_http_transport import (
 pytestmark = [pytest.mark.unit, pytest.mark.contract]
 
 
+class _PermissiveHostResolver(SystemHostResolver):
+    """Deliberately non-conforming resolver used to test contract rejection."""
+
+    def resolve(
+        self,
+        hostname: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[str, ...]:
+        del hostname, timeout_seconds
+        return ("127.0.0.1",)
+
+
 def test_system_host_resolver_contract_returns_valid_unique_addresses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -35,6 +48,16 @@ def test_system_host_resolver_contract_rejects_invalid_inputs() -> None:
 
     HostResolverContract.assert_rejects_blank_hostname(resolver)
     HostResolverContract.assert_rejects_non_positive_timeout(resolver)
+
+
+def test_host_resolver_contract_rejects_adapter_that_accepts_blank_hostnames() -> None:
+    with pytest.raises(AssertionError, match="must reject blank hostnames"):
+        HostResolverContract.assert_rejects_blank_hostname(_PermissiveHostResolver())
+
+
+def test_host_resolver_contract_rejects_adapter_that_accepts_non_positive_timeout() -> None:
+    with pytest.raises(AssertionError, match="must reject non-positive timeouts"):
+        HostResolverContract.assert_rejects_non_positive_timeout(_PermissiveHostResolver())
 
 
 def test_system_host_resolver_fails_closed_on_empty_result(

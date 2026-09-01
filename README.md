@@ -14,6 +14,26 @@ The core is intentionally usable without an LLM, hosted service, or mandatory ex
 research providers, document parsers, databases, and future model providers live behind replaceable
 contracts.
 
+## Prove a research result in five minutes
+
+Tarkka is designed to make research state inspectable and replayable rather than hide evidence
+behind an answer-generation interface. The repository includes a completely local walkthrough that
+uses a project-authored source fixture and the real CLI to demonstrate:
+
+```text
+preserved source
+  -> normalized Document
+  -> Claim + exact Evidence
+  -> `tarkka why` provenance
+  -> schema-v3 proof bundle
+  -> offline verification
+  -> exact deterministic replay
+```
+
+The walkthrough needs no model, provider credentials, PostgreSQL server, or network access. From a
+checkout with Python 3.11 or newer, it can run directly through `PYTHONPATH=src python -m tarkka`
+without an installation step. See [`docs/QUICKSTART_PROOF_REPLAY.md`](docs/QUICKSTART_PROOF_REPLAY.md).
+
 ## What works today
 
 ### Local research ingestion
@@ -22,6 +42,19 @@ contracts.
 tarkka ingest ./notes.md
 tarkka inspect <document-id>
 tarkka read <document-id> --section 0
+
+# Extract deterministic sentence-level claims with exact passage evidence.
+tarkka extract claims <document-id> --extractor rule
+tarkka claims list <document-id>
+tarkka claims show <claim-id>
+
+# Walk a Claim back through extraction, exact Evidence, Document, and Artifact provenance.
+tarkka why <claim-id>
+
+# Export, independently verify, and replay portable research state.
+tarkka bundle create <document-id> --schema-version 3 --output research.tarkka
+tarkka bundle verify research.tarkka
+tarkka replay research.tarkka
 
 # For JATS, LaTeX, EPUB, and semantic HTML: inspect preserved citations progressively.
 tarkka citations list <document-id> --limit 20
@@ -117,21 +150,19 @@ TARKKA_DOCUMENT_BACKEND=postgres \
 tarkka documents manifest <document-id>
 ```
 
-Install the optional MCP transport to expose the same staged, read-only document services to an
-MCP client over stdio. The server deliberately lists capabilities and document structure before
-returning a selected section's source-preserving passage text:
+Install the optional MCP transport to expose the same staged research services to an MCP client over
+stdio:
 
 ```bash
 uv sync --extra mcp
 tarkka-mcp
 ```
 
-The initial MCP tools are `research_capabilities`, `research_operation_schema`,
-`document_manifest`, `document_sections`, and `document_section`. They use the same
-`TARKKA_DOCUMENT_BACKEND` selection as the document CLI; context-package saves and other writes
-remain CLI/application-service operations until their audit boundaries are exposed explicitly.
-Exact section expansion is rejected above the same 8,000 estimated-token budget used for document
-context packages, so one MCP call cannot force an unbounded document response.
+MCP uses the same transport-neutral application contracts for progressive capability discovery,
+bounded Document expansion, Claim lineage, and safe path-free persisted-Document replay. Start with
+`research_capabilities`, expand only the operation schema needed for the task, and then invoke the
+specific read operation. Remote replay accepts a stable Document handle rather than a caller-supplied
+server filesystem path.
 
 For transparent, opt-in local telemetry, set a JSONL destination before starting the server. Events
 contain only tool name, outcome/error code, response byte count, estimated tokens, and latency;
@@ -183,22 +214,20 @@ skills/research-discovery/SKILL.md
 
 ## Current roadmap position
 
-Foundation through the initial structured extraction/source-intelligence workflow is delivered.
-Evidence verification is substantially complete for the local workflow, and the first agent-serving
-foundation now offers compact transport-neutral capability discovery for implemented discovery,
-verification, citation traversal, and source-resource inspection services.
+Tarkka now has a complete auditable proof/replay vertical slice: immutable source preservation,
+deterministic normalization, evidence-backed Claims, provenance inspection, portable v1/v2/v3 proof
+bundles, offline verification, exact deterministic replay, and safe replay/lineage serving to agents.
 
-Immediate engineering sequence:
+The immediate product sequence is:
 
 ```text
-evidence verification
-  -> bounded source/citation expansion
-  -> compact agent capability discovery
-  -> manifest / summary / evidence expansion services
-  -> MCP serving and saved context packages
+five-minute offline proof/replay adoption path
+  -> frozen vs live research-state diff
+  -> adapter/plugin conformance kit
+  -> public evaluation corpus and interoperability work
 ```
 
-See `docs/ROADMAP.md` and `docs/MILESTONE_3.md` for details.
+See `docs/ROADMAP.md` and issue #198 for the broader product roadmap.
 
 ## Development
 
@@ -214,7 +243,12 @@ verified separately with a CPU-only workflow.
 
 ## Documentation
 
-Start with:
+For users, start with:
+
+1. `docs/QUICKSTART_PROOF_REPLAY.md`
+2. `docs/PROOF_BUNDLES.md`
+
+For contributors and coding agents, start with:
 
 1. `AGENTS.md`
 2. `docs/PROJECT_CHARTER.md`

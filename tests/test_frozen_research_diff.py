@@ -106,6 +106,20 @@ def test_identical_frozen_state_is_materially_equal_and_stably_serialized() -> N
     assert payload["claims"] == [result.claims[0].to_dict()]
 
 
+def test_different_document_identity_is_always_material() -> None:
+    before = _bundle()
+    after = replace(before, document_id=_DOCUMENT_B)
+
+    result = diff_frozen_research(before, after)
+
+    assert result.same_document is False
+    assert result.manifest_changed is False
+    assert result.artifact_changed is False
+    assert result.normalized_document_changed is False
+    assert result.claims == ()
+    assert result.materially_equal is False
+
+
 def test_diff_reports_added_removed_and_changed_claim_children_deterministically() -> None:
     before_claim_a = _claim(
         marker="1",

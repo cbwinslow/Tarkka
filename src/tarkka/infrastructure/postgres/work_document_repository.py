@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, cast
@@ -10,12 +10,11 @@ from uuid import UUID
 
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresWorkDocumentRepository:
@@ -61,58 +60,67 @@ class PostgresWorkDocumentRepository:
 
     def list_work_document_links(self, work_id: UUID) -> tuple[WorkDocumentLink, ...]:
         with self._connection() as connection:
-            return self._list_work_document_links(connection, work_id)
+            return list_work_document_links_with_connection(connection, work_id)
 
     def list_document_work_links(self, document_id: UUID) -> tuple[WorkDocumentLink, ...]:
         with self._connection() as connection:
-            return self._list_document_work_links(connection, document_id)
+            return list_document_work_links_with_connection(connection, document_id)
 
     @staticmethod
     def _list_work_document_links(
         connection: Any,
         work_id: UUID,
     ) -> tuple[WorkDocumentLink, ...]:
-        rows = connection.execute(
-            """
-            SELECT link_id, work_id, artifact_id, document_id, linked_at
-            FROM tarkka.work_document_link
-            WHERE work_id = %s
-            ORDER BY link_id
-            """,
-            (work_id,),
-        ).fetchall()
-        return _work_document_links_from_rows(rows)
+        return list_work_document_links_with_connection(connection, work_id)
 
     @staticmethod
     def _list_document_work_links(
         connection: Any,
         document_id: UUID,
     ) -> tuple[WorkDocumentLink, ...]:
-        rows = connection.execute(
-            """
-            SELECT link_id, work_id, artifact_id, document_id, linked_at
-            FROM tarkka.work_document_link
-            WHERE document_id = %s
-            ORDER BY link_id
-            """,
-            (document_id,),
-        ).fetchall()
-        return _work_document_links_from_rows(rows)
+        return list_document_work_links_with_connection(connection, document_id)
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
+
+
+def list_work_document_links_with_connection(
+    connection: Any,
+    work_id: UUID,
+) -> tuple[WorkDocumentLink, ...]:
+    """Read Work representation links through a caller-owned PostgreSQL connection."""
+    rows = connection.execute(
+        """
+        SELECT link_id, work_id, artifact_id, document_id, linked_at
+        FROM tarkka.work_document_link
+        WHERE work_id = %s
+        ORDER BY link_id
+        """,
+        (work_id,),
+    ).fetchall()
+    return _work_document_links_from_rows(rows)
+
+
+def list_document_work_links_with_connection(
+    connection: Any,
+    document_id: UUID,
+) -> tuple[WorkDocumentLink, ...]:
+    """Read Document representation links through a caller-owned PostgreSQL connection."""
+    rows = connection.execute(
+        """
+        SELECT link_id, work_id, artifact_id, document_id, linked_at
+        FROM tarkka.work_document_link
+        WHERE document_id = %s
+        ORDER BY link_id
+        """,
+        (document_id,),
+    ).fetchall()
+    return _work_document_links_from_rows(rows)
 
 
 def _work_document_links_from_rows(rows: list[tuple[Any, ...]]) -> tuple[WorkDocumentLink, ...]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from threading import Event, Lock
 from typing import Any, cast
 from uuid import UUID
 
@@ -9,6 +10,10 @@ import pytest
 
 from tarkka.application.document_replay import DocumentReplayer, DocumentReplayExecutionError
 from tarkka.application.document_replay_protocol import document_replay_response
+from tarkka.application.document_research_state import (
+    DocumentResearchStateLimitError,
+    DocumentResearchStateMismatchError,
+)
 from tarkka.application.proof_bundles import ProofBundleDocumentNotFoundError
 from tarkka.application.replay import (
     ReplayDeterminism,
@@ -61,7 +66,30 @@ class _ReplayService:
         return self.outcome
 
 
-def _http_request(
+class _BlockingReplayService:
+    def __init__(self) -> None:
+        self.started = Event()
+        self.release = Event()
+        self._lock = Lock()
+        self._active = 0
+        self.max_active = 0
+
+    def replay(self, document_id: UUID) -> ReplayResult:
+        assert document_id == _DOCUMENT_ID
+        with self._lock:
+            self._active += 1
+            self.max_active = max(self.max_active, self._active)
+        self.started.set()
+        try:
+            if not self.release.wait(timeout=2):
+                raise RuntimeError("test replay release timed out")
+            return _result()
+        finally:
+            with self._lock:
+                self._active -= 1
+
+
+async def _http_request_async(
     app: TarkkaHttpApp,
     path: str,
     *,
@@ -75,22 +103,29 @@ def _http_request(
     async def send(message: dict[str, object]) -> None:
         sent.append(message)
 
-    asyncio.run(
-        app(
-            {
-                "type": "http",
-                "method": "GET",
-                "path": path,
-                "query_string": query_string,
-            },
-            receive,
-            send,
-        )
+    await app(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "query_string": query_string,
+        },
+        receive,
+        send,
     )
     assert len(sent) == 2
     status = cast(int, sent[0]["status"])
     body = json.loads(cast(bytes, sent[1]["body"]).decode("utf-8"))
     return status, cast(dict[str, Any], body)
+
+
+def _http_request(
+    app: TarkkaHttpApp,
+    path: str,
+    *,
+    query_string: object = b"",
+) -> tuple[int, dict[str, Any]]:
+    return asyncio.run(_http_request_async(app, path, query_string=query_string))
 
 
 def test_http_document_replay_matches_shared_contract_and_accepts_doc_handle() -> None:
@@ -130,6 +165,16 @@ def test_http_document_replay_maps_stable_failures_to_semantic_statuses() -> Non
     cases = (
         (ProofBundleDocumentNotFoundError("missing document"), 404, "document_not_found"),
         (
+            DocumentResearchStateLimitError("too many claims"),
+            413,
+            "content_too_large",
+        ),
+        (
+            DocumentResearchStateMismatchError("inconsistent pages"),
+            409,
+            "research_state_integrity_error",
+        ),
+        (
             DocumentReplayExecutionError("replay_bundle_invalid", "invalid bundle"),
             409,
             "replay_bundle_invalid",
@@ -150,15 +195,16 @@ def test_http_document_replay_maps_stable_failures_to_semantic_statuses() -> Non
         assert response["error"]["code"] == expected_code
 
 
-def test_http_document_replay_runtime_is_lazy_and_configuration_failures_are_503(
+def test_http_document_replay_runtime_is_lazy_and_hides_configuration_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
+    secret = "postgresql://user:super-secret@database/" + "x" * 10_000
 
     def unavailable() -> DocumentReplayer:
         nonlocal calls
         calls += 1
-        raise ValueError("TARKKA_DATABASE_URL is required")
+        raise ValueError(secret)
 
     monkeypatch.setattr(http_api, "configured_document_replay_service", unavailable)
     app = create_app()
@@ -168,7 +214,12 @@ def test_http_document_replay_runtime_is_lazy_and_configuration_failures_are_503
 
     status, response = _http_request(app, f"/v1/documents/{_DOCUMENT_ID}/replay")
     assert status == 503
-    assert response["error"]["code"] == "backend_unavailable"
+    assert response["error"] == {
+        "code": "backend_unavailable",
+        "message": "configured document replay backend is unavailable",
+        "next_actions": [],
+    }
+    assert secret not in json.dumps(response)
     assert calls == 1
 
 
@@ -193,6 +244,33 @@ def test_http_document_replay_runs_blocking_work_off_event_loop(
     assert calls == [f"/v1/documents/{_DOCUMENT_ID}/replay"]
 
 
+def test_http_document_replay_serializes_expensive_execution_by_default() -> None:
+    service = _BlockingReplayService()
+    app = create_app(replay=service)
+    path = f"/v1/documents/{_DOCUMENT_ID}/replay"
+
+    async def exercise() -> tuple[tuple[int, dict[str, Any]], tuple[int, dict[str, Any]]]:
+        first = asyncio.create_task(_http_request_async(app, path))
+        assert await asyncio.to_thread(service.started.wait, 1)
+        second = asyncio.create_task(_http_request_async(app, path))
+        await asyncio.sleep(0.05)
+        assert service.max_active == 1
+        service.release.set()
+        first_response, second_response = await asyncio.gather(first, second)
+        return first_response, second_response
+
+    first_response, second_response = asyncio.run(exercise())
+
+    assert first_response[0] == 200
+    assert second_response[0] == 200
+    assert service.max_active == 1
+
+
+def test_http_document_replay_rejects_nonpositive_concurrency_limit() -> None:
+    with pytest.raises(ValueError, match="max_concurrent_replays must be positive"):
+        create_app(max_concurrent_replays=0)
+
+
 def test_openapi_advertises_replay_from_canonical_operation_metadata() -> None:
     document = openapi_document()
     replay_get = document["paths"]["/v1/documents/{document_id}/replay"]["get"]
@@ -201,7 +279,7 @@ def test_openapi_advertises_replay_from_canonical_operation_metadata() -> None:
     assert replay_get["operationId"] == schema.operation.operation_id
     assert replay_get["summary"] == schema.operation.summary
     assert [item["name"] for item in replay_get["parameters"]] == ["document_id"]
-    assert set(replay_get["responses"]) == {"200", "400", "404", "409", "503"}
+    assert set(replay_get["responses"]) == {"200", "400", "404", "409", "413", "503"}
     replay_component = document["components"]["schemas"]["DocumentReplayEnvelope"]
     assert replay_component["required"] == ["ok", "replay", "estimated_tokens"]
 

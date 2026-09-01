@@ -210,11 +210,10 @@ def test_managed_connection_translates_factory_and_transaction_errors(
 
     exit_error = _OperationalError("commit")
     connection = _Connection(exit_error=exit_error)
-    with pytest.raises(PostgresTransientOperationError) as transaction_raised:
-        with managed_connection(
-            PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
-        ):
-            pass
+    with pytest.raises(PostgresTransientOperationError) as transaction_raised, managed_connection(
+        PostgresSettings("postgresql://unused"), connection_factory=lambda _: connection
+    ):
+        pass
     assert transaction_raised.value.__cause__ is exit_error
     assert connection.closed == 1
 

@@ -78,15 +78,14 @@ def test_projector_accepts_domain_valid_optional_null_variants(tmp_path: Path) -
     claim_run = cast(dict[str, Any], _claim(state)["extraction_run"])
     claim_run["model"] = None
 
-    passage = _evidence(state, "passage")
-    passage_run = cast(dict[str, Any], passage["extraction_run"])
-    passage_model = cast(dict[str, Any], passage_run["model"])
-    passage_model["version"] = None
+    figure = _evidence(state, "figure")
+    figure_run = cast(dict[str, Any], figure["extraction_run"])
+    figure_model = cast(dict[str, Any], figure_run["model"])
+    figure_model["version"] = None
 
     source_artifact = cast(dict[str, Any], _claim_source(state)["artifact"])
     source_artifact["source_uri"] = None
 
-    figure = _evidence(state, "figure")
     for key in ("page_number", "label", "caption", "figure_type"):
         figure[key] = None
 
@@ -130,7 +129,10 @@ def test_projector_rejects_research_document_identity_mismatch(tmp_path: Path) -
     state, document_id, artifact_id = _valid_state(tmp_path)
     state["document_id"] = str(UUID(int=999))
 
-    with pytest.raises(FrozenResearchStateProjectionError, match="does not match verified Document"):
+    with pytest.raises(
+        FrozenResearchStateProjectionError,
+        match="does not match verified Document",
+    ):
         _project(state, document_id, artifact_id)
 
 

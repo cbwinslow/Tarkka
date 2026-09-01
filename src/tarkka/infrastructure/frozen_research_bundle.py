@@ -133,13 +133,18 @@ def _validate_member_contracts(
     research: Mapping[str, Any],
     document: Mapping[str, Any],
 ) -> None:
+    expected_research_fields = {"format", "schema_version", "document_id", "claims"}
+    if set(research) != expected_research_fields:
+        raise FrozenResearchBundleInspectionError(
+            "frozen research state has unexpected or missing fields"
+        )
     if document.get("format") != NORMALIZED_DOCUMENT_FORMAT:
         raise FrozenResearchBundleInspectionError("unsupported normalized Document format")
     if document.get("schema_version") != NORMALIZED_DOCUMENT_SCHEMA_VERSION:
         raise FrozenResearchBundleInspectionError("unsupported normalized Document schema version")
-    if research.get("format") != DOCUMENT_RESEARCH_STATE_FORMAT:
+    if research["format"] != DOCUMENT_RESEARCH_STATE_FORMAT:
         raise FrozenResearchBundleInspectionError("unsupported frozen research-state format")
-    if research.get("schema_version") != DOCUMENT_RESEARCH_STATE_SCHEMA_VERSION:
+    if research["schema_version"] != DOCUMENT_RESEARCH_STATE_SCHEMA_VERSION:
         raise FrozenResearchBundleInspectionError(
             "unsupported frozen research-state schema version"
         )
@@ -150,16 +155,6 @@ def _project_claims(
     *,
     expected_document_id: str,
 ) -> tuple[FrozenClaimState, ...]:
-    expected_root = {"format", "schema_version", "document_id", "claims"}
-    if set(research) != expected_root:
-        raise FrozenResearchBundleInspectionError(
-            "frozen research state has unexpected or missing fields"
-        )
-    research_document_id = _canonical_uuid(research["document_id"], "research-state document_id")
-    if research_document_id != expected_document_id:
-        raise FrozenResearchBundleInspectionError(
-            "research-state Document identity does not match normalized Document"
-        )
     claims_value = research["claims"]
     if not isinstance(claims_value, list):
         raise FrozenResearchBundleInspectionError("frozen research-state claims must be an array")

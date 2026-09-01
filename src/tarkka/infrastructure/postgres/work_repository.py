@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -12,12 +12,12 @@ from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.models import Work
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.infrastructure.postgres.connection import (
+    ConnectionFactory,
     PostgresSettings,
     connect,
-    translate_driver_error,
+    managed_connection,
+    translate_postgres_errors,
 )
-
-ConnectionFactory = Callable[[PostgresSettings], Any]
 
 
 class PostgresWorkRepository:
@@ -44,20 +44,15 @@ class PostgresWorkRepository:
     def transaction(self) -> Iterator[None]:
         if self._transaction_connection.get() is not None:
             raise RuntimeError("nested Work repository transactions are not supported")
-        try:
-            connection = self._connect(self._settings)
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
             token = self._transaction_connection.set(connection)
             try:
-                with connection:
-                    yield
+                yield
             finally:
                 self._transaction_connection.reset(token)
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
 
     def save_work(self, work: Work) -> None:
         with self._connection() as connection:
@@ -245,26 +240,14 @@ class PostgresWorkRepository:
     def _connection(self) -> Iterator[Any]:
         transaction_connection = self._transaction_connection.get()
         if transaction_connection is not None:
-            try:
+            with translate_postgres_errors():
                 yield transaction_connection
-            except Exception as exc:
-                translated = translate_driver_error(exc)
-                if translated is not None:
-                    raise translated from exc
-                raise
             return
-        try:
-            connection = self._connect(self._settings)
-            try:
-                with connection:
-                    yield connection
-            finally:
-                connection.close()
-        except Exception as exc:
-            translated = translate_driver_error(exc)
-            if translated is not None:
-                raise translated from exc
-            raise
+        with managed_connection(
+            self._settings,
+            connection_factory=self._connect,
+        ) as connection:
+            yield connection
 
     @staticmethod
     def _get_work(connection: Any, work_id: UUID) -> Work | None:

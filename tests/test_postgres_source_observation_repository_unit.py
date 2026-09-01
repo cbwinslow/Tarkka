@@ -19,6 +19,7 @@ from tarkka.infrastructure.postgres.source_observation_repository import (
     PostgresSourceObservationRepository,
     _link_from_row,
     _observation_from_row,
+    list_resource_links_for_artifact_with_connection,
 )
 
 _OBSERVATION_ID = UUID("00000000-0000-0000-0000-00000000b101")
@@ -155,6 +156,26 @@ def test_postgres_source_observation_saves_and_reads_resource_links() -> None:
     assert repository.list_resource_links(observation.observation_id) == (link,)
     assert repository.get_resource_link_for_artifact(_ARTIFACT_ID, link.link_id) == link
     assert "JOIN tarkka.source_observation" in connection.calls[-1][0]
+
+
+def test_postgres_source_observation_batches_artifact_resource_links() -> None:
+    first = _link()
+    second = replace(
+        first,
+        link_id=UUID("00000000-0000-0000-0000-00000000b104"),
+        observation_id=UUID("00000000-0000-0000-0000-00000000b105"),
+        target_uri="https://example.test/supplement.csv",
+    )
+    connection = _Connection([_Cursor(rows=[_link_row(first), _link_row(second)])])
+
+    assert list_resource_links_for_artifact_with_connection(connection, _ARTIFACT_ID) == (
+        first,
+        second,
+    )
+    assert len(connection.calls) == 1
+    query, params = connection.calls[0]
+    assert "JOIN tarkka.source_observation" in query
+    assert params == (_ARTIFACT_ID,)
 
 
 def test_postgres_source_observation_pages_resource_links_at_sql_boundary() -> None:

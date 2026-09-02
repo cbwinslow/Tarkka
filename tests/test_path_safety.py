@@ -21,6 +21,8 @@ pytestmark = [pytest.mark.unit, pytest.mark.regression]
         ("bad\x00name.pdf", False),
         ("bad\x1fname.pdf", False),
         ("bad\x7fname.pdf", False),
+        ("paper\u2028name.pdf", False),
+        ("paper\u202ename.pdf", False),
         ("dir/paper.pdf", False),
         (r"dir\paper.pdf", False),
         ("paper.pdf:metadata", False),
@@ -29,6 +31,8 @@ pytestmark = [pytest.mark.unit, pytest.mark.regression]
         ("con.txt", False),
         ("COM1", False),
         ("Lpt9.csv", False),
+        ("CON .txt", False),
+        ("x" * 241, False),
         ("paper.pdf", True),
     ],
 )
@@ -61,6 +65,7 @@ def test_acquisition_receipt_rejects_path_like_filename() -> None:
         ("semantic/scholar-paper:123.pdf", "semantic_scholar-paper_123.pdf"),
         ("CON", "CON_"),
         ("report. ", "report"),
+        ("CON .txt", "CON_.txt"),
         ("\x00", "_"),
     ],
 )
@@ -80,3 +85,19 @@ def test_portable_filename_component_validates_inputs_and_uses_fallback_for_blan
         portable_filename_component(123)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="fallback must be safe"):
         portable_filename_component("paper.pdf", fallback="CON")
+
+
+def test_portable_filename_component_replaces_display_controls_and_bounds_long_names() -> None:
+    assert portable_filename_component("paper\u202ename\u2028.pdf") == "paper_name_.pdf"
+
+    filename = portable_filename_component(f"{'x' * 500}.pdf")
+
+    assert filename.endswith(".pdf")
+    assert len(filename.encode("utf-8")) <= 240
+    assert len(filename.encode("utf-16-le")) // 2 <= 240
+    assert is_safe_filename_component(filename)
+
+    long_extension_filename = portable_filename_component(f"paper.{'x' * 500}")
+
+    assert long_extension_filename.startswith("paper-")
+    assert is_safe_filename_component(long_extension_filename)

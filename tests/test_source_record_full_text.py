@@ -72,3 +72,28 @@ def test_source_record_resolver_canonicalizes_hostile_generated_filename_with_pr
     assert is_safe_filename_component(resource.filename)
     assert resource.metadata["provider_id"] == "paper:123. "
     assert resource.metadata["generated_filename_input"] == "semantic/scholar-paper:123. .pdf"
+
+
+def test_source_record_resolver_bounds_long_generated_filename_with_provenance() -> None:
+    work_id = uuid4()
+    work = Work(work_id=work_id, title="Paper")
+    provider_id = "x" * 500
+    source = WorkSourceRecord(
+        source_record_id=uuid4(),
+        work_id=work_id,
+        record=DiscoveryRecord(
+            provider="fixture",
+            provider_id=provider_id,
+            title="Paper",
+            open_access_url="https://example.test/paper.pdf",
+            metadata={"open_access_media_type": "application/pdf"},
+        ),
+    )
+
+    resource = SourceRecordFullTextResolver().resolve(work, (), (source,))
+
+    assert resource is not None
+    assert resource.filename.endswith(".pdf")
+    assert len(resource.filename.encode("utf-8")) <= 240
+    assert resource.metadata["provider_id"] == provider_id
+    assert resource.metadata["generated_filename_input"] == f"fixture-{provider_id}.pdf"

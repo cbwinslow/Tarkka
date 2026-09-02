@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import unicodedata
+
 _WINDOWS_RESERVED_STEMS = frozenset(
     {
         "con",
@@ -11,6 +14,8 @@ _WINDOWS_RESERVED_STEMS = frozenset(
     }
 )
 _UNSAFE_FILENAME_CHARACTERS = frozenset('<>:"/\\|?*')
+_MAX_PORTABLE_FILENAME_UTF8_BYTES = 240
+_MAX_PORTABLE_FILENAME_UTF16_CODE_UNITS = 240
 
 
 def is_safe_filename_component(value: object) -> bool:
@@ -27,11 +32,12 @@ def is_safe_filename_component(value: object) -> bool:
         or value != value.strip()
         or value in {".", ".."}
         or value[-1] in {".", " "}
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or not _fits_portable_filename_limits(value)
+        or any(_is_unsafe_filename_character(character) for character in value)
         or any(character in _UNSAFE_FILENAME_CHARACTERS for character in value)
     ):
         return False
-    return value.split(".", 1)[0].casefold() not in _WINDOWS_RESERVED_STEMS
+    return _portable_stem(value).casefold() not in _WINDOWS_RESERVED_STEMS
 
 
 def portable_filename_component(value: str, *, fallback: str = "artifact") -> str:
@@ -47,14 +53,51 @@ def portable_filename_component(value: str, *, fallback: str = "artifact") -> st
 
     normalized = "".join(
         "_"
-        if ord(character) < 32
-        or ord(character) == 127
+        if _is_unsafe_filename_character(character)
         or character in _UNSAFE_FILENAME_CHARACTERS
         else character
         for character in value
     ).strip().rstrip(". ")
     if normalized in {"", ".", ".."}:
         return fallback
-    if normalized.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_STEMS:
-        normalized = f"{normalized}_"
-    return normalized
+    if _portable_stem(normalized).casefold() in _WINDOWS_RESERVED_STEMS:
+        stem, separator, suffix = normalized.partition(".")
+        normalized = f"{stem.rstrip(' .')}_{separator}{suffix}"
+    if _fits_portable_filename_limits(normalized):
+        return normalized
+    return _shorten_filename_component(normalized, value)
+
+
+def _is_unsafe_filename_character(character: str) -> bool:
+    category = unicodedata.category(character)
+    return (
+        ord(character) < 32
+        or ord(character) == 127
+        or category in {"Cc", "Cf", "Cn", "Co", "Cs", "Zl", "Zp"}
+    )
+
+
+def _fits_portable_filename_limits(value: str) -> bool:
+    return (
+        len(value.encode("utf-8")) <= _MAX_PORTABLE_FILENAME_UTF8_BYTES
+        and len(value.encode("utf-16-le")) // 2 <= _MAX_PORTABLE_FILENAME_UTF16_CODE_UNITS
+    )
+
+
+def _portable_stem(value: str) -> str:
+    return value.split(".", 1)[0].rstrip(". ")
+
+
+def _shorten_filename_component(normalized: str, source: str) -> str:
+    stem, separator, suffix = normalized.rpartition(".")
+    extension = f"{separator}{suffix}" if stem else ""
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+    if not _fits_portable_filename_limits(f"-{digest}{extension}"):
+        extension = ""
+    prefix = ""
+    for character in (stem or normalized):
+        candidate = f"{prefix}{character}-{digest}{extension}"
+        if not _fits_portable_filename_limits(candidate):
+            break
+        prefix += character
+    return f"{prefix}-{digest}{extension}"

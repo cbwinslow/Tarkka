@@ -257,6 +257,29 @@ def test_policy_safe_exchange_rejects_empty_dns_and_malformed_redirect_reference
             redirect_location(response)
 
 
+def test_http_acquirer_recomputes_transport_timeout_after_resolution() -> None:
+    current_time = [0.0]
+
+    class _SlowResolver(_Resolver):
+        def resolve(
+            self, hostname: str, *, timeout_seconds: float | None = None
+        ) -> tuple[str, ...]:
+            current_time[0] = 10.0
+            return super().resolve(hostname, timeout_seconds=timeout_seconds)
+
+    transport = _Transport({_START: HttpTransportResponse(status_code=200)})
+    acquirer = HttpArtifactAcquirer(
+        exchange=PolicySafeHttpExchange(resolver=_SlowResolver(), transport=transport),
+        policy=_policy(max_elapsed_seconds=60.0),
+        clock=lambda: current_time[0],
+        sleeper=lambda _: None,
+    )
+
+    acquirer.acquire(ArtifactCandidate(source_uri=_START), BytesIO())
+
+    assert transport.requests[0][3] == 50.0
+
+
 @pytest.mark.parametrize(
     ("response", "kind"),
     (
@@ -313,15 +336,25 @@ def test_http_acquirer_maps_transport_and_sink_failures_to_transient() -> None:
             del data
             return 0
 
+    class _OverreportingSink:
+        def write(self, data: bytes) -> int:
+            del data
+            return 999
+
     with pytest.raises(AcquisitionError) as transport_error:
         _acquirer(transport=_BrokenTransport()).acquire(
             ArtifactCandidate(source_uri=_START), BytesIO()
         )
     with pytest.raises(AcquisitionError) as sink_error:
         _acquirer().acquire(ArtifactCandidate(source_uri=_START), _RejectingSink())  # type: ignore[arg-type]
+    with pytest.raises(AcquisitionError) as overreporting_error:
+        _acquirer().acquire(
+            ArtifactCandidate(source_uri=_START), _OverreportingSink()  # type: ignore[arg-type]
+        )
 
     assert transport_error.value.kind is AcquisitionFailureKind.TRANSIENT
     assert sink_error.value.kind is AcquisitionFailureKind.TRANSIENT
+    assert overreporting_error.value.kind is AcquisitionFailureKind.TRANSIENT
 
 
 @pytest.mark.parametrize("status", (401, 403))
@@ -344,14 +377,16 @@ def test_http_acquirer_applies_wait_and_elapsed_policy() -> None:
             _FINAL: HttpTransportResponse(status_code=200),
         }
     )
+
+    def _advance_after_sleep(interval: float) -> None:
+        sleeps.append(interval)
+        current_time[0] = 60.0
+
     acquirer = HttpArtifactAcquirer(
         exchange=PolicySafeHttpExchange(resolver=_Resolver(), transport=transport),
         policy=_policy(min_request_interval_seconds=1.0),
         clock=lambda: current_time[0],
-        sleeper=lambda interval: (
-            sleeps.append(interval),
-            current_time.__setitem__(0, 60.0),
-        ),
+        sleeper=_advance_after_sleep,
     )
 
     with pytest.raises(AcquisitionError, match="ValueError"):

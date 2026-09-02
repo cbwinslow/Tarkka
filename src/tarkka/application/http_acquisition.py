@@ -268,8 +268,6 @@ class HttpAcquisitionService:
         *,
         started_at: float,
     ) -> HttpTransportResponse:
-        dns_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
-        transport_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
         remaining_bytes = policy.max_bytes - checkpoint.budget.bytes_used
         if remaining_bytes < 0:
             raise ValueError("HTTP acquisition byte budget is already exceeded")
@@ -277,8 +275,9 @@ class HttpAcquisitionService:
             uri=uri,
             policy=policy,
             max_response_bytes=remaining_bytes,
-            resolver_timeout_seconds=dns_timeout_seconds,
-            transport_timeout_seconds=transport_timeout_seconds,
+            remaining_timeout_seconds=lambda: self._remaining_elapsed(
+                checkpoint, policy, started_at
+            ),
         )
 
     def _finish(

@@ -76,6 +76,21 @@ First implement a small composition service over existing addressable components
 export format. Add format-specific renderers only after representative fixtures prove source
 locators, ordering, attribution, and rights behavior.
 
+### V1 section-only implementation
+
+The initial service composes reconstructed `Section` objects only. Each immutable manifest component
+pins the source Artifact SHA-256, Document ID, Section ID, parser name/version, and reconstructed
+basis; a manifest also pins the Markdown renderer name/version, explicit component order, and an
+auditable decision permitting or denying redistribution. The service can first inspect these stable
+source locators, then resolve and render them through a replaceable exporter boundary.
+
+The first exporter produces deterministic UTF-8 Markdown with per-section source attribution. Its
+output receipt records the composition/revision, output SHA-256, byte size, media type, filename,
+and export time. Export bytes and receipts are returned as a derived result; this V1 service does
+not yet persist them as an Artifact or alter any source Artifact. A denied right, missing/stale
+source, missing exporter, or rendering interruption returns a typed failure before any source
+mutation.
+
 ## Required tests
 
 - exact original Artifact retrieval is unaffected by parsing/export;

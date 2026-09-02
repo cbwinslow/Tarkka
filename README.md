@@ -212,6 +212,22 @@ skills/research-discovery/SKILL.md
 - domain-specific semantics belong in domain packs
 - CLI/API/MCP/SDK should share application services
 
+## Stable design contracts
+
+The implementation evolves through small, tested slices, but these durable contracts define the
+direction of that work:
+
+- [`ARTIFACT_COMPOSITION.md`](docs/ARTIFACT_COMPOSITION.md) — retain exact originals while
+  creating addressable structural components and reproducible derivative exports.
+- [`OCR_QUALITY_AND_DERIVATIONS.md`](docs/OCR_QUALITY_AND_DERIVATIONS.md) — keep OCR/layout/vision
+  output separate from source-native content and make conversion quality reviewable.
+- [`SIMILARITY_CONSENSUS_AND_GRAPH.md`](docs/SIMILARITY_CONSENSUS_AND_GRAPH.md) — discover related
+  claims and graph-shaped research relationships without silently merging facts or asserting truth.
+
+For substantial work, GitHub issues hold the active feature specification and linked pull requests
+hold implementation/review/validation history. Stable decisions are promoted into the documents
+above and the architecture docs rather than copied into a local handoff journal.
+
 ## Current roadmap position
 
 Tarkka now has a complete auditable proof/replay vertical slice: immutable source preservation,

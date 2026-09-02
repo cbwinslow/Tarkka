@@ -132,12 +132,25 @@ the same bytes converge on the same Artifact and Document identities. Each succe
 records its own Acquisition event, preserving separate source observations rather than collapsing
 history.
 
+## Local-file reference adapter
+
+`LocalFileAcquirer` is the first concrete implementation of this contract. It accepts only
+absolute local `file:` URIs (empty/`localhost` authority), streams a regular file in bounded
+chunks, and never closes the caller-owned sink. A requested URI remains the source observation;
+the resolved target URI is reported as the final URI, without inventing a redirect chain.
+
+The adapter has no directory traversal, root policy, network-share, parser, or persistence role.
+It records an unavailable assessment for a missing/non-regular path, and maps acquisition-time
+missing, permission, and other OS failures to the stable failure model. A filename-derived media
+type remains a routing hint. When a local basename is unsafe on a portable filesystem, the receipt
+uses the shared canonicalizer and preserves the raw basename in bounded receipt metadata.
+
 ## What this slice intentionally does not do
 
 This contract does not yet add:
 
 - plugin loading or entry-point discovery;
-- HTTP/local/object-store reference adapters using this new port;
+- HTTP/object-store reference adapters using this new port;
 - content sniffing or parser support scoring;
 - web cleaning/extraction selection;
 - resumable bulk-ingestion checkpoints, backpressure, or concurrency;

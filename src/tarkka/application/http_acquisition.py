@@ -10,11 +10,15 @@ from typing import cast
 from urllib.parse import urljoin, urlsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from tarkka.application.policy_http_exchange import (
+    REDIRECT_STATUSES,
+    PolicySafeHttpExchange,
+    redirect_location,
+)
 from tarkka.domain.http_observations import (
     HttpResponseSnapshot,
     durable_http_uri_requires_transient_request,
     normalize_durable_http_uri,
-    normalize_http_uri,
 )
 from tarkka.domain.models import Artifact
 from tarkka.domain.resource_acquisition import ResourceAcquisitionPolicy
@@ -25,7 +29,7 @@ from tarkka.ports.http_transport import HostResolver, HttpTransport, HttpTranspo
 from tarkka.ports.source_observations import SourceObservationRepository
 from tarkka.ports.traversal import TraversalCheckpointRepository
 
-_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+_REDIRECT_STATUSES = REDIRECT_STATUSES
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +78,7 @@ class HttpAcquisitionService:
     ) -> None:
         self._resolver = resolver
         self._transport = transport
+        self._exchange = PolicySafeHttpExchange(resolver=resolver, transport=transport)
         self._artifact_store = artifact_store
         self._observation_repository = observation_repository
         self._checkpoint_repository = checkpoint_repository
@@ -263,34 +268,18 @@ class HttpAcquisitionService:
         *,
         started_at: float,
     ) -> HttpTransportResponse:
-        if not policy.allows_uri(uri):
-            raise ValueError("HTTP request URI is not allowed by acquisition policy")
         dns_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
-        # allows_uri() above guarantees an HTTP(S) URI with a hostname.
-        hostname = cast(str, urlsplit(normalize_http_uri(uri)).hostname)
-        addresses = self._resolver.resolve(hostname, timeout_seconds=dns_timeout_seconds)
         transport_timeout_seconds = self._remaining_elapsed(checkpoint, policy, started_at)
-        if not addresses:
-            raise ValueError("HTTP hostname resolution returned no addresses")
-        resolved_address = next(
-            (address for address in addresses if policy.allows_resolved_address(address)),
-            None,
-        )
-        if resolved_address is None:
-            raise ValueError("HTTP hostname resolved only to disallowed addresses")
-
         remaining_bytes = policy.max_bytes - checkpoint.budget.bytes_used
         if remaining_bytes < 0:
             raise ValueError("HTTP acquisition byte budget is already exceeded")
-        response = self._transport.request(
+        return self._exchange.request(
             uri=uri,
-            resolved_address=resolved_address,
+            policy=policy,
             max_response_bytes=remaining_bytes,
-            timeout_seconds=transport_timeout_seconds,
+            resolver_timeout_seconds=dns_timeout_seconds,
+            transport_timeout_seconds=transport_timeout_seconds,
         )
-        if len(response.body) > remaining_bytes:
-            raise ValueError("HTTP transport returned a body larger than its requested cap")
-        return response
 
     def _finish(
         self,
@@ -468,27 +457,7 @@ def _abandon_finalization(
 
 
 def _redirect_location(response: HttpTransportResponse) -> str | None:
-    values = response.headers.get("location")
-    if not values:
-        return None
-    if len(values) != 1:
-        raise ValueError("HTTP redirect response must contain exactly one Location header")
-    value = values[0].strip()
-    if not value:
-        raise ValueError("HTTP redirect Location must not be blank")
-    if any(character.isspace() for character in value):
-        raise ValueError("HTTP redirect Location must not contain whitespace")
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
-        raise ValueError("HTTP redirect Location must not contain control characters")
-    try:
-        parsed = urlsplit(value)
-    except ValueError as exc:
-        raise ValueError("HTTP redirect Location must be a valid URI reference") from exc
-    if parsed.scheme and parsed.scheme.lower() not in {"http", "https"}:
-        raise ValueError("HTTP redirect Location must use HTTP(S) when absolute")
-    if parsed.netloc and parsed.hostname is None:
-        raise ValueError("HTTP redirect Location contains an invalid authority")
-    return value
+    return redirect_location(response)
 
 
 def _artifact_name(uri: str) -> str | None:

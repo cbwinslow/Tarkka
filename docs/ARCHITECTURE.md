@@ -318,6 +318,10 @@ A content hash becomes a stable artifact identity and enables deduplication, cac
 
 The first implementation may use the local filesystem; S3-compatible storage should be an adapter.
 
+See [`ARTIFACT_COMPOSITION.md`](ARTIFACT_COMPOSITION.md) for the distinction between an exact
+retained original, versioned derived representations, addressable document components, and a
+portable derivative export.
+
 ## Deployment profiles
 
 ### Developer/local
@@ -394,6 +398,11 @@ Domain packs must not fork the core persistence or orchestration model.
 ## Why not GraphRAG first?
 
 The system needs explicit relationships, including citations and resource links, but those can initially be represented relationally and exposed as graph projections. A dedicated graph store should only be introduced when measured retrieval/query needs justify it.
+
+[`SIMILARITY_CONSENSUS_AND_GRAPH.md`](SIMILARITY_CONSENSUS_AND_GRAPH.md) defines how relationship
+projections, semantic-similarity candidates, consensus observations, and verified evidence remain
+separate. [`OCR_QUALITY_AND_DERIVATIONS.md`](OCR_QUALITY_AND_DERIVATIONS.md) defines the parallel
+quality/provenance boundary for scanned documents and other reconstructed representations.
 
 ## Key architectural tests
 

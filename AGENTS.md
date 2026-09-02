@@ -32,6 +32,9 @@ Load additional docs only when the task touches them:
 | core/domain design | `docs/CANONICAL_DATA_MODEL.md` |
 | service/module boundaries | `docs/ARCHITECTURE.md` |
 | source/document preservation, formats, crawling, citations | `docs/SOURCE_DOCUMENT_PRESERVATION.md` |
+| artifact derivation, composition, and portable exports | `docs/ARTIFACT_COMPOSITION.md` |
+| OCR, vision, or conversion-quality gates | `docs/OCR_QUALITY_AND_DERIVATIONS.md` |
+| semantic similarity, consensus, or graph-shaped retrieval | `docs/SIMILARITY_CONSENSUS_AND_GRAPH.md` |
 | ingestion/workflows | `docs/RESEARCH_PIPELINE.md` |
 | plugins/adapters | `docs/CONNECTOR_PLUGIN_SPEC.md` |
 | MCP/agent APIs | `docs/AGENT_INTERFACE.md`, `docs/CONTEXT_EFFICIENCY.md` |
@@ -80,6 +83,25 @@ Do not violate these without an explicit architecture decision:
 6. For provider/parser/crawler changes, inventory what the external source exposes before choosing normalized mappings; explicitly consider identifiers, references/citations, alternate/full-text/supplement links, versions/corrections/retractions, rights, and native structure.
 7. Add or update tests with the implementation.
 8. Update architecture/milestone docs when behavior or contracts materially change.
+
+## Spec-driven change contract
+
+For a material capability, public contract, persistence format, or architecture decision, write the
+specification before implementation. The canonical execution spec is the linked GitHub issue; it
+must state the problem/outcome, in- and out-of-scope behavior, invariants, acceptance tests,
+dependencies, and successor links. The pull request records the implementation, review
+dispositions, and validation for that specification. Use
+`docs/FEATURE_SPEC_TEMPLATE.md` as the issue-body checklist.
+
+Promote decisions that are stable beyond one issue into the relevant durable architecture/contract
+document in the same change. Do not create a repository-local task journal or duplicate GitHub
+chronology. A feature is not ready merely because it works once: its contract, provenance/version
+rules, failure behavior, tests, and user/agent discovery path must be explicit.
+
+When a proposal would add a graph view, OCR/vision stage, semantic similarity, or a new artifact
+derivative, read its routed contract document before changing code. Preserve the original artifact;
+derived structure and inference may be composable/exportable but never claim to reproduce an
+original binary unless the exact retained artifact is supplied.
 
 ## Canonical development workflow
 
@@ -209,6 +231,10 @@ Before adding a substantial dependency, determine:
 - replacement boundary
 - network/data behavior
 - test strategy
+
+Use the newest compatible stable release only after this review; “newest” alone is not a reason to
+upgrade. Record the selected version boundary and upgrade rationale when a dependency affects
+durable formats, security, OCR/ML behavior, or public contracts.
 
 Development-only tools belong in the `dev` dependency group. Runtime dependencies belong in `[project.dependencies]` or a narrowly scoped optional extra. Do not make lint/test tooling a runtime dependency.
 

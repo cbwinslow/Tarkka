@@ -24,13 +24,15 @@ class ArxivFullTextResolver:
         if raw_id is None:
             return None
         arxiv_id = normalize_arxiv_id(raw_id)
+        raw_filename = f"{arxiv_id}.pdf"
+        filename = portable_filename_component(raw_filename, fallback="arxiv.pdf")
+        metadata = {"arxiv_id": arxiv_id}
+        if filename != raw_filename:
+            metadata["generated_filename_input"] = raw_filename
         return FullTextResource(
             provider=self.name,
             source_uri=f"https://arxiv.org/pdf/{arxiv_id}",
             media_type="application/pdf",
-            filename=portable_filename_component(
-                f"{arxiv_id}.pdf",
-                fallback="arxiv.pdf",
-            ),
-            metadata={"arxiv_id": arxiv_id},
+            filename=filename,
+            metadata=metadata,
         )

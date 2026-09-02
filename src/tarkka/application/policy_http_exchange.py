@@ -6,6 +6,7 @@ boundary between HTTP workflows that need the same URI, DNS-pinning, and respons
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import cast
 from urllib.parse import urlsplit
@@ -30,8 +31,7 @@ class PolicySafeHttpExchange:
         uri: str,
         policy: ResourceAcquisitionPolicy,
         max_response_bytes: int,
-        resolver_timeout_seconds: float | None = None,
-        transport_timeout_seconds: float | None = None,
+        remaining_timeout_seconds: Callable[[], float | None] | None = None,
     ) -> HttpTransportResponse:
         """Resolve, validate, pin, and request one policy-approved URI without persistence."""
         if not isinstance(max_response_bytes, int) or isinstance(max_response_bytes, bool):
@@ -41,7 +41,10 @@ class PolicySafeHttpExchange:
         if not policy.allows_uri(uri):
             raise ValueError("HTTP request URI is not allowed by acquisition policy")
         hostname = cast(str, urlsplit(normalize_http_uri(uri)).hostname)
-        addresses = self.resolver.resolve(hostname, timeout_seconds=resolver_timeout_seconds)
+        timeout_seconds = (
+            remaining_timeout_seconds() if remaining_timeout_seconds is not None else None
+        )
+        addresses = self.resolver.resolve(hostname, timeout_seconds=timeout_seconds)
         if not addresses:
             raise ValueError("HTTP hostname resolution returned no addresses")
         resolved_address = next(
@@ -54,7 +57,9 @@ class PolicySafeHttpExchange:
             uri=uri,
             resolved_address=resolved_address,
             max_response_bytes=max_response_bytes,
-            timeout_seconds=transport_timeout_seconds,
+            timeout_seconds=(
+                remaining_timeout_seconds() if remaining_timeout_seconds is not None else None
+            ),
         )
         if len(response.body) > max_response_bytes:
             raise ValueError("HTTP transport returned a body larger than its requested cap")

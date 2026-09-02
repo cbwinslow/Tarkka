@@ -102,8 +102,7 @@ class HttpArtifactAcquirer:
                     uri=current_uri,
                     policy=self._policy,
                     max_response_bytes=self._policy.max_bytes - bytes_received,
-                    resolver_timeout_seconds=self._remaining_elapsed(started_at),
-                    transport_timeout_seconds=self._remaining_elapsed(started_at),
+                    remaining_timeout_seconds=lambda: self._remaining_elapsed(started_at),
                 )
                 requests_used += 1
                 bytes_received += len(response.body)
@@ -243,7 +242,13 @@ def _write_all(sink: BinaryIO, chunk: bytes) -> None:
     offset = 0
     while offset < len(chunk):
         written = sink.write(chunk[offset:])
-        if not isinstance(written, int) or isinstance(written, bool) or written <= 0:
+        remaining = len(chunk) - offset
+        if (
+            not isinstance(written, int)
+            or isinstance(written, bool)
+            or written <= 0
+            or written > remaining
+        ):
             raise OSError("acquisition sink did not accept source bytes")
         offset += written
 

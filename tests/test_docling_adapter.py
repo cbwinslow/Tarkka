@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from tarkka.domain.models import Artifact
+from tarkka.domain.ocr_quality import QualityGateDecision, QualityGrade
 from tarkka.domain.source_observations import Capability, ObservationBasis
 from tarkka.infrastructure.storage import docling_parser
 from tarkka.infrastructure.storage.docling_parser import DoclingParser
@@ -126,6 +127,23 @@ def test_docling_native_parse_preserves_first_class_structural_artifacts(tmp_pat
         Capability.TABLES,
         Capability.EQUATIONS,
     )
+
+
+def test_docling_ocr_derivation_is_separate_and_conservatively_review_gated(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "paper.pdf"
+    source.write_bytes(b"not-a-real-pdf")
+    artifact = _artifact()
+    derivation = DoclingParser(converter=_FakeConverter()).derive(artifact, source)
+
+    assert derivation.document.artifact_id == artifact.artifact_id
+    assert derivation.quality_report.derivation_id == derivation.derivation_id
+    assert derivation.quality_report.source_artifact_sha256 == artifact.sha256
+    assert derivation.quality_report.grade is QualityGrade.UNKNOWN
+    assert derivation.quality_report.gate_decision is QualityGateDecision.REQUIRE_REVIEW
+    assert derivation.quality_report.pages == ()
+    assert derivation.quality_report.warnings
 
 
 def test_docling_ids_are_stable_for_same_artifact(tmp_path: Path) -> None:

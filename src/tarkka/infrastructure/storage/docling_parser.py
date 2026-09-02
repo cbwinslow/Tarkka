@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from tarkka.domain.models import Artifact, Document
+from tarkka.domain.ocr_quality import OcrQualityReport, QualityGateDecision, QualityGrade
 from tarkka.domain.source_artifacts import Equation, Figure, Table
 from tarkka.domain.source_observations import (
     AdapterKind,
@@ -18,6 +19,7 @@ from tarkka.domain.source_observations import (
 )
 from tarkka.infrastructure.storage.markdown_normalizer import document_from_markdown
 from tarkka.infrastructure.storage.parser_identity import parser_stable_id
+from tarkka.ports.ocr import OcrDerivation
 from tarkka.ports.parsing import NativeDocumentParseResult
 
 
@@ -105,6 +107,31 @@ class DoclingParser:
 
     def parse(self, artifact: Artifact, path: Path) -> Document:
         return self.parse_native(artifact, path).document
+
+    def derive(self, artifact: Artifact, path: Path) -> OcrDerivation:
+        """Return a separately identified reconstructed derivation and conservative report."""
+        parsed = self.parse_native(artifact, path)
+        derivation_id = parser_stable_id(
+            artifact.artifact_id,
+            f"docling-ocr-derivation:{self.version}",
+        )
+        return OcrDerivation(
+            derivation_id=derivation_id,
+            document=parsed.document,
+            quality_report=OcrQualityReport(
+                derivation_id=derivation_id,
+                source_artifact_sha256=artifact.sha256,
+                engine_name=self.name,
+                engine_version=self.version,
+                languages=(),
+                quality_policy_version="docling-v1",
+                grade=QualityGrade.UNKNOWN,
+                gate_decision=QualityGateDecision.REQUIRE_REVIEW,
+                warnings=(
+                    "Docling conversion did not expose calibrated OCR confidence; review required.",
+                ),
+            ),
+        )
 
     def parse_native(self, artifact: Artifact, path: Path) -> NativeDocumentParseResult:
         result = self._converter.convert(path)

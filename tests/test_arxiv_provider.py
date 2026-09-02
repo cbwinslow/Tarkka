@@ -120,3 +120,20 @@ def test_arxiv_full_text_resolver_uses_canonical_alias() -> None:
 def test_arxiv_identifier_normalization_supports_modern_and_legacy_forms() -> None:
     assert normalize_arxiv_id("https://arxiv.org/abs/2401.01234v3") == "2401.01234"
     assert normalize_arxiv_id("http://arxiv.org/pdf/hep-ex/0307015v1.pdf") == "hep-ex/0307015"
+
+
+def test_arxiv_full_text_resolver_preserves_raw_generated_legacy_filename() -> None:
+    work = Work(work_id=uuid4(), title="Fixture")
+    identifier = WorkIdentifier(
+        identifier_id=uuid4(),
+        work_id=work.work_id,
+        scheme="arxiv",
+        value="hep-ex/0307015",
+    )
+
+    resource = ArxivFullTextResolver().resolve(work, (identifier,), ())
+
+    assert resource is not None
+    assert resource.filename == "hep-ex_0307015.pdf"
+    assert resource.metadata["arxiv_id"] == "hep-ex/0307015"
+    assert resource.metadata["generated_filename_input"] == "hep-ex/0307015.pdf"

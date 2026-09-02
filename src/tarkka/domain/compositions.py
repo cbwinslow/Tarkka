@@ -84,7 +84,7 @@ class CompositionManifest:
             raise ValueError("composition revision must be a positive integer")
         if not isinstance(self.title, str) or not self.title.strip():
             raise ValueError("composition title must be non-blank")
-        if not isinstance(self.components, tuple):
+        if type(self.components) is not tuple:
             raise ValueError("composition components must be an immutable tuple")
         if not self.components:
             raise ValueError("composition must select at least one component")

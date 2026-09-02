@@ -111,6 +111,27 @@ Runtime failures use `AcquisitionError` with a stable `AcquisitionFailureKind`:
 Only `transient` is generically retryable. The orchestration layer may apply stricter source- or
 policy-specific limits, but it must not automatically retry terminal failure classes.
 
+## Ingestion composition
+
+`IngestService.ingest_candidate()` is the first application composition of this contract. It
+assesses only adapters advertising `Capability.ACQUIRE`, selects the first supported adapter in
+the caller-declared order, and streams into a private temporary file. It commits that file through
+the configured `ArtifactStore`, then independently compares the committed Artifact's SHA-256 and
+byte count with the `AcquiredArtifact` receipt.
+
+Only a matching committed Artifact enters the existing artifact, acquisition-provenance, parser,
+and normalized-document flow. A failed acquisition or mismatched receipt records neither an
+Artifact nor Acquisition in the metadata repository/provenance recorder. Receipt facts and small
+candidate/receipt metadata are retained under collision-safe `candidate.metadata.*` and
+`receipt.metadata.*` Acquisition metadata keys, distinct from reserved `receipt.*` facts.
+Requested URI, final URI, redirect chain, verified digest, and verified byte count therefore remain
+distinguishable.
+
+The existing content-addressed store and repository writes make repeated successful ingestion of
+the same bytes converge on the same Artifact and Document identities. Each successful fetch still
+records its own Acquisition event, preserving separate source observations rather than collapsing
+history.
+
 ## What this slice intentionally does not do
 
 This contract does not yet add:

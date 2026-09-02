@@ -137,6 +137,85 @@ def test_receipt_mismatch_never_records_or_publishes_provenance(tmp_path: Path) 
     assert not log.path.exists()
 
 
+def test_receipt_size_mismatch_never_records_or_publishes_provenance(tmp_path: Path) -> None:
+    service, _repository, log = _service(tmp_path)
+    candidate = ArtifactCandidate(source_uri="https://example.test/requested.md")
+    acquirer = _Acquirer(
+        b"# Result\nWrong receipt size.\n",
+        AcquisitionDecision(AcquisitionDecisionStatus.SUPPORTED),
+        receipt_size_bytes=1,
+    )
+
+    with pytest.raises(AcquisitionReceiptError, match="does not match"):
+        service.ingest_candidate(candidate, acquirers=(acquirer,))
+
+    catalog = json.loads((tmp_path / "catalog.json").read_text(encoding="utf-8"))
+    assert catalog["artifacts"] == {}
+    assert not log.path.exists()
+
+
+@pytest.mark.parametrize(
+    ("status", "kind"),
+    (
+        (AcquisitionDecisionStatus.UNAVAILABLE, "unavailable"),
+        (AcquisitionDecisionStatus.UNSUPPORTED, "unsupported"),
+    ),
+)
+def test_candidate_routing_preserves_terminal_assessment_kind(
+    tmp_path: Path,
+    status: AcquisitionDecisionStatus,
+    kind: str,
+) -> None:
+    service, _repository, _log = _service(tmp_path)
+    candidate = ArtifactCandidate(source_uri="https://example.test/requested.md")
+    acquirer = _Acquirer(b"unused", AcquisitionDecision(status, "not available"))
+
+    with pytest.raises(AcquisitionError, match="not available") as error:
+        service.ingest_candidate(candidate, acquirers=(acquirer,))
+
+    assert error.value.kind.value == kind
+
+
+def test_candidate_routing_reports_when_no_adapter_can_acquire(tmp_path: Path) -> None:
+    service, _repository, _log = _service(tmp_path)
+    candidate = ArtifactCandidate(source_uri="https://example.test/requested.md")
+
+    with pytest.raises(AcquisitionError, match="no configured") as error:
+        service.ingest_candidate(candidate, acquirers=(_NonAcquirer(),))
+
+    assert error.value.kind.value == "unsupported"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("filename", "../unsafe.md", "filename is not safe"),
+        ("final_uri", "not-an-absolute-uri", "source URI must be an absolute URI"),
+    ),
+)
+def test_ingestion_revalidates_malformed_receipt_boundary_values(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    service, _repository, _log = _service(tmp_path)
+    candidate = ArtifactCandidate(source_uri="https://example.test/requested.md")
+
+    class _MalformedReceiptAcquirer(_Acquirer):
+        def acquire(self, candidate: ArtifactCandidate, sink: BinaryIO) -> AcquiredArtifact:
+            receipt = super().acquire(candidate, sink)
+            object.__setattr__(receipt, field, value)
+            return receipt
+
+    acquirer = _MalformedReceiptAcquirer(
+        b"# Result\nMalformed receipt.\n",
+        AcquisitionDecision(AcquisitionDecisionStatus.SUPPORTED),
+    )
+    with pytest.raises((AcquisitionReceiptError, ValueError), match=message):
+        service.ingest_candidate(candidate, acquirers=(acquirer,))
+
+
 def test_receipt_metadata_cannot_overwrite_verified_receipt_facts(tmp_path: Path) -> None:
     service, _repository, _log = _service(tmp_path)
     candidate = ArtifactCandidate(

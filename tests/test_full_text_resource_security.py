@@ -65,7 +65,7 @@ def test_full_text_resource_rejects_blank_filename() -> None:
         "LPT1.csv",
     ],
 )
-def test_full_text_resource_rejects_traversing_or_absolute_filenames(filename: str) -> None:
+def test_full_text_resource_rejects_nonportable_filenames(filename: str) -> None:
     with pytest.raises(ValueError, match="filename must be one safe path component"):
         _resource(filename=filename)
 

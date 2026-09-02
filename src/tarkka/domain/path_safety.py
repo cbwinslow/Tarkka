@@ -57,12 +57,12 @@ def portable_filename_component(value: str, *, fallback: str = "artifact") -> st
         or character in _UNSAFE_FILENAME_CHARACTERS
         else character
         for character in value
-    ).strip().rstrip(". ")
+    )
+    normalized = unicodedata.normalize("NFC", normalized).strip().rstrip(". ")
     if normalized in {"", ".", ".."}:
         return fallback
     if _portable_stem(normalized).casefold() in _WINDOWS_RESERVED_STEMS:
-        stem, separator, suffix = normalized.partition(".")
-        normalized = f"{stem.rstrip(' .')}_{separator}{suffix}"
+        normalized = f"_{normalized}"
     if _fits_portable_filename_limits(normalized):
         return normalized
     return _shorten_filename_component(normalized, value)
@@ -73,25 +73,28 @@ def _is_unsafe_filename_character(character: str) -> bool:
     return (
         ord(character) < 32
         or ord(character) == 127
-        or category in {"Cc", "Cf", "Cn", "Co", "Cs", "Zl", "Zp"}
+        or category in {"Cc", "Cf", "Cs", "Zl", "Zp"}
     )
 
 
 def _fits_portable_filename_limits(value: str) -> bool:
-    return (
-        len(value.encode("utf-8")) <= _MAX_PORTABLE_FILENAME_UTF8_BYTES
-        and len(value.encode("utf-16-le")) // 2 <= _MAX_PORTABLE_FILENAME_UTF16_CODE_UNITS
-    )
+    try:
+        return (
+            len(value.encode("utf-8")) <= _MAX_PORTABLE_FILENAME_UTF8_BYTES
+            and len(value.encode("utf-16-le")) // 2 <= _MAX_PORTABLE_FILENAME_UTF16_CODE_UNITS
+        )
+    except UnicodeEncodeError:
+        return False
 
 
 def _portable_stem(value: str) -> str:
-    return value.split(".", 1)[0].rstrip(". ")
+    return value.lstrip(".").split(".", 1)[0].rstrip(". ")
 
 
 def _shorten_filename_component(normalized: str, source: str) -> str:
     stem, separator, suffix = normalized.rpartition(".")
     extension = f"{separator}{suffix}" if stem else ""
-    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(source.encode("utf-8", "surrogatepass")).hexdigest()[:16]
     if not _fits_portable_filename_limits(f"-{digest}{extension}"):
         extension = ""
     prefix = ""

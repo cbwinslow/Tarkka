@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
+import os
+import stat
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import unquote, urlsplit
@@ -22,16 +24,9 @@ class LocalFileAcquirer:
     """Stream regular local files through the generic acquisition contract.
 
     This adapter deliberately accepts only local ``file:`` URIs. It is not a network-share,
-    directory-walking, parser-routing, or Artifact-persistence implementation.
+    directory-walking, parser-routing, or Artifact-persistence implementation. Symlink spelling
+    remains the source/final URI and filename provenance; opening follows normal OS semantics.
     """
-
-    manifest = CapabilityManifest(
-        adapter_name="local-file",
-        adapter_kind=AdapterKind.ACQUISITION,
-        version="1",
-        capabilities=frozenset({Capability.ACQUIRE}),
-        identifier_schemes=frozenset({"file"}),
-    )
 
     def __init__(self, *, chunk_size_bytes: int = 1024 * 1024) -> None:
         if (
@@ -42,12 +37,33 @@ class LocalFileAcquirer:
             raise ValueError("chunk_size_bytes must be a positive integer")
         self._chunk_size_bytes = chunk_size_bytes
 
+    @property
+    def manifest(self) -> CapabilityManifest:
+        return _MANIFEST
+
     def assess(self, candidate: ArtifactCandidate) -> AcquisitionDecision:
         try:
             path = _local_path_from_uri(candidate.source_uri)
         except ValueError as exc:
             return AcquisitionDecision(AcquisitionDecisionStatus.UNSUPPORTED, str(exc))
-        if not path.is_file():
+        try:
+            source_stat = path.stat()
+        except FileNotFoundError:
+            return AcquisitionDecision(
+                AcquisitionDecisionStatus.UNAVAILABLE,
+                "local source is missing or is not a regular file",
+            )
+        except PermissionError:
+            return AcquisitionDecision(
+                AcquisitionDecisionStatus.POLICY_DENIED,
+                "local source access is denied",
+            )
+        except OSError as exc:
+            return AcquisitionDecision(
+                AcquisitionDecisionStatus.UNAVAILABLE,
+                f"local source cannot be inspected: {type(exc).__name__}",
+            )
+        if not stat.S_ISREG(source_stat.st_mode):
             return AcquisitionDecision(
                 AcquisitionDecisionStatus.UNAVAILABLE,
                 "local source is missing or is not a regular file",
@@ -57,19 +73,18 @@ class LocalFileAcquirer:
     def acquire(self, candidate: ArtifactCandidate, sink: BinaryIO) -> AcquiredArtifact:
         try:
             requested_path = _local_path_from_uri(candidate.source_uri)
-            source = requested_path.resolve(strict=True)
-            if not source.is_file():
-                raise FileNotFoundError(source)
-            raw_filename = source.name
+            raw_filename = requested_path.name
             filename = portable_filename_component(raw_filename)
             digest = hashlib.sha256()
             size_bytes = 0
-            with source.open("rb") as handle:
+            with requested_path.open("rb") as handle:
+                if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                    raise FileNotFoundError(requested_path)
                 while chunk := handle.read(self._chunk_size_bytes):
                     _write_all(sink, chunk)
                     digest.update(chunk)
                     size_bytes += len(chunk)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, IsADirectoryError) as exc:
             raise AcquisitionError(
                 AcquisitionFailureKind.UNAVAILABLE,
                 "local source is no longer available",
@@ -89,7 +104,7 @@ class LocalFileAcquirer:
         media_type = mimetypes.guess_type(raw_filename)[0]
         return AcquiredArtifact(
             requested_uri=candidate.source_uri,
-            final_uri=source.as_uri(),
+            final_uri=requested_path.as_uri(),
             size_bytes=size_bytes,
             sha256=digest.hexdigest(),
             media_type=media_type,
@@ -107,13 +122,28 @@ def _local_path_from_uri(source_uri: str) -> Path:
         raise ValueError("local file acquirer does not support remote file authorities")
     if parsed.query or parsed.fragment:
         raise ValueError("local file URI must not contain a query or fragment")
-    path_text = unquote(parsed.path)
-    if not path_text or any(ord(character) < 0x20 for character in path_text):
+    path_text = _normalize_file_uri_path(unquote(parsed.path), is_windows=os.name == "nt")
+    if not path_text or any(
+        ord(character) < 0x20 or ord(character) == 0x7F for character in path_text
+    ):
         raise ValueError("local file URI path is invalid")
     path = Path(path_text)
     if not path.is_absolute():
         raise ValueError("local file URI path must be absolute")
     return path
+
+
+def _normalize_file_uri_path(path_text: str, *, is_windows: bool) -> str:
+    """Remove the URI-only leading slash from an absolute Windows drive path."""
+    if (
+        is_windows
+        and len(path_text) >= 3
+        and path_text[0] == "/"
+        and path_text[1].isalpha()
+        and path_text[2] == ":"
+    ):
+        return path_text[1:]
+    return path_text
 
 
 def _write_all(sink: BinaryIO, chunk: bytes) -> None:
@@ -124,3 +154,12 @@ def _write_all(sink: BinaryIO, chunk: bytes) -> None:
         if not isinstance(written, int) or isinstance(written, bool) or written <= 0:
             raise OSError("acquisition sink did not accept source bytes")
         offset += written
+
+
+_MANIFEST = CapabilityManifest(
+    adapter_name="local-file",
+    adapter_kind=AdapterKind.ACQUISITION,
+    version="1",
+    capabilities=frozenset({Capability.ACQUIRE}),
+    identifier_schemes=frozenset({"file"}),
+)

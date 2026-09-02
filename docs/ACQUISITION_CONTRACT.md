@@ -137,7 +137,9 @@ history.
 `LocalFileAcquirer` is the first concrete implementation of this contract. It accepts only
 absolute local `file:` URIs (empty/`localhost` authority), streams a regular file in bounded
 chunks, and never closes the caller-owned sink. A requested URI remains the source observation;
-the resolved target URI is reported as the final URI, without inventing a redirect chain.
+the local path spelling used to open the file is reported as the final URI, without inventing a
+redirect chain. This preserves symlink spelling and avoids claiming a resolved target that could
+change between path resolution and file opening.
 
 The adapter has no directory traversal, root policy, network-share, parser, or persistence role.
 It records an unavailable assessment for a missing/non-regular path, and maps acquisition-time

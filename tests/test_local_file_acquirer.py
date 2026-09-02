@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from io import BytesIO
 from pathlib import Path
 from typing import BinaryIO, cast
@@ -9,7 +10,10 @@ import pytest
 
 from tarkka.application.ingest import IngestService
 from tarkka.domain.source_observations import Capability
-from tarkka.infrastructure.acquisition.local_file import LocalFileAcquirer
+from tarkka.infrastructure.acquisition.local_file import (
+    LocalFileAcquirer,
+    _normalize_file_uri_path,
+)
 from tarkka.infrastructure.storage.acquisition_log import JsonlAcquisitionLog
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
@@ -58,6 +62,7 @@ def test_local_file_acquirer_structurally_conforms_and_streams_exact_receipt(
         "file://example.test/paper.md",
         "file:///tmp/paper.md?version=1",
         "file:///tmp/paper.md#section",
+        "file:///tmp/paper%7F.md",
         "file:relative.md",
     ),
 )
@@ -74,6 +79,15 @@ def test_local_file_assessment_accepts_localhost_authority(tmp_path: Path) -> No
     candidate = ArtifactCandidate(source_uri=f"file://localhost{source.as_posix()}")
 
     assert LocalFileAcquirer().assess(candidate).supported
+
+
+def test_windows_drive_uri_normalization_is_explicit() -> None:
+    assert _normalize_file_uri_path("/C:/research/paper.md", is_windows=True) == (
+        "C:/research/paper.md"
+    )
+    assert _normalize_file_uri_path("/C:/research/paper.md", is_windows=False) == (
+        "/C:/research/paper.md"
+    )
 
 
 @pytest.mark.parametrize("kind", ("missing", "directory"))
@@ -114,7 +128,8 @@ def test_local_file_acquisition_records_resolved_target_without_redirect(tmp_pat
     receipt = LocalFileAcquirer().acquire(_candidate(source), BytesIO())
 
     assert receipt.requested_uri == source.as_uri()
-    assert receipt.final_uri == target.as_uri()
+    assert receipt.final_uri == source.as_uri()
+    assert receipt.filename == "source.md"
     assert receipt.redirect_chain == ()
 
 
@@ -142,12 +157,18 @@ def test_local_file_acquirer_never_closes_caller_sink(tmp_path: Path) -> None:
     source.write_text("local", encoding="utf-8")
 
     class _Sink(BytesIO):
-        def close(self) -> None:
-            raise AssertionError("acquirer closed caller-owned sink")
+        close_calls = 0
 
-    sink: BinaryIO = _Sink()
+        def close(self) -> None:
+            self.close_calls += 1
+            super().close()
+
+    sink = _Sink()
     LocalFileAcquirer().acquire(_candidate(source), sink)
     assert sink.closed is False
+    assert sink.close_calls == 0
+    sink.close()
+    assert sink.close_calls == 1
 
 
 def test_local_file_acquirer_retries_short_sink_writes(tmp_path: Path) -> None:
@@ -174,6 +195,75 @@ def test_local_file_acquirer_retries_short_sink_writes(tmp_path: Path) -> None:
     assert sink.getvalue() == payload
     assert receipt.size_bytes == len(payload)
     assert receipt.sha256 == hashlib.sha256(payload).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_media_type"),
+    (
+        ("empty.txt", "text/plain"),
+        ("unicodé.md", "text/markdown"),
+        ("opaque.unknown-tarkka", None),
+    ),
+)
+def test_local_file_acquirer_handles_empty_unicode_and_unknown_media_type(
+    tmp_path: Path,
+    filename: str,
+    expected_media_type: str | None,
+) -> None:
+    source = tmp_path / filename
+    source.write_bytes(b"")
+
+    receipt = LocalFileAcquirer().acquire(_candidate(source), BytesIO())
+
+    assert receipt.size_bytes == 0
+    assert receipt.sha256 == hashlib.sha256(b"").hexdigest()
+    assert receipt.filename == filename
+    assert receipt.media_type == expected_media_type
+
+
+def test_local_file_acquisition_rejects_directories_at_runtime(tmp_path: Path) -> None:
+    source = tmp_path / "directory"
+    source.mkdir()
+
+    with pytest.raises(AcquisitionError) as error:
+        LocalFileAcquirer().acquire(_candidate(source), BytesIO())
+
+    assert error.value.kind is AcquisitionFailureKind.UNAVAILABLE
+
+
+def test_local_file_assessment_maps_permission_denial(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "paper.txt"
+    source.write_text("local", encoding="utf-8")
+
+    def _denied(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        if self == source:
+            raise PermissionError("denied")
+        return original_stat(self, follow_symlinks=follow_symlinks)
+
+    original_stat = Path.stat
+    monkeypatch.setattr(Path, "stat", _denied)
+
+    decision = LocalFileAcquirer().assess(_candidate(source))
+
+    assert decision.status is AcquisitionDecisionStatus.POLICY_DENIED
+
+
+def test_local_file_acquisition_maps_sink_failure_as_transient(tmp_path: Path) -> None:
+    source = tmp_path / "paper.txt"
+    source.write_text("local", encoding="utf-8")
+
+    class _RejectingSink:
+        def write(self, data: bytes) -> int:
+            del data
+            return 0
+
+    with pytest.raises(AcquisitionError) as error:
+        LocalFileAcquirer().acquire(_candidate(source), cast(BinaryIO, _RejectingSink()))
+
+    assert error.value.kind is AcquisitionFailureKind.TRANSIENT
 
 
 def test_local_file_acquirer_composes_with_generic_ingestion(tmp_path: Path) -> None:

@@ -12,6 +12,7 @@ from tarkka.application.citation_context import build_citation_contexts
 from tarkka.domain.document_structure import validate_document_structure
 from tarkka.domain.manifest import ResourceManifest, build_document_manifest
 from tarkka.domain.models import Acquisition, Artifact, Document, new_id
+from tarkka.domain.path_safety import is_safe_filename_component
 from tarkka.ports.acquisitions import (
     AcquiredArtifact,
     AcquisitionDecision,
@@ -133,13 +134,20 @@ class IngestService:
             self._raise_acquisition_assessment_failure(assessments)
 
         with TemporaryDirectory(prefix="tarkka-acquire-") as temp_dir:
-            staged_path = Path(temp_dir) / (candidate.filename_hint or "artifact")
+            # A staging pathname is an implementation detail, never source provenance. Do not
+            # let untrusted adapter/candidate names influence the temporary filesystem path.
+            staged_path = Path(temp_dir) / "artifact"
             with staged_path.open("wb") as sink:
                 receipt = acquirer.acquire(candidate, sink)
                 sink.flush()
                 os.fsync(sink.fileno())
 
             original_name = receipt.filename or candidate.filename_hint or "artifact"
+            if not is_safe_filename_component(original_name):
+                raise AcquisitionReceiptError("acquisition receipt filename is not safe")
+            # Validate again at this trust boundary so a malformed third-party implementation
+            # cannot bypass the receipt dataclass's construction-time contract.
+            ArtifactCandidate(source_uri=receipt.final_uri)
             stored_artifact = self._artifact_store.put_file(staged_path)
             self._verify_receipt(stored_artifact, receipt)
             artifact = replace(
@@ -286,8 +294,8 @@ def _receipt_metadata(
 ) -> Mapping[str, str]:
     """Preserve routing hints and verified receipt facts without key collisions."""
     return {
-        **{f"candidate.{key}": value for key, value in candidate.metadata.items()},
-        **{f"receipt.{key}": value for key, value in receipt.metadata.items()},
+        **{f"candidate.metadata.{key}": value for key, value in candidate.metadata.items()},
+        **{f"receipt.metadata.{key}": value for key, value in receipt.metadata.items()},
         "receipt.final_uri": receipt.final_uri,
         "receipt.requested_uri": receipt.requested_uri,
         "receipt.redirect_chain": json.dumps(receipt.redirect_chain),

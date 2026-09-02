@@ -108,8 +108,8 @@ def test_streamed_candidate_is_verified_before_provenance_and_is_idempotent(
     assert first.artifact.source_uri == "https://cdn.example.test/final.md"
     assert first.acquisition.source_uri == "https://cdn.example.test/final.md"
     assert first.acquisition.metadata == {
-        "candidate.provider_record": "record-1",
-        "receipt.source_version": "2026-09",
+        "candidate.metadata.provider_record": "record-1",
+        "receipt.metadata.source_version": "2026-09",
         "receipt.final_uri": "https://cdn.example.test/final.md",
         "receipt.requested_uri": "https://example.test/requested.md",
         "receipt.redirect_chain": '["https://cdn.example.test/final.md"]',
@@ -135,6 +135,23 @@ def test_receipt_mismatch_never_records_or_publishes_provenance(tmp_path: Path) 
     catalog = json.loads((tmp_path / "catalog.json").read_text(encoding="utf-8"))
     assert catalog["artifacts"] == {}
     assert not log.path.exists()
+
+
+def test_receipt_metadata_cannot_overwrite_verified_receipt_facts(tmp_path: Path) -> None:
+    service, _repository, _log = _service(tmp_path)
+    candidate = ArtifactCandidate(
+        source_uri="https://example.test/requested.md",
+        metadata={"receipt.sha256": "candidate-value"},
+    )
+    acquirer = _Acquirer(
+        b"# Result\nSeparate metadata namespaces.\n",
+        AcquisitionDecision(AcquisitionDecisionStatus.SUPPORTED),
+    )
+
+    result = service.ingest_candidate(candidate, acquirers=(acquirer,))
+
+    assert result.acquisition.metadata["candidate.metadata.receipt.sha256"] == "candidate-value"
+    assert result.acquisition.metadata["receipt.sha256"] == result.artifact.sha256
 
 
 def test_partial_stream_failure_is_not_published(tmp_path: Path) -> None:

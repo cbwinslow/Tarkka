@@ -122,9 +122,10 @@ byte count with the `AcquiredArtifact` receipt.
 Only a matching committed Artifact enters the existing artifact, acquisition-provenance, parser,
 and normalized-document flow. A failed acquisition or mismatched receipt records neither an
 Artifact nor Acquisition in the metadata repository/provenance recorder. Receipt facts and small
-candidate/receipt metadata are retained under collision-safe `candidate.*` and `receipt.*`
-Acquisition metadata keys; requested URI, final URI, redirect chain, verified digest, and verified
-byte count therefore remain distinguishable.
+candidate/receipt metadata are retained under collision-safe `candidate.metadata.*` and
+`receipt.metadata.*` Acquisition metadata keys, distinct from reserved `receipt.*` facts.
+Requested URI, final URI, redirect chain, verified digest, and verified byte count therefore remain
+distinguishable.
 
 The existing content-addressed store and repository writes make repeated successful ingestion of
 the same bytes converge on the same Artifact and Document identities. Each successful fetch still

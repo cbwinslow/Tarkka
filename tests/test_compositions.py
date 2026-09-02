@@ -254,6 +254,8 @@ def test_composition_domain_and_renderer_contracts_reject_invalid_inputs(tmp_pat
         replace(manifest, title="")
     with pytest.raises(ValueError, match="at least one"):
         replace(manifest, components=())
+    with pytest.raises(ValueError, match="immutable tuple"):
+        replace(manifest, components=list(manifest.components))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="components"):
         replace(manifest, components=("wrong",))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="export_format"):

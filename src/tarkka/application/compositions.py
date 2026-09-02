@@ -104,7 +104,7 @@ class CompositionService:
             (
                 item
                 for item in self._exporters
-                if item.format is manifest.export_format
+                if item.format == manifest.export_format
                 and item.name == manifest.renderer_name
                 and item.version == manifest.renderer_version
             ),
@@ -174,4 +174,4 @@ def export_format_supported(
     format_name: CompositionFormat,
 ) -> bool:
     """Expose capability discovery without binding callers to one renderer implementation."""
-    return any(exporter.format is format_name for exporter in exporters)
+    return any(exporter.format == format_name for exporter in exporters)

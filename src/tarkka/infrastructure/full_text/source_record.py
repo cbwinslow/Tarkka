@@ -4,6 +4,7 @@ import mimetypes
 from urllib.parse import urlparse
 
 from tarkka.domain.models import Work
+from tarkka.domain.path_safety import portable_filename_component
 from tarkka.domain.work_identity import WorkIdentifier, WorkSourceRecord
 from tarkka.ports.full_text import FullTextResource
 
@@ -32,14 +33,22 @@ class SourceRecordFullTextResolver:
             parsed = urlparse(url)
             if parsed.scheme.lower() != "https" or not parsed.hostname:
                 continue
+            raw_filename = f"{record.provider}-{record.provider_id}{extension}"
+            filename = portable_filename_component(
+                raw_filename,
+                fallback=f"full-text{extension}",
+            )
+            metadata = {
+                "provider_id": record.provider_id,
+                "resolver": self.name,
+            }
+            if filename != raw_filename:
+                metadata["generated_filename_input"] = raw_filename
             return FullTextResource(
                 provider=record.provider,
                 source_uri=url,
                 media_type=media_type,
-                filename=f"{record.provider}-{record.provider_id}{extension}".replace("/", "_"),
-                metadata={
-                    "provider_id": record.provider_id,
-                    "resolver": self.name,
-                },
+                filename=filename,
+                metadata=metadata,
             )
         return None

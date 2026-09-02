@@ -20,9 +20,12 @@ or connector-defined schemes such as an upload/object-store handle. The public c
 contain a provider or format allowlist.
 
 When a candidate or receipt exposes a `filename`, it must be one safe filename component on both
-POSIX and Windows. Path separators, traversal components, NULs, and blank names are rejected.
-Adapters may preserve a source-native unsafe/raw filename separately in `SourceObservation`
-provenance, but Tarkka must not let it become an implicit filesystem path.
+POSIX and Windows. Path separators, traversal components, control characters, Windows
+alternate-data-stream syntax (`:`), reserved device stems (for example `CON` and `COM1`), trailing
+dot/space spellings, and blank names are rejected. Generated staging names use the shared
+`portable_filename_component()` canonicalizer instead of relaxing this validation. Adapters retain
+the original source-native filename or provider identifier separately in provenance whenever that
+canonicalization changes it; Tarkka must not let it become an implicit filesystem path.
 
 Large or source-native provider records do not belong in candidate metadata. Preserve them as a
 `SourceObservation` or immutable Artifact and reference them from canonical provenance.

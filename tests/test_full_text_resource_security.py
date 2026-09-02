@@ -59,6 +59,10 @@ def test_full_text_resource_rejects_blank_filename() -> None:
         "subdir\\paper.txt",
         "C:\\temp\\paper.txt",
         "paper\x00.txt",
+        "paper.txt:metadata",
+        "paper.txt.",
+        "NUL",
+        "LPT1.csv",
     ],
 )
 def test_full_text_resource_rejects_traversing_or_absolute_filenames(filename: str) -> None:

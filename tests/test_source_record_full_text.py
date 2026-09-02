@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from tarkka.domain.discovery import DiscoveryRecord
 from tarkka.domain.models import Work
+from tarkka.domain.path_safety import is_safe_filename_component
 from tarkka.domain.work_identity import WorkSourceRecord
 from tarkka.infrastructure.full_text.source_record import SourceRecordFullTextResolver
 
@@ -47,3 +48,27 @@ def test_source_record_resolver_does_not_guess_untyped_open_access_url() -> None
     )
 
     assert SourceRecordFullTextResolver().resolve(work, (), (source,)) is None
+
+
+def test_source_record_resolver_canonicalizes_hostile_generated_filename_with_provenance() -> None:
+    work_id = uuid4()
+    work = Work(work_id=work_id, title="Paper")
+    source = WorkSourceRecord(
+        source_record_id=uuid4(),
+        work_id=work_id,
+        record=DiscoveryRecord(
+            provider="semantic/scholar",
+            provider_id="paper:123. ",
+            title="Paper",
+            open_access_url="https://example.test/paper.pdf",
+            metadata={"open_access_media_type": "application/pdf"},
+        ),
+    )
+
+    resource = SourceRecordFullTextResolver().resolve(work, (), (source,))
+
+    assert resource is not None
+    assert resource.filename == "semantic_scholar-paper_123. .pdf"
+    assert is_safe_filename_component(resource.filename)
+    assert resource.metadata["provider_id"] == "paper:123. "
+    assert resource.metadata["generated_filename_input"] == "semantic/scholar-paper:123. .pdf"

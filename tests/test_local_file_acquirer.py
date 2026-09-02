@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from io import BytesIO
 from pathlib import Path
 from typing import BinaryIO, cast
@@ -10,6 +11,7 @@ import pytest
 
 from tarkka.application.ingest import IngestService
 from tarkka.domain.source_observations import Capability
+from tarkka.infrastructure.acquisition import local_file
 from tarkka.infrastructure.acquisition.local_file import (
     LocalFileAcquirer,
     _normalize_file_uri_path,
@@ -249,6 +251,62 @@ def test_local_file_assessment_maps_permission_denial(
     decision = LocalFileAcquirer().assess(_candidate(source))
 
     assert decision.status is AcquisitionDecisionStatus.POLICY_DENIED
+
+
+def test_local_file_assessment_maps_inspection_os_error_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "paper.txt"
+    source.write_text("local", encoding="utf-8")
+    original_stat = Path.stat
+
+    def _uninspectable(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        if self == source:
+            raise OSError("device not ready")
+        return original_stat(self, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(Path, "stat", _uninspectable)
+
+    decision = LocalFileAcquirer().assess(_candidate(source))
+
+    assert decision.status is AcquisitionDecisionStatus.UNAVAILABLE
+
+
+def test_local_file_acquisition_maps_open_permission_denial(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "paper.txt"
+    source.write_text("local", encoding="utf-8")
+    original_open = Path.open
+
+    def _denied(self: Path, *args: object, **kwargs: object) -> BinaryIO:
+        if self == source:
+            raise PermissionError("denied")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _denied)
+
+    with pytest.raises(AcquisitionError) as error:
+        LocalFileAcquirer().acquire(_candidate(source), BytesIO())
+
+    assert error.value.kind is AcquisitionFailureKind.POLICY_DENIED
+
+
+def test_local_file_acquisition_rejects_non_regular_open_descriptor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "paper.txt"
+    source.write_text("local", encoding="utf-8")
+    descriptor_stat = os.stat_result((stat.S_IFDIR, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    monkeypatch.setattr(local_file.os, "fstat", lambda _descriptor: descriptor_stat)
+
+    with pytest.raises(AcquisitionError) as error:
+        LocalFileAcquirer().acquire(_candidate(source), BytesIO())
+
+    assert error.value.kind is AcquisitionFailureKind.UNAVAILABLE
 
 
 def test_local_file_acquisition_maps_sink_failure_as_transient(tmp_path: Path) -> None:

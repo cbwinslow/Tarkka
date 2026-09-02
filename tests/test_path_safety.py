@@ -71,3 +71,12 @@ def test_portable_filename_component_canonicalizes_hostile_generated_text(
 
     assert actual == expected
     assert is_safe_filename_component(actual)
+
+
+def test_portable_filename_component_validates_inputs_and_uses_fallback_for_blank_source() -> None:
+    assert portable_filename_component("", fallback="download.bin") == "download.bin"
+
+    with pytest.raises(ValueError, match="source must be a string"):
+        portable_filename_component(123)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="fallback must be safe"):
+        portable_filename_component("paper.pdf", fallback="CON")

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import PurePosixPath, PureWindowsPath
-
 _WINDOWS_RESERVED_STEMS = frozenset(
     {
         "con",
@@ -33,11 +31,6 @@ def is_safe_filename_component(value: object) -> bool:
         or any(character in _UNSAFE_FILENAME_CHARACTERS for character in value)
     ):
         return False
-    if not (
-        PurePosixPath(value).name == value
-        and PureWindowsPath(value).name == value
-    ):
-        return False
     return value.split(".", 1)[0].casefold() not in _WINDOWS_RESERVED_STEMS
 
 
@@ -64,4 +57,4 @@ def portable_filename_component(value: str, *, fallback: str = "artifact") -> st
         return fallback
     if normalized.split(".", 1)[0].casefold() in _WINDOWS_RESERVED_STEMS:
         normalized = f"{normalized}_"
-    return normalized if is_safe_filename_component(normalized) else fallback
+    return normalized

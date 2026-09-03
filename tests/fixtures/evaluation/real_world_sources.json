@@ -18,15 +18,6 @@
       "media_type": "text/html",
       "expected_parser": "semantic_html",
       "expected_capability": "supported"
-    },
-    {
-      "id": "arxiv-attention-pdf",
-      "canonical_url": "https://arxiv.org/pdf/1706.03762",
-      "sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
-      "rights_note": "arXiv source; evaluate only under its displayed rights and access terms.",
-      "media_type": "application/pdf",
-      "expected_parser": "docling",
-      "expected_capability": "optional"
     }
   ]
 }

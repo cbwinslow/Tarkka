@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from tarkka.domain.identifiers import require_sha256
 
@@ -40,9 +41,12 @@ class CorpusSource:
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"corpus {field_name} must be non-blank")
-        if Path(self.staged_filename).name != self.staged_filename:
+        if self.staged_filename in {".", ".."} or (
+            Path(self.staged_filename).name != self.staged_filename
+        ):
             raise ValueError("corpus staged_filename must be a filename")
-        if not self.canonical_url.startswith("https://"):
+        parsed_url = urlparse(self.canonical_url)
+        if parsed_url.scheme != "https" or not parsed_url.netloc:
             raise ValueError("corpus canonical_url must use HTTPS")
         require_sha256(self.sha256, field_name="corpus SHA-256")
         if self.expected_capability not in {"supported", "optional"}:

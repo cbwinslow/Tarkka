@@ -3,6 +3,7 @@
   "items": [
     {
       "id": "gutenberg-frankenstein-epub",
+      "staged_filename": "frankenstein.epub",
       "canonical_url": "https://www.gutenberg.org/ebooks/84.epub.images",
       "sha256": "487d0a02785731ac30d3f5cbfb6b954aa52d358f7f6375b39b1d7288de01c3db",
       "rights_note": "Project Gutenberg public-domain edition; retain source attribution.",
@@ -12,6 +13,7 @@
     },
     {
       "id": "gutenberg-frankenstein-html",
+      "staged_filename": "frankenstein.html",
       "canonical_url": "https://www.gutenberg.org/cache/epub/84/pg84-images.html",
       "sha256": "9dbc00dc1b8fb9eebe3382c173d813b5a7ce0f8a015e580890a7a4667a222156",
       "rights_note": "Project Gutenberg public-domain edition; retain source attribution.",

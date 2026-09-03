@@ -77,6 +77,8 @@ class OcrQualityReport:
     reported_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.reported_at, datetime):
+            raise ValueError("OCR quality reported_at must be a datetime")
         if not isinstance(self.derivation_id, UUID):
             raise ValueError("OCR quality derivation_id must be a UUID")
         if not isinstance(self.source_artifact_id, UUID):

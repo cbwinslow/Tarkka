@@ -90,6 +90,7 @@ def test_ocr_quality_report_rejects_non_page_records(page: object, message: str)
         (lambda report: replace(report, source_artifact_sha256="bad"), "sha256"),
         (lambda report: replace(report, derivation_id="bad"), "derivation_id"),
         (lambda report: replace(report, source_artifact_id="bad"), "source_artifact_id"),
+        (lambda report: replace(report, reported_at="bad"), "reported_at"),
         (lambda report: replace(report, engine_name=""), "engine_name"),
         (lambda report: replace(report, engine_version=""), "engine_version"),
         (lambda report: replace(report, quality_policy_version=""), "quality_policy_version"),

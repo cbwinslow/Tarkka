@@ -75,16 +75,13 @@ def test_ocr_derivation_requires_the_quality_report_identity() -> None:
 @pytest.mark.parametrize(
     ("page", "message"),
     [
-        (OcrPageQuality(1), "placeholder"),
+        ("not-a-page", "page quality records"),
         (None, "page quality records"),
     ],
 )
 def test_ocr_quality_report_rejects_non_page_records(page: object, message: str) -> None:
-    if page is None:
-        with pytest.raises(ValueError, match=message):
-            replace(_report(), pages=(page,))  # type: ignore[arg-type]
-    else:
-        assert isinstance(page, OcrPageQuality)
+    with pytest.raises(ValueError, match=message):
+        replace(_report(), pages=(page,))  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(

@@ -39,6 +39,11 @@ Adapter-native confidence scores are retained as observations. Tarkka may map th
 grade such as `excellent`, `good`, `fair`, `poor`, or `unknown`, but must retain the originating
 metric/version and never compare raw scores from unrelated engines as though they were calibrated.
 
+The adapter-neutral derivation contract identifies both the derivation and its source Artifact.
+Its reconstructed Document must refer to that same source Artifact, while using derivation-scoped
+identities so it cannot overwrite a native or competing reconstructed Document. Page-quality records
+use 1-based source page numbers as their initial locators; richer region locators remain additive.
+
 ## Quality gates
 
 Quality gates decide what happens next; they do not erase data.

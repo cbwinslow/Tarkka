@@ -18,10 +18,13 @@ from tarkka.ports.ocr import OcrDerivation
 
 pytestmark = pytest.mark.unit
 
+_SOURCE_ARTIFACT_ID = UUID("00000000-0000-0000-0000-000000000299")
+
 
 def _report() -> OcrQualityReport:
     return OcrQualityReport(
-        derivation_id=UUID("00000000-0000-0000-0000-000000000299"),
+        derivation_id=UUID("00000000-0000-0000-0000-000000000398"),
+        source_artifact_id=_SOURCE_ARTIFACT_ID,
         source_artifact_sha256="a" * 64,
         engine_name="local-fixture",
         engine_version="1",
@@ -55,7 +58,7 @@ def test_ocr_derivation_requires_the_quality_report_identity() -> None:
     report = _report()
     document = Document(
         document_id=uuid4(),
-        artifact_id=uuid4(),
+        artifact_id=_SOURCE_ARTIFACT_ID,
         title="fixture",
         parser_name="fixture",
         parser_version="1",
@@ -65,6 +68,8 @@ def test_ocr_derivation_requires_the_quality_report_identity() -> None:
     assert derivation.derivation_id == report.derivation_id
     with pytest.raises(ValueError, match="match"):
         OcrDerivation(uuid4(), document, report)
+    with pytest.raises(ValueError, match="source artifact"):
+        OcrDerivation(report.derivation_id, replace(document, artifact_id=uuid4()), report)
 
 
 @pytest.mark.parametrize(
@@ -86,6 +91,8 @@ def test_ocr_quality_report_rejects_non_page_records(page: object, message: str)
     ("change", "message"),
     [
         (lambda report: replace(report, source_artifact_sha256="bad"), "sha256"),
+        (lambda report: replace(report, derivation_id="bad"), "derivation_id"),
+        (lambda report: replace(report, source_artifact_id="bad"), "source_artifact_id"),
         (lambda report: replace(report, engine_name=""), "engine_name"),
         (lambda report: replace(report, engine_version=""), "engine_version"),
         (lambda report: replace(report, quality_policy_version=""), "quality_policy_version"),

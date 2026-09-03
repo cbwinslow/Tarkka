@@ -22,6 +22,8 @@ class OcrDerivation:
     def __post_init__(self) -> None:
         if self.derivation_id != self.quality_report.derivation_id:
             raise ValueError("OCR derivation ID must match its quality report")
+        if self.document.artifact_id != self.quality_report.source_artifact_id:
+            raise ValueError("OCR derivation document must belong to its source artifact")
 
 
 class OcrConverter(Protocol):

@@ -110,16 +110,21 @@ class DoclingParser:
 
     def derive(self, artifact: Artifact, path: Path) -> OcrDerivation:
         """Return a separately identified reconstructed derivation and conservative report."""
-        parsed = self.parse_native(artifact, path)
         derivation_id = parser_stable_id(
             artifact.artifact_id,
             f"docling-ocr-derivation:{self.version}",
+        )
+        parsed = self._parse_native(
+            artifact,
+            path,
+            identifier_scope=f"docling-ocr:{self.version}",
         )
         return OcrDerivation(
             derivation_id=derivation_id,
             document=parsed.document,
             quality_report=OcrQualityReport(
                 derivation_id=derivation_id,
+                source_artifact_id=artifact.artifact_id,
                 source_artifact_sha256=artifact.sha256,
                 engine_name=self.name,
                 engine_version=self.version,
@@ -134,6 +139,15 @@ class DoclingParser:
         )
 
     def parse_native(self, artifact: Artifact, path: Path) -> NativeDocumentParseResult:
+        return self._parse_native(artifact, path, identifier_scope="docling")
+
+    def _parse_native(
+        self,
+        artifact: Artifact,
+        path: Path,
+        *,
+        identifier_scope: str,
+    ) -> NativeDocumentParseResult:
         result = self._converter.convert(path)
         docling_document = result.document
         markdown = str(docling_document.export_to_markdown())
@@ -148,26 +162,31 @@ class DoclingParser:
             parser_name=self.name,
             parser_version=self.version,
             title=str(title),
-            document_id=parser_stable_id(artifact.artifact_id, "docling-document"),
+            document_id=parser_stable_id(artifact.artifact_id, f"{identifier_scope}-document"),
         )
         figures = _docling_figures(
             docling_document,
             document_id=document.document_id,
             artifact_id=artifact.artifact_id,
+            identifier_scope=identifier_scope,
         )
         tables = _docling_tables(
             docling_document,
             document_id=document.document_id,
             artifact_id=artifact.artifact_id,
+            identifier_scope=identifier_scope,
         )
         equations = _docling_equations(
             docling_document,
             document_id=document.document_id,
             artifact_id=artifact.artifact_id,
+            identifier_scope=identifier_scope,
         )
         document = replace(document, figures=figures, tables=tables, equations=equations)
         observation = SourceObservation(
-            observation_id=parser_stable_id(artifact.artifact_id, "docling-observation"),
+            observation_id=parser_stable_id(
+                artifact.artifact_id, f"{identifier_scope}-observation"
+            ),
             source_name=self.name,
             source_version=self.version,
             basis=ObservationBasis.RECONSTRUCTED,
@@ -191,12 +210,15 @@ def _docling_figures(
     *,
     document_id: UUID,
     artifact_id: UUID,
+    identifier_scope: str,
 ) -> tuple[Figure, ...]:
     values: list[Figure] = []
     for ordinal, item in enumerate(getattr(document, "pictures", ()) or ()):
         values.append(
             Figure(
-                figure_id=parser_stable_id(artifact_id, f"docling-figure:{ordinal}"),
+                figure_id=parser_stable_id(
+                    artifact_id, f"{identifier_scope}-figure:{ordinal}"
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),
@@ -213,13 +235,16 @@ def _docling_tables(
     *,
     document_id: UUID,
     artifact_id: UUID,
+    identifier_scope: str,
 ) -> tuple[Table, ...]:
     values: list[Table] = []
     for ordinal, item in enumerate(getattr(document, "tables", ()) or ()):
         data = getattr(item, "data", None)
         values.append(
             Table(
-                table_id=parser_stable_id(artifact_id, f"docling-table:{ordinal}"),
+                table_id=parser_stable_id(
+                    artifact_id, f"{identifier_scope}-table:{ordinal}"
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),
@@ -237,6 +262,7 @@ def _docling_equations(
     *,
     document_id: UUID,
     artifact_id: UUID,
+    identifier_scope: str,
 ) -> tuple[Equation, ...]:
     values: list[Equation] = []
     for item in getattr(document, "texts", ()) or ():
@@ -248,7 +274,9 @@ def _docling_equations(
             continue
         values.append(
             Equation(
-                equation_id=parser_stable_id(artifact_id, f"docling-equation:{ordinal}"),
+                equation_id=parser_stable_id(
+                    artifact_id, f"{identifier_scope}-equation:{ordinal}"
+                ),
                 document_id=document_id,
                 ordinal=ordinal,
                 page_number=_page_number(item),

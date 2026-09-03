@@ -62,6 +62,7 @@ class OcrQualityReport:
     """Versioned quality/provenance report for one retained reconstructed derivation."""
 
     derivation_id: UUID
+    source_artifact_id: UUID
     source_artifact_sha256: str
     engine_name: str
     engine_version: str
@@ -76,6 +77,10 @@ class OcrQualityReport:
     reported_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.derivation_id, UUID):
+            raise ValueError("OCR quality derivation_id must be a UUID")
+        if not isinstance(self.source_artifact_id, UUID):
+            raise ValueError("OCR quality source_artifact_id must be a UUID")
         require_sha256(self.source_artifact_sha256, field_name="OCR source artifact sha256")
         for name, value in (
             ("engine_name", self.engine_name),

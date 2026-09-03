@@ -139,11 +139,30 @@ def test_docling_ocr_derivation_is_separate_and_conservatively_review_gated(
 
     assert derivation.document.artifact_id == artifact.artifact_id
     assert derivation.quality_report.derivation_id == derivation.derivation_id
+    assert derivation.quality_report.source_artifact_id == artifact.artifact_id
     assert derivation.quality_report.source_artifact_sha256 == artifact.sha256
     assert derivation.quality_report.grade is QualityGrade.UNKNOWN
     assert derivation.quality_report.gate_decision is QualityGateDecision.REQUIRE_REVIEW
     assert derivation.quality_report.pages == ()
     assert derivation.quality_report.warnings
+
+
+def test_docling_ocr_derivation_has_distinct_stable_output_identity(tmp_path: Path) -> None:
+    source = tmp_path / "paper.pdf"
+    source.write_bytes(b"not-a-real-pdf")
+    artifact = _artifact()
+    parser = DoclingParser(converter=_FakeConverter())
+
+    native = parser.parse_native(artifact, source)
+    first = parser.derive(artifact, source)
+    second = parser.derive(artifact, source)
+
+    assert first.derivation_id == second.derivation_id
+    assert first.document.document_id == second.document.document_id
+    assert first.document.document_id != native.document.document_id
+    assert first.document.figures[0].figure_id != native.document.figures[0].figure_id
+    assert first.document.tables[0].table_id != native.document.tables[0].table_id
+    assert first.document.equations[0].equation_id != native.document.equations[0].equation_id
 
 
 def test_docling_ids_are_stable_for_same_artifact(tmp_path: Path) -> None:
@@ -218,6 +237,7 @@ def test_docling_helpers_handle_missing_and_non_string_values() -> None:
         SimpleNamespace(texts=(blank_formula,)),
         document_id=document_id,
         artifact_id=artifact_id,
+        identifier_scope="docling",
     ) == ()
     assert docling_parser._page_number(SimpleNamespace(prov=())) is None
     assert docling_parser._optional_text(123) == "123"

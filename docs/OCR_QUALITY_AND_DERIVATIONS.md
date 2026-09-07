@@ -14,6 +14,10 @@ derivative Artifacts. Each records:
 
 - input Artifact digest and source/page/region locator;
 - adapter/engine name, version, model files, language configuration, and material options;
+- an explicit stable material configuration fingerprint, which participates in reconstructed
+  derivation identity and is recorded in quality provenance; adapters must author this from
+  documented material settings and must never infer it from an injected object's representation
+  or mutable runtime state;
 - execution time, failure outcome, and bounded diagnostic metadata;
 - native, reconstructed, or inferred basis;
 - output digest/reference when bytes or a large payload are produced.

@@ -95,7 +95,9 @@ def test_docling_repeated_parse_preserves_document_observation_and_passage_ids(
             assert path == source
             return SimpleNamespace(document=_Document())
 
-    parser = DoclingParser(converter=_Converter())
+    parser = DoclingParser(
+        converter=_Converter(), configuration_fingerprint="repeatability-fixture-v1"
+    )
 
     first = parser.parse_native(_artifact(), source)
     second = parser.parse_native(_artifact(), source)

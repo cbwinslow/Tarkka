@@ -66,6 +66,7 @@ class OcrQualityReport:
     source_artifact_sha256: str
     engine_name: str
     engine_version: str
+    configuration_fingerprint: str
     languages: tuple[str, ...]
     quality_policy_version: str
     grade: QualityGrade
@@ -87,6 +88,7 @@ class OcrQualityReport:
         for name, value in (
             ("engine_name", self.engine_name),
             ("engine_version", self.engine_version),
+            ("configuration_fingerprint", self.configuration_fingerprint),
             ("quality_policy_version", self.quality_policy_version),
         ):
             if not isinstance(value, str) or not value.strip():

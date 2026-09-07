@@ -27,9 +27,14 @@ class OcrDerivation:
 
 
 class OcrConverter(Protocol):
-    """Create a non-destructive reconstructed derivation from one immutable source Artifact."""
+    """Create a non-destructive reconstructed derivation from one immutable source Artifact.
+
+    ``configuration_fingerprint`` is adapter-authored, stable, and describes material engine,
+    model, language, and setting choices. It must not be inferred from injected object state.
+    """
 
     name: str
     version: str
+    configuration_fingerprint: str
 
     def derive(self, artifact: Artifact, path: Path) -> OcrDerivation: ...

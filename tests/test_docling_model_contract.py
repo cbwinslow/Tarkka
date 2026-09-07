@@ -87,7 +87,9 @@ def _artifact() -> Artifact:
 def _parse(tmp_path: Path, document: object):
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"fixture")
-    parser = DoclingParser(converter=_Converter(document))
+    parser = DoclingParser(
+        converter=_Converter(document), configuration_fingerprint="contract-fixture-v1"
+    )
     return parser.parse_native(_artifact(), source)
 
 

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from math import inf, nan
+from pathlib import Path
 from uuid import UUID
 
 import pytest
 
 from tarkka.domain.models import Passage
 from tarkka.domain.retrieval import RetrievalPassageSpan, RetrievalSegment
+from tarkka.domain.retrieval_index import RetrievalSegmentIndex
+from tarkka.infrastructure.json_retrieval_index_store import JsonRetrievalSegmentStore
 from tarkka.infrastructure.lexical_retrieval import InMemoryLexicalRetriever
+from tarkka.infrastructure.persistent_lexical_retrieval import PersistentLexicalRetriever
 from tarkka.ports.retrieval import LexicalRetrievalHit, LexicalRetrievalQuery
 
 _DOCUMENT_ID = UUID("00000000-0000-0000-0000-000000000313")
@@ -283,3 +287,105 @@ def test_retriever_rejects_invalid_or_duplicate_segments_and_handles_punctuation
 
     retriever = InMemoryLexicalRetriever(segments=(segment,))
     assert retriever.search(LexicalRetrievalQuery("!!!")) == ()
+
+
+def test_json_snapshot_round_trip_preserves_provenance_and_lexical_search(tmp_path: Path) -> None:
+    segment = _segment(passage_id=UUID(int=60), text="Evidence supports replay.")
+    index = RetrievalSegmentIndex(
+        document_id=_DOCUMENT_ID,
+        derivation_version="v1",
+        configuration_fingerprint="passage-whole-v1",
+        segments=(segment,),
+    )
+    store = JsonRetrievalSegmentStore(tmp_path / "retrieval-indexes.json")
+    store.replace(index)
+
+    restored = store.get(
+        document_id=_DOCUMENT_ID,
+        derivation_version="v1",
+        configuration_fingerprint="passage-whole-v1",
+    )
+    hits = PersistentLexicalRetriever(
+        indexes=store,
+        document_id=_DOCUMENT_ID,
+        derivation_version="v1",
+        configuration_fingerprint="passage-whole-v1",
+    ).search(LexicalRetrievalQuery("REPLAY"))
+
+    assert restored == index
+    assert hits[0].segment.segment_id == segment.segment_id
+    assert hits[0].segment.source_spans == segment.source_spans
+
+
+def test_retrieval_index_rejects_invalid_contract_values() -> None:
+    segment = _segment(passage_id=UUID(int=61), text="Evidence supports validation.")
+    other_document_segment = RetrievalSegment(
+        document_id=UUID(int=62),
+        text=segment.text,
+        source_spans=segment.source_spans,
+        derivation_version="v1",
+        configuration_fingerprint="passage-whole-v1",
+    )
+
+    invalid_cases = (
+        ("not-a-uuid", "v1", "passage-whole-v1", (segment,), "document_id"),
+        (_DOCUMENT_ID, " ", "passage-whole-v1", (segment,), "derivation_version"),
+        (_DOCUMENT_ID, "v1", " ", (segment,), "configuration_fingerprint"),
+        (_DOCUMENT_ID, "v1", "passage-whole-v1", [segment], "tuple"),
+        (_DOCUMENT_ID, "v1", "passage-whole-v1", (object(),), "RetrievalSegment"),
+        (_DOCUMENT_ID, "v1", "passage-whole-v1", (other_document_segment,), "derivation key"),
+        (_DOCUMENT_ID, "v1", "passage-whole-v1", (segment, segment), "unique"),
+    )
+
+    for document_id, derivation_version, fingerprint, segments, message in invalid_cases:
+        with pytest.raises(ValueError, match=message):
+            RetrievalSegmentIndex(
+                document_id=document_id,  # type: ignore[arg-type]
+                derivation_version=derivation_version,
+                configuration_fingerprint=fingerprint,
+                segments=segments,  # type: ignore[arg-type]
+            )
+
+
+def test_json_snapshot_store_handles_existing_empty_and_malformed_catalogs(tmp_path: Path) -> None:
+    path = tmp_path / "retrieval-indexes.json"
+    store = JsonRetrievalSegmentStore(path)
+
+    assert JsonRetrievalSegmentStore(path).get(
+        document_id=_DOCUMENT_ID,
+        derivation_version="missing-v1",
+        configuration_fingerprint="missing-config-v1",
+    ) is None
+    for content in ("not json", '{"schema_version": 2, "indexes": {}}'):
+        path.write_text(content, encoding="utf-8")
+        with pytest.raises(RuntimeError, match="unable to read retrieval index catalog"):
+            store.list_for_document(_DOCUMENT_ID)
+
+
+def test_json_snapshot_store_wraps_catalog_read_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = JsonRetrievalSegmentStore(tmp_path / "retrieval-indexes.json")
+
+    def raise_os_error(_: Path, *, encoding: str) -> str:
+        raise OSError("disk failure")
+
+    monkeypatch.setattr(Path, "read_text", raise_os_error)
+
+    with pytest.raises(RuntimeError, match="disk failure"):
+        store.get(
+            document_id=_DOCUMENT_ID,
+            derivation_version="v1",
+            configuration_fingerprint="passage-whole-v1",
+        )
+
+
+def test_persistent_lexical_retriever_returns_no_hits_without_stored_index(tmp_path: Path) -> None:
+    retriever = PersistentLexicalRetriever(
+        indexes=JsonRetrievalSegmentStore(tmp_path / "retrieval-indexes.json"),
+        document_id=_DOCUMENT_ID,
+        derivation_version="v1",
+        configuration_fingerprint="passage-whole-v1",
+    )
+
+    assert retriever.search(LexicalRetrievalQuery("evidence")) == ()

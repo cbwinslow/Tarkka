@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
@@ -57,7 +58,13 @@ class DoclingParser:
         "image/tiff",
     }
 
-    def __init__(self, converter: Any | None = None) -> None:
+    def __init__(
+        self,
+        converter: Any | None = None,
+        *,
+        configuration_fingerprint: str | None = None,
+    ) -> None:
+        """Initialize Docling with an explicit fingerprint for any injected converter."""
         if converter is None:
             try:
                 module = import_module("docling.document_converter")
@@ -66,7 +73,14 @@ class DoclingParser:
                     "Docling is not installed; install Tarkka with `pip install 'tarkka[docling]'`"
                 ) from exc
             converter = module.DocumentConverter()
+            if configuration_fingerprint is None:
+                configuration_fingerprint = "docling-default-v1"
+        elif configuration_fingerprint is None:
+            raise ValueError("injected Docling converters require a configuration fingerprint")
+        if not isinstance(configuration_fingerprint, str) or not configuration_fingerprint.strip():
+            raise ValueError("Docling configuration fingerprint must be a non-blank string")
         self._converter = converter
+        self.configuration_fingerprint = configuration_fingerprint
         try:
             self.version = version("docling")
         except PackageNotFoundError:
@@ -110,14 +124,15 @@ class DoclingParser:
 
     def derive(self, artifact: Artifact, path: Path) -> OcrDerivation:
         """Return a separately identified reconstructed derivation and conservative report."""
+        identifier_scope = self._ocr_identifier_scope()
         derivation_id = parser_stable_id(
             artifact.artifact_id,
-            f"docling-ocr-derivation:{self.version}",
+            f"{identifier_scope}-derivation",
         )
         parsed = self._parse_native(
             artifact,
             path,
-            identifier_scope=f"docling-ocr:{self.version}",
+            identifier_scope=identifier_scope,
         )
         return OcrDerivation(
             derivation_id=derivation_id,
@@ -128,6 +143,7 @@ class DoclingParser:
                 source_artifact_sha256=artifact.sha256,
                 engine_name=self.name,
                 engine_version=self.version,
+                configuration_fingerprint=self.configuration_fingerprint,
                 languages=(),
                 quality_policy_version="docling-v1",
                 grade=QualityGrade.UNKNOWN,
@@ -140,6 +156,15 @@ class DoclingParser:
 
     def parse_native(self, artifact: Artifact, path: Path) -> NativeDocumentParseResult:
         return self._parse_native(artifact, path, identifier_scope="docling")
+
+    def _ocr_identifier_scope(self) -> str:
+        """Encode OCR identity inputs without depending on converter object state."""
+        configuration = json.dumps(
+            (self.version, self.configuration_fingerprint),
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        return f"docling-ocr:{configuration}"
 
     def _parse_native(
         self,

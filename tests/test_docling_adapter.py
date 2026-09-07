@@ -76,7 +76,9 @@ def test_docling_adapter_normalizes_to_tarkka_document(tmp_path: Path) -> None:
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"not-a-real-pdf")
     artifact = _artifact()
-    parser = DoclingParser(converter=_FakeConverter())
+    parser = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="fixture-default-v1"
+    )
 
     document = parser.parse(artifact, source)
 
@@ -98,7 +100,9 @@ def test_docling_adapter_normalizes_to_tarkka_document(tmp_path: Path) -> None:
 def test_docling_native_parse_preserves_first_class_structural_artifacts(tmp_path: Path) -> None:
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"not-a-real-pdf")
-    parser = DoclingParser(converter=_FakeConverter())
+    parser = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="fixture-default-v1"
+    )
 
     result = parser.parse_native(_artifact(), source)
     document = result.document
@@ -135,12 +139,15 @@ def test_docling_ocr_derivation_is_separate_and_conservatively_review_gated(
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"not-a-real-pdf")
     artifact = _artifact()
-    derivation = DoclingParser(converter=_FakeConverter()).derive(artifact, source)
+    derivation = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="fixture-default-v1"
+    ).derive(artifact, source)
 
     assert derivation.document.artifact_id == artifact.artifact_id
     assert derivation.quality_report.derivation_id == derivation.derivation_id
     assert derivation.quality_report.source_artifact_id == artifact.artifact_id
     assert derivation.quality_report.source_artifact_sha256 == artifact.sha256
+    assert derivation.quality_report.configuration_fingerprint == "fixture-default-v1"
     assert derivation.quality_report.grade is QualityGrade.UNKNOWN
     assert derivation.quality_report.gate_decision is QualityGateDecision.REQUIRE_REVIEW
     assert derivation.quality_report.pages == ()
@@ -151,11 +158,16 @@ def test_docling_ocr_derivation_has_distinct_stable_output_identity(tmp_path: Pa
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"not-a-real-pdf")
     artifact = _artifact()
-    parser = DoclingParser(converter=_FakeConverter())
+    first_parser = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="fixture-default-v1"
+    )
+    second_parser = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="fixture-default-v1"
+    )
 
-    native = parser.parse_native(artifact, source)
-    first = parser.derive(artifact, source)
-    second = parser.derive(artifact, source)
+    native = first_parser.parse_native(artifact, source)
+    first = first_parser.derive(artifact, source)
+    second = second_parser.derive(artifact, source)
 
     assert first.derivation_id == second.derivation_id
     assert first.document.document_id == second.document.document_id
@@ -168,7 +180,9 @@ def test_docling_ocr_derivation_has_distinct_stable_output_identity(tmp_path: Pa
 def test_docling_ids_are_stable_for_same_artifact(tmp_path: Path) -> None:
     source = tmp_path / "paper.pdf"
     source.write_bytes(b"not-a-real-pdf")
-    parser = DoclingParser(converter=_FakeConverter())
+    parser = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="fixture-default-v1"
+    )
     artifact = _artifact()
 
     first = parser.parse_native(artifact, source).document
@@ -183,6 +197,35 @@ def test_docling_ids_are_stable_for_same_artifact(tmp_path: Path) -> None:
     assert first.equations[0].equation_id == second.equations[0].equation_id
 
 
+def test_docling_ocr_derivation_identity_changes_with_material_configuration(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "paper.pdf"
+    source.write_bytes(b"not-a-real-pdf")
+    artifact = _artifact()
+
+    english = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="ocr:eng:v1"
+    ).derive(artifact, source)
+    multilingual = DoclingParser(
+        converter=_FakeConverter(), configuration_fingerprint="ocr:eng+deu:v1"
+    ).derive(artifact, source)
+
+    assert english.derivation_id != multilingual.derivation_id
+    assert english.document.document_id != multilingual.document.document_id
+    assert english.document.figures[0].figure_id != multilingual.document.figures[0].figure_id
+    assert english.quality_report.configuration_fingerprint != (
+        multilingual.quality_report.configuration_fingerprint
+    )
+
+
+def test_docling_injected_converter_requires_explicit_configuration_fingerprint() -> None:
+    with pytest.raises(ValueError, match="require a configuration fingerprint"):
+        DoclingParser(converter=_FakeConverter())
+    with pytest.raises(ValueError, match="non-blank"):
+        DoclingParser(converter=_FakeConverter(), configuration_fingerprint=" ")
+
+
 def test_docling_default_constructor_builds_converter_when_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -195,6 +238,7 @@ def test_docling_default_constructor_builds_converter_when_available(
 
     assert parser._converter is converter
     assert parser.version == "9.9.9"
+    assert parser.configuration_fingerprint == "docling-default-v1"
 
 
 def test_docling_default_constructor_reports_missing_dependency(
@@ -225,7 +269,12 @@ def test_docling_availability_and_extension_support(
         storage_key=PurePosixPath("bb/docling-extension"),
         original_name="paper.docx",
     )
-    assert DoclingParser(converter=_FakeConverter()).supports(artifact) is True
+    assert (
+        DoclingParser(
+            converter=_FakeConverter(), configuration_fingerprint="fixture-default-v1"
+        ).supports(artifact)
+        is True
+    )
 
 
 def test_docling_helpers_handle_missing_and_non_string_values() -> None:

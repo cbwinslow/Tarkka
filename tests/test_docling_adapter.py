@@ -235,10 +235,12 @@ def test_docling_default_constructor_builds_converter_when_available(
     monkeypatch.setattr(docling_parser, "version", lambda _name: "9.9.9")
 
     parser = DoclingParser()
+    configured = DoclingParser(configuration_fingerprint="docling-custom-v1")
 
     assert parser._converter is converter
     assert parser.version == "9.9.9"
     assert parser.configuration_fingerprint == "docling-default-v1"
+    assert configured.configuration_fingerprint == "docling-custom-v1"
 
 
 def test_docling_default_constructor_reports_missing_dependency(

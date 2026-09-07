@@ -205,6 +205,24 @@ def test_segment_rejects_out_of_order_spans() -> None:
         )
 
 
+def test_segment_rejects_reversed_spans_across_section_local_ordinals() -> None:
+    first_section = UUID(int=101)
+    second_section = UUID(int=102)
+    first = Passage(UUID(int=103), _DOCUMENT_ID, first_section, 0, "first", 0, 5)
+    second = Passage(UUID(int=104), _DOCUMENT_ID, second_section, 0, "second", 5, 11)
+
+    with pytest.raises(ValueError, match="ordered"):
+        RetrievalSegment.from_passages(
+            passages=(first, second),
+            source_spans=(
+                RetrievalPassageSpan(second_section, second.passage_id, 0, 1),
+                RetrievalPassageSpan(first_section, first.passage_id, 0, 1),
+            ),
+            derivation_version="v1",
+            configuration_fingerprint="fixture-v1",
+        )
+
+
 def test_lexical_retrieval_is_case_insensitive_bounded_and_deterministic() -> None:
     first = _segment(passage_id=UUID(int=2), text="Evidence supports reproducibility.")
     second = _segment(passage_id=UUID(int=3), text="Evidence supports inspection.")

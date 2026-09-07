@@ -102,6 +102,9 @@ class RetrievalSegment:
         passages_by_id = {passage.passage_id: passage for passage in passage_list}
         if len(passages_by_id) != len(passage_list):
             raise ValueError("retrieval segment source passages must be unique")
+        passage_order = {
+            passage.passage_id: index for index, passage in enumerate(passage_list)
+        }
 
         previous_order: tuple[int, int] | None = None
         previous_passage_id: UUID | None = None
@@ -114,7 +117,7 @@ class RetrievalSegment:
             if span.char_end > len(passage.text):
                 raise ValueError("retrieval source span must be contained within its passage")
 
-            current_order = (passage.ordinal, span.char_start)
+            current_order = (passage_order[passage.passage_id], span.char_start)
             if previous_order is not None and current_order < previous_order:
                 raise ValueError("retrieval source spans must be ordered by passage and character")
             if (

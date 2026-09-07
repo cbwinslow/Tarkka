@@ -95,6 +95,10 @@ def test_ocr_quality_report_rejects_non_page_records(page: object, message: str)
         (lambda report: replace(report, engine_name=""), "engine_name"),
         (lambda report: replace(report, engine_version=""), "engine_version"),
         (lambda report: replace(report, configuration_fingerprint=""), "configuration_fingerprint"),
+        (
+            lambda report: replace(report, configuration_fingerprint="   "),
+            "configuration_fingerprint",
+        ),
         (lambda report: replace(report, quality_policy_version=""), "quality_policy_version"),
         (lambda report: replace(report, grade="fair"), "QualityGrade"),
         (lambda report: replace(report, gate_decision="warn"), "QualityGateDecision"),

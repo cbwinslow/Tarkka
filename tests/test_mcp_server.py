@@ -81,6 +81,7 @@ def test_mcp_server_registers_only_read_only_initial_operations() -> None:
         "document_sections",
         "document_section",
         "document_replay",
+        "retrieval_search",
     ]
     assert all(tool.annotations is not None and tool.annotations.read_only_hint for tool in tools)
     assert all(tool.annotations is not None and tool.annotations.idempotent_hint for tool in tools)
@@ -128,7 +129,7 @@ def test_mcp_server_preserves_staged_document_disclosure(tmp_path: Path) -> None
 
     capabilities = _call(server, "research_capabilities", {})
     assert capabilities["ok"] is True
-    assert capabilities["estimated_tokens"] < 275
+    assert capabilities["estimated_tokens"] < 300
     assert "inputs" not in capabilities["operations"][0]
 
     schema = _call(

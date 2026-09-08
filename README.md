@@ -84,6 +84,16 @@ tarkka documents section <document-id> <section-id>
 tarkka documents package <document-id> --section <section-id> --section <section-id>
 tarkka documents package <document-id> --section <section-id> --save
 tarkka documents saved-package <context-package-id>
+
+# Explicitly derive and search one local lexical projection. MCP exposes the
+# same bounded read-only search operation but never creates indexes.
+tarkka retrieval index <document-id> \
+  --derivation-version whole-passage-v1 \
+  --configuration-fingerprint whole-passage-v1
+tarkka retrieval search <document-id> "evidence provenance" \
+  --derivation-version whole-passage-v1 \
+  --configuration-fingerprint whole-passage-v1 \
+  --limit 10
 ```
 
 Tarkka stores immutable source artifacts by SHA-256, records acquisition provenance, normalizes
@@ -94,6 +104,10 @@ the citation CLI lists compact references before expanding a single reference's 
 when the citing Work is explicit or uniquely linked to the Document.
 They also preserve source-observed resource relationships; the resources CLI follows the same
 compact-list then explicit-detail pattern without fetching or identity-resolving a target.
+Local lexical retrieval is an explicit, versioned derived projection over canonical passages. Each
+hit retains its stable segment ID and exact passage-local source spans; it never replaces the
+Document, Evidence, or citation boundary. Search requires the exact derivation/configuration pair
+that was indexed and never falls back to a different projection.
 Verification assessments are separately auditable and expand back to their exact source evidence.
 
 Install the optional Docling integration for richer formats such as PDF, DOCX, PPTX, HTML, and

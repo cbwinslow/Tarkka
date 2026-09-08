@@ -28,6 +28,11 @@ from tarkka.application.identity_review import (
     IdentityReviewService,
     IdentitySnapshotNotFoundError,
 )
+from tarkka.application.lexical_retrieval import (
+    LexicalRetrievalService,
+    RetrievalIndexNotFoundError,
+)
+from tarkka.application.lexical_retrieval_view import lexical_index_view, lexical_search_view
 from tarkka.application.research_capabilities import (
     UnknownResearchOperationError,
     research_operation_schema,
@@ -88,6 +93,7 @@ from tarkka.infrastructure.extraction.rule_claims import (
     NoClaimsFoundError,
     RuleBasedClaimExtractor,
 )
+from tarkka.infrastructure.json_retrieval_index_store import JsonRetrievalSegmentStore
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.context_package_repository import (
     PostgresDocumentContextPackageRepository,
@@ -121,6 +127,7 @@ from tarkka.interfaces.cli import main as legacy_main
 from tarkka.ports.context_packages import DocumentContextPackageStore
 from tarkka.ports.extraction import StructuredExtractor
 from tarkka.ports.repositories import ResearchRepository
+from tarkka.ports.retrieval import LexicalRetrievalQuery
 
 _MAX_CITATION_PAGE_SIZE = 100
 _MAX_CITATION_OFFSET = 10_000
@@ -274,6 +281,13 @@ def _document_retrieval_service() -> DocumentRetrievalService:
     return DocumentRetrievalService(documents=_document_retrieval_repository())
 
 
+def _lexical_retrieval_service() -> LexicalRetrievalService:
+    return LexicalRetrievalService(
+        documents=_document_retrieval_repository(),
+        indexes=JsonRetrievalSegmentStore(_home() / "retrieval_indexes.json"),
+    )
+
+
 def _document_context_package_service() -> DocumentContextPackageService:
     return DocumentContextPackageService(documents=_document_retrieval_service())
 
@@ -325,6 +339,52 @@ def _cmd_capabilities_show(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(research_operation_schema_view(schema), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_retrieval_index(args: argparse.Namespace) -> int:
+    try:
+        index = _lexical_retrieval_service().index(
+            args.document_id,
+            derivation_version=args.derivation_version,
+            configuration_fingerprint=args.configuration_fingerprint,
+        )
+    except (DocumentNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(lexical_index_view(index), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_retrieval_search(args: argparse.Namespace) -> int:
+    try:
+        hits = _lexical_retrieval_service().search(
+            args.document_id,
+            derivation_version=args.derivation_version,
+            configuration_fingerprint=args.configuration_fingerprint,
+            query=LexicalRetrievalQuery(text=args.query, limit=args.limit),
+        )
+    except (
+        DocumentNotFoundError,
+        RetrievalIndexNotFoundError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            lexical_search_view(
+                document_id=str(args.document_id),
+                derivation_version=args.derivation_version,
+                configuration_fingerprint=args.configuration_fingerprint,
+                hits=hits,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
@@ -1559,6 +1619,26 @@ def _capabilities_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _retrieval_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tarkka retrieval", description="index and search exact local lexical projections"
+    )
+    sub = parser.add_subparsers(dest="retrieval_command", required=True)
+    index = sub.add_parser("index", help="index one persisted document explicitly")
+    index.add_argument("document_id", type=_parse_document_id)
+    index.add_argument("--derivation-version", required=True)
+    index.add_argument("--configuration-fingerprint", required=True)
+    index.set_defaults(func=_cmd_retrieval_index)
+    search = sub.add_parser("search", help="search one exact persisted lexical projection")
+    search.add_argument("document_id", type=_parse_document_id)
+    search.add_argument("query")
+    search.add_argument("--derivation-version", required=True)
+    search.add_argument("--configuration-fingerprint", required=True)
+    search.add_argument("--limit", type=int, default=10)
+    search.set_defaults(func=_cmd_retrieval_search)
+    return parser
+
+
 def _documents_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tarkka documents",
@@ -1620,6 +1700,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     if arguments and arguments[0] == "capabilities":
         args = _capabilities_parser().parse_args(arguments[1:])
+        return int(args.func(args))
+    if arguments and arguments[0] == "retrieval":
+        args = _retrieval_parser().parse_args(arguments[1:])
         return int(args.func(args))
     if arguments and arguments[0] == "documents":
         args = _documents_parser().parse_args(arguments[1:])

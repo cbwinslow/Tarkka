@@ -13,6 +13,21 @@ from tarkka.ports.repositories import ResearchRepository
 from tarkka.ports.retrieval import LexicalRetrievalHit, LexicalRetrievalQuery
 from tarkka.ports.retrieval_indexes import RetrievalSegmentStore
 
+MAX_LEXICAL_RETRIEVAL_LIMIT = 100
+
+
+class RetrievalIndexNotFoundError(LookupError):
+    """Raised when the caller selects no persisted exact retrieval projection."""
+
+    def __init__(
+        self, document_id: UUID, *, derivation_version: str, configuration_fingerprint: str
+    ) -> None:
+        super().__init__(
+            "retrieval index not found for document "
+            f"{document_id}, derivation {derivation_version!r}, "
+            f"configuration {configuration_fingerprint!r}"
+        )
+
 
 class LexicalRetrievalService:
     """Derive, persist, and search local provenance-safe lexical indexes."""
@@ -69,6 +84,25 @@ class LexicalRetrievalService:
         query: LexicalRetrievalQuery,
     ) -> tuple[LexicalRetrievalHit, ...]:
         """Search one exact stored projection without changing canonical source state."""
+        if query.limit > MAX_LEXICAL_RETRIEVAL_LIMIT:
+            raise ValueError(
+                f"lexical retrieval query limit must not exceed {MAX_LEXICAL_RETRIEVAL_LIMIT}"
+            )
+        if self._documents.get_document(document_id) is None:
+            raise DocumentNotFoundError(f"document not found: {document_id}")
+        if (
+            self._indexes.get(
+                document_id=document_id,
+                derivation_version=derivation_version,
+                configuration_fingerprint=configuration_fingerprint,
+            )
+            is None
+        ):
+            raise RetrievalIndexNotFoundError(
+                document_id,
+                derivation_version=derivation_version,
+                configuration_fingerprint=configuration_fingerprint,
+            )
         return PersistentLexicalRetriever(
             indexes=self._indexes,
             document_id=document_id,

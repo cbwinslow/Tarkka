@@ -39,6 +39,11 @@ from tarkka.application.document_retrieval import (
     DocumentRetrievalService,
     DocumentSectionNotFoundError,
 )
+from tarkka.application.lexical_retrieval import (
+    LexicalRetrievalService,
+    RetrievalIndexNotFoundError,
+)
+from tarkka.application.lexical_retrieval_view import lexical_search_view
 from tarkka.application.research_capabilities import (
     UnknownResearchOperationError,
     research_operation_schema,
@@ -57,7 +62,8 @@ from tarkka.interfaces.claim_lineage_runtime import (
 from tarkka.interfaces.document_replay_runtime import (
     document_replay_service as configured_document_replay_service,
 )
-from tarkka.interfaces.main import _document_retrieval_service
+from tarkka.interfaces.main import _document_retrieval_service, _lexical_retrieval_service
+from tarkka.ports.retrieval import LexicalRetrievalQuery
 from tarkka.ports.telemetry import AgentUsageRecorder
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +80,7 @@ _MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS = DEFAULT_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS
 def create_server(
     *,
     documents: DocumentRetrievalService | None = None,
+    lexical: LexicalRetrievalService | None = None,
     lineage: ClaimLineageService | None = None,
     replay: DocumentReplayer | None = None,
     telemetry: AgentUsageRecorder | None = None,
@@ -84,6 +91,7 @@ def create_server(
     shared runtime factories so CLI and MCP resolve the same durable backends.
     """
     retrieval = documents
+    lexical_retrieval = lexical
     lineage_reader = lineage
     replay_reader = replay
 
@@ -93,6 +101,13 @@ def create_server(
         if retrieval is None:
             retrieval = _document_retrieval_service()
         return retrieval
+
+    def lexical_retrieval_service() -> LexicalRetrievalService:
+        """Create the configured lexical index backend only when search is requested."""
+        nonlocal lexical_retrieval
+        if lexical_retrieval is None:
+            lexical_retrieval = _lexical_retrieval_service()
+        return lexical_retrieval
 
     def lineage_service() -> ClaimLineageService:
         """Create the configured lineage backend only when the lineage tool needs it."""
@@ -310,6 +325,61 @@ def create_server(
             return document_replay_backend_unavailable_response()
         return document_replay_response(service, parsed)
 
+    @server.tool(
+        name="retrieval_search",
+        description="Search one exact local lexical projection with retained source passage spans.",
+        annotations=_READ_ONLY,
+    )
+    @instrument("research.retrieval.search")
+    def retrieval_search(
+        document_id: object,
+        query: object,
+        derivation_version: object,
+        configuration_fingerprint: object,
+        limit: int = 10,
+    ) -> dict[str, object]:
+        """Run bounded read-only lexical retrieval against one explicit projection."""
+        parsed_document = _uuid_or_error(document_id, kind="document")
+        if isinstance(parsed_document, dict):
+            return parsed_document
+        parsed_query = _non_blank_string_or_error(query, name="query")
+        if isinstance(parsed_query, dict):
+            return parsed_query
+        parsed_derivation = _non_blank_string_or_error(
+            derivation_version, name="derivation_version"
+        )
+        if isinstance(parsed_derivation, dict):
+            return parsed_derivation
+        parsed_configuration = _non_blank_string_or_error(
+            configuration_fingerprint, name="configuration_fingerprint"
+        )
+        if isinstance(parsed_configuration, dict):
+            return parsed_configuration
+        try:
+            hits = lexical_retrieval_service().search(
+                parsed_document,
+                derivation_version=parsed_derivation,
+                configuration_fingerprint=parsed_configuration,
+                query=LexicalRetrievalQuery(text=parsed_query, limit=limit),
+            )
+        except DocumentNotFoundError as exc:
+            return _not_found_error(exc, "research_capabilities")
+        except RetrievalIndexNotFoundError as exc:
+            return _not_found_error(exc, "research_capabilities")
+        except ValueError as exc:
+            return _invalid_argument_error(exc)
+        except (OSError, RuntimeError) as exc:
+            return _unavailable_error(exc)
+        return {
+            "ok": True,
+            **lexical_search_view(
+                document_id=str(parsed_document),
+                derivation_version=parsed_derivation,
+                configuration_fingerprint=parsed_configuration,
+                hits=hits,
+            ),
+        }
+
     return server
 
 
@@ -333,6 +403,12 @@ def _uuid_or_error(value: object, *, kind: str) -> UUID | dict[str, object]:
         return _error(
             "invalid_argument", f"{kind}_id must be a UUID or {prefix}UUID handle"
         )
+
+
+def _non_blank_string_or_error(value: object, *, name: str) -> str | dict[str, object]:
+    if not isinstance(value, str) or not value.strip():
+        return _error("invalid_argument", f"{name} must be a non-blank string")
+    return value
 
 
 def _section_payload(section: Section) -> dict[str, object]:

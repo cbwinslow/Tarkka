@@ -128,6 +128,12 @@ Build retrieval representations:
 
 - lexical/full-text indexes
 - metadata indexes
+
+Local lexical indexes are retained as versioned, configuration-scoped derived projections.
+Each segment retains exact normalized Passage identifiers and character spans; it is never a
+citation or Evidence boundary. The dependency-free JSON reference store atomically replaces only
+the matching Document/derivation/configuration projection. Embeddings, pgvector, reranking, and
+model downloads remain separate optional successor stages.
 - embeddings
 - topic/concept links
 - compact summaries

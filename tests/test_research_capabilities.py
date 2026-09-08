@@ -5,6 +5,7 @@ from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
+from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.research_capabilities import (
     _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD,
     _OPERATION_REGISTRATIONS,
@@ -34,11 +35,12 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.citations.traverse",
         "research.resources.list",
         "research.resources.show",
+        "research.retrieval.search",
     ]
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
     )
-    assert capabilities.estimated_tokens < 275
+    assert capabilities.estimated_tokens < 300
     assert [(item.service_type, item.method_name) for item in _OPERATION_REGISTRATIONS] == [
         (DiscoveryService, "discover"),
         (DocumentRetrievalService, "manifest"),
@@ -52,6 +54,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (CitationTraversalService, "traverse"),
         (ResearchPackageService, "resource_links"),
         (ResearchPackageService, "resource_link"),
+        (LexicalRetrievalService, "search"),
     ]
 
 
@@ -68,6 +71,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     traverse = research_operation_schema("research.citations.traverse")
     resources = research_operation_schema("research.resources.list")
     resource = research_operation_schema("research.resources.show")
+    retrieval = research_operation_schema("research.retrieval.search")
 
     assert [field.name for field in discover.inputs] == [
         "text",
@@ -110,6 +114,16 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
         "Replay status, canonical digests, implementation identity, and bounded mismatches."
     )
     assert document_replay.estimated_tokens < 50
+
+    assert [field.name for field in retrieval.inputs] == [
+        "document_id",
+        "query",
+        "derivation_version",
+        "configuration_fingerprint",
+        "limit",
+    ]
+    assert retrieval.inputs[-1].minimum == 1
+    assert retrieval.inputs[-1].maximum == 100
 
     assert [field.name for field in lineage.inputs] == [
         "claim_id",

@@ -16,6 +16,7 @@ from tarkka.application.claim_lineage import (
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
+from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
 
@@ -126,6 +127,7 @@ class _OperationRegistration:
         type[DiscoveryService]
         | type[DocumentRetrievalService]
         | type[DocumentReplayService]
+        | type[LexicalRetrievalService]
         | type[ClaimLineageService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
@@ -465,6 +467,33 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "One exact resource link with preserved native metadata; target resolution is separate.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.retrieval.search",
+            "search",
+            "Search one exact local lexical projection.",
+            24,
+        ),
+        LexicalRetrievalService,
+        "search",
+        (
+            ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
+            ResearchField("query", "string", True, "Non-blank lexical query text."),
+            ResearchField(
+                "derivation_version", "string", True, "Exact derived-index version."
+            ),
+            ResearchField(
+                "configuration_fingerprint",
+                "string",
+                True,
+                "Exact derived-index configuration fingerprint.",
+            ),
+            ResearchField(
+                "limit", "integer", False, "Maximum lexical hits to return.", minimum=1, maximum=100
+            ),
+        ),
+        "Bounded lexical hits with stable segment IDs and exact canonical-passage spans.",
     ),
 )
 

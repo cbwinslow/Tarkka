@@ -306,6 +306,11 @@ Provider-native observation payloads should not create hundreds of provider-spec
 
 Use pgvector initially. Do not introduce a separate vector database until measurements justify the operational complexity.
 
+Embeddings are immutable derived observations over exact `RetrievalSegment` identity. They retain the
+segment digest and derivation/configuration key together with model identifier/revision, embedding
+configuration, normalization, and dimension. They never replace canonical Passage, Evidence, or
+citation boundaries; different model/configuration derivations remain distinct.
+
 ### Artifact storage
 
 Raw and derived files should live outside ordinary relational rows using content-addressed storage.

@@ -72,6 +72,38 @@ def test_cli_indexes_and_searches_one_exact_local_projection(
         main(
             [
                 "retrieval",
+                "index",
+                document_id,
+                "--derivation-version",
+                "v1",
+                "--configuration-fingerprint",
+                "whole-passage-v1",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["index_id"] == indexed["index_id"]
+
+    assert (
+        main(
+            [
+                "retrieval",
+                "index",
+                document_id,
+                "--derivation-version",
+                "v1",
+                "--configuration-fingerprint",
+                "alternate-v1",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["configuration_fingerprint"] == "alternate-v1"
+
+    assert (
+        main(
+            [
+                "retrieval",
                 "search",
                 document_id,
                 "retrieval",
@@ -133,6 +165,23 @@ def test_cli_rejects_missing_projection_and_over_limit_search(
         == 2
     )
     assert "must not exceed 100" in capsys.readouterr().err
+
+    assert (
+        main(
+            [
+                "retrieval",
+                "search",
+                document_id,
+                " ",
+                "--derivation-version",
+                "v1",
+                "--configuration-fingerprint",
+                "whole-passage-v1",
+            ]
+        )
+        == 2
+    )
+    assert "query text must not be blank" in capsys.readouterr().err
 
     assert (
         main(
@@ -228,8 +277,9 @@ def test_mcp_search_rejects_invalid_or_missing_exact_projection(tmp_path: Path) 
     missing = _call(server, "retrieval_search", request)
     assert missing["error"]["code"] == "not_found"
 
-    invalid_limit = _call(server, "retrieval_search", {**request, "limit": 101})
-    assert invalid_limit["error"]["code"] == "invalid_argument"
+    for limit in (101, 0, -1):
+        invalid_limit = _call(server, "retrieval_search", {**request, "limit": limit})
+        assert invalid_limit["error"]["code"] == "invalid_argument"
 
     for field in ("document_id", "query", "derivation_version", "configuration_fingerprint"):
         response = _call(server, "retrieval_search", {**request, field: ""})

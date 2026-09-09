@@ -281,6 +281,17 @@ Track:
 
 This enables optimization based on measurements instead of intuition.
 
+For opt-in local MCP telemetry, inspect the aggregate ledger without exposing request or source
+content:
+
+```bash
+tarkka telemetry report ./var/tarkka-mcp-usage.jsonl --limit 20
+```
+
+The report ranks operations by estimated tokens and returns only aggregate event, byte, latency,
+success, and error counts. It does not claim provider billing or record prompts, document handles,
+URLs, request arguments, or model reasoning.
+
 ## Safety against over-compression
 
 Compression must not erase provenance or turn uncertainty into certainty.

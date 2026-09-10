@@ -1,5 +1,6 @@
 import pytest
 
+from tarkka.application.challenge import ChallengeService
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.claim_receipts import ClaimReceiptService
@@ -39,6 +40,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.workspace.init",
         "research.workspace.show",
         "research.workspace.run",
+        "research.challenge",
+        "research.contradictions.list",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
@@ -50,7 +53,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
     )
-    assert capabilities.estimated_tokens < 350
+    assert capabilities.estimated_tokens < 400
     assert [(item.service_type, item.method_name) for item in _OPERATION_REGISTRATIONS] == [
         (DiscoveryService, "discover"),
         (DocumentRetrievalService, "manifest"),
@@ -65,6 +68,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (WorkspaceService, "init_from_manifest"),
         (WorkspaceService, "show"),
         (WorkspaceService, "run"),
+        (ChallengeService, "challenge"),
+        (ChallengeService, "list_contradictions"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),

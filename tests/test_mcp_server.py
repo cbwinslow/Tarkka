@@ -132,7 +132,7 @@ def test_mcp_server_preserves_staged_document_disclosure(tmp_path: Path) -> None
 
     capabilities = _call(server, "research_capabilities", {})
     assert capabilities["ok"] is True
-    assert capabilities["estimated_tokens"] < 350
+    assert capabilities["estimated_tokens"] < 400
     assert "inputs" not in capabilities["operations"][0]
 
     schema = _call(

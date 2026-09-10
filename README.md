@@ -55,6 +55,8 @@ tarkka why <claim-id>
 tarkka workspace init examples/mlb-research.yaml
 tarkka workspace show <workspace-id>
 tarkka workspace run <workspace-id> --source examples/proof-replay-demo.txt
+tarkka challenge <claim-id>
+tarkka contradictions list <workspace-id>
 
 # Human-readable claim receipt and a stapled document brief (same evidence, no implied support).
 tarkka claims receipt <claim-id>

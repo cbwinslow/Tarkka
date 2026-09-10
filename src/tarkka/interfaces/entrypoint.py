@@ -7,6 +7,10 @@ from collections.abc import Callable
 
 from tarkka.interfaces import main as research_interface
 from tarkka.interfaces.bundle_cli import main as bundle_main
+from tarkka.interfaces.challenge_cli import (
+    challenge_main,
+    contradictions_main,
+)
 from tarkka.interfaces.diff_cli import main as diff_main
 from tarkka.interfaces.replay_cli import main as replay_main
 from tarkka.interfaces.telemetry_cli import main as telemetry_main
@@ -17,6 +21,8 @@ CommandMain = Callable[[list[str] | None], int]
 
 # Keep handlers late-bound so tests and embedders can replace module-global command functions.
 _COMMANDS: dict[str, CommandMain] = {
+    "challenge": lambda argv: challenge_main(argv),
+    "contradictions": lambda argv: contradictions_main(argv),
     "bundle": lambda argv: bundle_main(argv),
     "diff": lambda argv: diff_main(argv),
     "replay": lambda argv: replay_main(argv),

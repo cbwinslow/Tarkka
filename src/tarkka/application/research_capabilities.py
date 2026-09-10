@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from tarkka.application.challenge import ChallengeService
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.claim_lineage import (
     MAX_CLAIM_EVIDENCE_OFFSET,
@@ -135,6 +136,7 @@ class _OperationRegistration:
         | type[ClaimReceiptService]
         | type[ResearchGetService]
         | type[WorkspaceService]
+        | type[ChallengeService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -456,6 +458,45 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "Updated workspace with ingested document and extracted claim handles.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.challenge",
+            "verify",
+            "Search local evidence for contrary spans without choosing a winner.",
+            4,
+        ),
+        ChallengeService,
+        "challenge",
+        (
+            ResearchField("claim_id", "uuid", True, "Stable Claim extraction identifier."),
+            ResearchField(
+                "wallet_tokens",
+                "integer",
+                False,
+                "Maximum estimated tokens of candidate evidence to inspect.",
+                minimum=0,
+            ),
+            ResearchField(
+                "workspace_id",
+                "uuid",
+                False,
+                "Optional workspace for extra local documents.",
+            ),
+        ),
+        "Recorded contradicts relations or no_new_evidence with a snapshot handle.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.contradictions.list",
+            "verify",
+            "List contradiction-board entries for a workspace.",
+            4,
+        ),
+        ChallengeService,
+        "list_contradictions",
+        (ResearchField("workspace_id", "uuid", True, "Stable workspace identifier."),),
+        "Contrary and qualifying assessments without a single truth score.",
     ),
     _OperationRegistration(
         ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),

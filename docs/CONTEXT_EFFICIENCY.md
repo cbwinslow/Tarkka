@@ -292,6 +292,10 @@ The report ranks operations by estimated tokens and returns only aggregate event
 success, and error counts. It does not claim provider billing or record prompts, document handles,
 URLs, request arguments, or model reasoning.
 
+Optional external tracing must consume the same aggregate event boundary through a replaceable
+exporter. OpenTelemetry/OTLP-compatible backends are infrastructure choices; they must never be a
+core dependency or change a research operation when export fails.
+
 ## Safety against over-compression
 
 Compression must not erase provenance or turn uncertainty into certainty.

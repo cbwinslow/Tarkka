@@ -75,6 +75,24 @@ def test_telemetry_report_handles_empty_and_malformed_ledgers(
     assert main(["telemetry", "report", str(malformed)]) == 2
     assert "line 1" in capsys.readouterr().err
 
+    baseline = {
+        "occurred_at": "2026-09-09T00:00:00+00:00",
+        "interface": "mcp",
+        "operation_id": "document_manifest",
+        "outcome": "success",
+        "elapsed_ms": 1,
+        "response_bytes": 1,
+        "estimated_tokens": 1,
+        "error_code": None,
+    }
+    for field, value in (("interface", 1), ("elapsed_ms", True), ("response_bytes", 1.5)):
+        payload = {**baseline, field: value}
+        malformed.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        assert main(["telemetry", "report", str(malformed)]) == 2
+        error = capsys.readouterr().err
+        assert "line 1" in error
+        assert "Traceback" not in error
+
 
 def test_telemetry_report_rejects_invalid_limit_and_missing_path(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]

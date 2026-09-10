@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Protocol
@@ -17,10 +19,13 @@ from tarkka.ports.repositories import ResearchRepository
 MAX_LIBRARY_OFFSET = 10_000
 MAX_LIBRARY_PAGE_SIZE = 100
 UNKNOWN_RIGHTS = {
+    "access": "unknown",
     "retrieval": "unknown",
     "storage": "unknown",
     "analysis": "unknown",
+    "transformation": "unknown",
     "redistribution": "unknown",
+    "commercial_use": "unknown",
 }
 
 
@@ -62,6 +67,12 @@ class LibraryStore(Protocol):
 
     def find_for_workspace(self, workspace_id: UUID) -> LibraryRecord | None: ...
 
+    def create_for_workspace(self, workspace_id: UUID, record: LibraryRecord) -> LibraryRecord: ...
+
+    def mutate(
+        self, library_id: UUID, updater: Callable[[LibraryRecord], LibraryRecord]
+    ) -> LibraryRecord: ...
+
 
 class LibraryService:
     """Catalog membership without creating or merging canonical identity."""
@@ -80,21 +91,21 @@ class LibraryService:
         self._extractions = extractions
 
     def ensure_for_workspace(self, workspace_id: UUID, *, name: str) -> LibraryRecord:
-        existing = self._store.find_for_workspace(workspace_id)
-        if existing is not None:
-            return existing
         record = LibraryRecord(
             library_id=new_id(),
             name=name,
             workspace_ids=(workspace_id,),
         )
-        self._store.save(record)
-        return record
+        return self._store.create_for_workspace(workspace_id, record)
 
     def attach_workspace(self, workspace_id: UUID, library_id: UUID) -> LibraryRecord:
         workspace = self._workspaces.get(workspace_id)
         if workspace is None:
             raise WorkspaceNotFoundError(f"workspace not found: {workspace_id}")
+        previous = workspace.library_id
+        if previous is not None and previous != library_id:
+            with suppress(LibraryNotFoundError):
+                self._drop_workspace(previous, workspace_id)
         self.add_workspace(library_id, workspace_id)
         self._workspaces.save(replace(workspace, library_id=library_id))
         return self.add_members(
@@ -104,16 +115,16 @@ class LibraryService:
         )
 
     def add_workspace(self, library_id: UUID, workspace_id: UUID) -> LibraryRecord:
-        record = self._require(library_id)
-        if workspace_id in record.workspace_ids:
-            return record
-        updated = replace(
-            record,
-            workspace_ids=record.workspace_ids + (workspace_id,),
-            updated_at=utc_now(),
-        )
-        self._store.save(updated)
-        return updated
+        def update(record: LibraryRecord) -> LibraryRecord:
+            if workspace_id in record.workspace_ids:
+                return record
+            return replace(
+                record,
+                workspace_ids=record.workspace_ids + (workspace_id,),
+                updated_at=utc_now(),
+            )
+
+        return self._mutate(library_id, update)
 
     def add_members(
         self,
@@ -123,24 +134,24 @@ class LibraryService:
         claim_ids: tuple[UUID, ...] = (),
         work_ids: tuple[UUID, ...] = (),
     ) -> LibraryRecord:
-        record = self._require(library_id)
-        documents = _unique_extend(record.document_ids, document_ids)
-        claims = _unique_extend(record.claim_ids, claim_ids)
-        linked_works = work_ids
-        for document_id in document_ids:
-            linked_works = linked_works + tuple(
-                link.work_id for link in self._documents.list_document_work_links(document_id)
+        def update(record: LibraryRecord) -> LibraryRecord:
+            documents = _unique_extend(record.document_ids, document_ids)
+            claims = _unique_extend(record.claim_ids, claim_ids)
+            linked_works = work_ids
+            for document_id in document_ids:
+                linked_works = linked_works + tuple(
+                    link.work_id for link in self._documents.list_document_work_links(document_id)
+                )
+            works = _unique_extend(record.work_ids, linked_works)
+            return replace(
+                record,
+                document_ids=documents,
+                claim_ids=claims,
+                work_ids=works,
+                updated_at=utc_now(),
             )
-        works = _unique_extend(record.work_ids, linked_works)
-        updated = replace(
-            record,
-            document_ids=documents,
-            claim_ids=claims,
-            work_ids=works,
-            updated_at=utc_now(),
-        )
-        self._store.save(updated)
-        return updated
+
+        return self._mutate(library_id, update)
 
     def show(self, library_id: UUID | None = None) -> LibraryRecord:
         if library_id is not None:
@@ -199,14 +210,7 @@ class LibraryService:
         self, library_id: UUID, *, offset: int = 0, limit: int = 20
     ) -> dict[str, object]:
         record = self._require(library_id)
-        work_ids = record.work_ids
-        if not work_ids:
-            collected: list[UUID] = []
-            for document_id in record.document_ids:
-                for link in self._documents.list_document_work_links(document_id):
-                    if link.work_id not in collected:
-                        collected.append(link.work_id)
-            work_ids = tuple(collected)
+        work_ids = self._resolved_work_ids(record)
         page = _page(work_ids, offset=offset, limit=limit)
         items: list[dict[str, object]] = [
             {
@@ -216,6 +220,40 @@ class LibraryService:
             for work_id in page
         ]
         return _listing(record.library_id, "works", work_ids, offset, limit, items)
+
+    def catalog_view(self, record: LibraryRecord) -> dict[str, object]:
+        view = library_view(record)
+        view["work_count"] = len(self._resolved_work_ids(record))
+        return view
+
+    def _resolved_work_ids(self, record: LibraryRecord) -> tuple[UUID, ...]:
+        work_ids = record.work_ids
+        for document_id in record.document_ids:
+            linked = tuple(
+                link.work_id for link in self._documents.list_document_work_links(document_id)
+            )
+            work_ids = _unique_extend(work_ids, linked)
+        return work_ids
+
+    def _drop_workspace(self, library_id: UUID, workspace_id: UUID) -> LibraryRecord:
+        def update(record: LibraryRecord) -> LibraryRecord:
+            if workspace_id not in record.workspace_ids:
+                return record
+            return replace(
+                record,
+                workspace_ids=tuple(item for item in record.workspace_ids if item != workspace_id),
+                updated_at=utc_now(),
+            )
+
+        return self._mutate(library_id, update)
+
+    def _mutate(
+        self, library_id: UUID, updater: Callable[[LibraryRecord], LibraryRecord]
+    ) -> LibraryRecord:
+        try:
+            return self._store.mutate(library_id, updater)
+        except KeyError as exc:
+            raise LibraryNotFoundError(f"library not found: {library_id}") from exc
 
     def _require(self, library_id: UUID) -> LibraryRecord:
         record = self._store.get(library_id)

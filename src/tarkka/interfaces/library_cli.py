@@ -11,7 +11,6 @@ from tarkka.application.library import (
     LibraryNotFoundError,
     LibraryPaginationError,
     LibraryService,
-    library_view,
 )
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_library_store import JsonLibraryStore
@@ -39,11 +38,12 @@ def _parse_library_id(raw: str) -> UUID:
 
 def _cmd_show(args: argparse.Namespace) -> int:
     try:
-        record = configured_library_service().show(args.library_id)
+        service = configured_library_service()
+        record = service.show(args.library_id)
     except (LibraryNotFoundError, OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(library_view(record), indent=2, sort_keys=True))
+    print(json.dumps(service.catalog_view(record), indent=2, sort_keys=True))
     return 0
 
 

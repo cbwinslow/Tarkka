@@ -116,9 +116,10 @@ tarkka why <claim-id>
 tarkka workspace init <manifest.yaml>
 tarkka workspace run
 tarkka library show
-tarkka library documents --limit 20
-tarkka library claims --limit 20
-tarkka library works --limit 20
+tarkka library show <library-id>
+tarkka library documents --library <library-id> --limit 20
+tarkka library claims --library <library-id> --limit 20
+tarkka library works --library <library-id> --limit 20
 tarkka encyclopedia compile
 tarkka encyclopedia show <article-id>
 tarkka challenge <claim-id>
@@ -128,7 +129,8 @@ tarkka workspace serve
 
 v1 ships `claims receipt`, `documents brief`, Frozen workspace init/run, challenge, encyclopedia
 compile, and a named library catalog (`tarkka library show` plus paged document/claim/work
-listings). Listings are manifests (counts, titles, token estimates), not full text.
+listings). Omitting the library id is valid only when exactly one library exists; otherwise pass
+`library-id` / `--library`. Listings are manifests (counts, titles, token estimates), not full text.
 
 `workspace serve` is a local receipt/article viewer plus MCP. It is not a chat UI.
 
@@ -250,11 +252,12 @@ receipt, and encyclopedia contracts.
 
 ## v1 product (what we ship first)
 
-Users and agents should not have to learn three nouns on day one. They have a **project** (later:
-Workspace). Tarkka files objects in the default store (the Library, unnamed). The first compiled
-view is a **brief of claim receipts**, not a Wikipedia-style encyclopedia.
+Users and agents should not have to learn three nouns on day one. They have a **project**
+(Workspace). Tarkka files objects in a default named library (`{workspace-name}-library`); the
+Library noun stays in the background until someone has two workspaces. The first compiled view is a
+**brief of claim receipts**, not a Wikipedia-style encyclopedia.
 
-Workspace init creates a default `{name}-library` and stores `library_id` on the workspace record.
+Workspace init persists that default library name and stores `library_id` on the workspace record.
 Two workspaces may share one library without rewriting artifact hashes. `edition_id` stays a
 compile-time handle.
 

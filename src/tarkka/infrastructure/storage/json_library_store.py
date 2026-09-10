@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -46,6 +47,35 @@ class JsonLibraryStore:
             if workspace_id in record.workspace_ids:
                 return record
         return None
+
+    def create_for_workspace(self, workspace_id: UUID, record: LibraryRecord) -> LibraryRecord:
+        with exclusive_lock(self.path):
+            data = self._read()
+            libraries = cast(dict[str, Any], data["libraries"])
+            for payload in libraries.values():
+                existing = _record_from_dict(payload)
+                if workspace_id in existing.workspace_ids:
+                    return existing
+            libraries[str(record.library_id)] = _record_to_dict(record)
+            self._write(data)
+            return record
+
+    def mutate(
+        self, library_id: UUID, updater: Callable[[LibraryRecord], LibraryRecord]
+    ) -> LibraryRecord:
+        with exclusive_lock(self.path):
+            data = self._read()
+            libraries = cast(dict[str, Any], data["libraries"])
+            payload = libraries.get(str(library_id))
+            if payload is None:
+                raise KeyError(library_id)
+            current = _record_from_dict(payload)
+            updated = updater(current)
+            if updated == current:
+                return current
+            libraries[str(library_id)] = _record_to_dict(updated)
+            self._write(data)
+            return updated
 
     def _read(self) -> dict[str, Any]:
         try:

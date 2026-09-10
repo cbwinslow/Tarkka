@@ -248,6 +248,12 @@ class WorkspaceService:
             )
         ingested = self._ingest.ingest(source)
         if ingested.document.document_id in record.document_ids:
+            if self._libraries is not None and record.library_id is not None:
+                self._libraries.add_members(
+                    record.library_id,
+                    document_ids=(ingested.document.document_id,),
+                    claim_ids=record.claim_ids,
+                )
             return record
         run_id = uuid5(
             _WORKSPACE_EXTRACT_NAMESPACE,

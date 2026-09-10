@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import UUID
 
@@ -159,12 +159,24 @@ def test_two_workspaces_share_library_without_rewriting_hashes(tmp_path: Path) -
         encoding="utf-8",
     )
     second = workspaces.init_from_manifest(second_manifest)
+    previous_library_id = second.library_id
+    assert previous_library_id is not None
     shared = libraries.attach_workspace(second.workspace.workspace_id, ran.library_id)
     assert second.workspace.workspace_id in shared.workspace_ids
+    previous = libraries.show(previous_library_id)
+    assert second.workspace.workspace_id not in previous.workspace_ids
+    second_run = workspaces.run(
+        second.workspace.workspace_id,
+        source=root / "examples/proof-replay-demo.txt",
+    )
+    assert second_run.library_id == ran.library_id
     after = libraries.list_documents(ran.library_id)
+    assert after["total"] == 1
     sha_after = documents.get_manifest(UUID(str(after["items"][0]["document_id"])))
     assert sha_after is not None
     assert sha_before.metadata["sha256"] == sha_after.metadata["sha256"]
+    reloaded = workspaces.show(second.workspace.workspace_id)
+    assert reloaded.library_id == ran.library_id
     again = workspaces.init_from_manifest(root / "examples/mlb-research.yaml")
     assert again.library_id == ran.library_id
 
@@ -216,6 +228,27 @@ def test_run_without_library_id_does_not_invent_membership(tmp_path: Path) -> No
         libraries.show(None)
 
 
+def test_repeated_run_repairs_library_membership(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    workspaces, libraries, _documents = _workspace_service(tmp_path)
+    record = workspaces.init_from_manifest(root / "examples/mlb-research.yaml")
+    ran = workspaces.run(
+        record.workspace.workspace_id,
+        source=root / "examples/proof-replay-demo.txt",
+    )
+    assert ran.library_id is not None
+    current = libraries.show(ran.library_id)
+    libraries._store.save(replace(current, document_ids=(), claim_ids=(), work_ids=()))
+    repaired = workspaces.run(
+        record.workspace.workspace_id,
+        source=root / "examples/proof-replay-demo.txt",
+    )
+    assert repaired.library_id is not None
+    restored = libraries.show(repaired.library_id)
+    assert restored.document_ids == ran.document_ids
+    assert restored.claim_ids == ran.claim_ids
+
+
 def test_attach_unknown_workspace_and_existing_membership(tmp_path: Path) -> None:
     libraries, library_id, workspace_id = _run_proof_workspace(tmp_path)
     with pytest.raises(WorkspaceNotFoundError):
@@ -228,6 +261,25 @@ def test_attach_unknown_workspace_and_existing_membership(tmp_path: Path) -> Non
         claim_ids=same.claim_ids,
     )
     assert same_members.document_ids == same.document_ids
+    workspace_store = JsonWorkspaceStore(tmp_path / "workspaces.json")
+    current_workspace = workspace_store.get(workspace_id)
+    assert current_workspace is not None
+    workspace_store.save(replace(current_workspace, library_id=UUID(int=99)))
+    reattached = libraries.attach_workspace(workspace_id, library_id)
+    assert workspace_id in reattached.workspace_ids
+    same_library = libraries.attach_workspace(workspace_id, library_id)
+    assert same_library.library_id == library_id
+    current_workspace = workspace_store.get(workspace_id)
+    assert current_workspace is not None
+    workspace_store.save(replace(current_workspace, library_id=None))
+    from_unassigned = libraries.attach_workspace(workspace_id, library_id)
+    assert from_unassigned.library_id == library_id
+    libraries._drop_workspace(library_id, UUID(int=42))
+    with pytest.raises(LibraryNotFoundError):
+        libraries.add_workspace(UUID(int=9), workspace_id)
+    store = JsonLibraryStore(tmp_path / "libraries.json")
+    assert store.find_for_workspace(workspace_id) is not None
+    assert store.find_for_workspace(UUID(int=9)) is None
 
 
 def test_listing_fallbacks_and_derived_works(tmp_path: Path) -> None:
@@ -313,6 +365,19 @@ def test_listing_fallbacks_and_derived_works(tmp_path: Path) -> None:
     ).list_works(derived_record.library_id)
     assert [item["work_id"] for item in works["items"]] == [str(work_id)]
     assert derived.work_ids == (work_id,)
+    later_work = UUID(int=14)
+    documents.links[document_id] = documents.links[document_id] + (
+        WorkDocumentLink(
+            link_id=UUID(int=15),
+            work_id=later_work,
+            artifact_id=UUID(int=21),
+            document_id=document_id,
+        ),
+    )
+    unioned = service.list_works(record.library_id)
+    assert {item["work_id"] for item in unioned["items"]} == {str(work_id), str(later_work)}
+    view = service.catalog_view(service.show(record.library_id))
+    assert view["work_count"] == 2
 
 
 def libraries_without_works(service: LibraryService, library_id: UUID):

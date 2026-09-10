@@ -61,9 +61,10 @@ tarkka encyclopedia compile <workspace-id> --allow-redistribution
 tarkka encyclopedia show <article-id>
 tarkka encyclopedia diff <edition-a> <edition-b>
 tarkka library show
-tarkka library documents --limit 20
-tarkka library claims --limit 20
-tarkka library works --limit 20
+tarkka library show <library-id>
+tarkka library documents --library <library-id> --limit 20
+tarkka library claims --library <library-id> --limit 20
+tarkka library works --library <library-id> --limit 20
 
 # Human-readable claim receipt and a stapled document brief (same evidence, no implied support).
 tarkka claims receipt <claim-id>

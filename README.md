@@ -51,6 +51,10 @@ tarkka claims show <claim-id>
 # Walk a Claim back through extraction, exact Evidence, Document, and Artifact provenance.
 tarkka why <claim-id>
 
+# Human-readable claim receipt and a stapled document brief (same evidence, no implied support).
+tarkka claims receipt <claim-id>
+tarkka documents brief <document-id>
+
 # Export, independently verify, and replay portable research state.
 tarkka bundle create <document-id> --schema-version 3 --output research.tarkka
 tarkka bundle verify research.tarkka
@@ -252,12 +256,18 @@ The immediate product sequence is:
 
 ```text
 five-minute offline proof/replay adoption path
-  -> frozen vs live research-state diff
-  -> adapter/plugin conformance kit
-  -> public evaluation corpus and interoperability work
+  -> workspace as the product noun
+  -> durable research library
+  -> claim receipts / briefs
+  -> compact agent verbs + context wallet
+  -> compiled encyclopedia editions
 ```
 
-See `docs/ROADMAP.md` and issue #198 for the broader product roadmap.
+Proof/replay remains the trust kernel (issue #198). The knowledge-layer contract is
+[`docs/RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](docs/RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md)
+(issue #342).
+
+See `docs/ROADMAP.md` for the broader implementation sequence.
 
 ## Development
 

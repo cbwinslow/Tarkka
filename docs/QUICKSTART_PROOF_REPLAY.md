@@ -32,6 +32,8 @@ CLAIM_ID="$(printf '%s\n' "$EXTRACT_OUTPUT" | python -c \
   'import json, sys; print(json.load(sys.stdin)["claim_ids"][0])')"
 
 tarkka_demo why "$CLAIM_ID"
+tarkka_demo claims receipt "$CLAIM_ID"
+tarkka_demo documents brief "$DOCUMENT_ID"
 
 tarkka_demo bundle create "$DOCUMENT_ID" --schema-version 3 \
   --output "$TARKKA_HOME/demo-a.tarkka"

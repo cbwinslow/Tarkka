@@ -16,6 +16,25 @@ from tarkka.application.citation_traversal import (
     CitationTraversalService,
     TraversalDirection,
 )
+from tarkka.application.claim_lineage import (
+    ClaimLineageArtifactNotFoundError,
+    ClaimLineageCitationContextNotFoundError,
+    ClaimLineageCitationRepositoryUnavailableError,
+    ClaimLineageClaimNotFoundError,
+    ClaimLineageDocumentNotFoundError,
+    ClaimLineageEvidenceNotFoundError,
+    ClaimLineageExtractionRunNotFoundError,
+    ClaimLineageMismatchError,
+    ClaimLineagePaginationError,
+)
+from tarkka.application.claim_receipt_view import (
+    claim_receipt_html,
+    claim_receipt_markdown,
+    claim_receipt_view,
+    document_brief_html,
+    document_brief_markdown,
+    document_brief_view,
+)
 from tarkka.application.document_context_packages import DocumentContextPackageService
 from tarkka.application.document_retrieval import (
     DocumentNotFoundError,
@@ -122,6 +141,7 @@ from tarkka.infrastructure.storage.search_snapshot_log import (
     SnapshotDataError,
 )
 from tarkka.interfaces.bibliography_cli import run as bibliography_main
+from tarkka.interfaces.claim_lineage_runtime import claim_receipt_service
 from tarkka.interfaces.cli import _work_repository
 from tarkka.interfaces.cli import main as legacy_main
 from tarkka.ports.context_packages import DocumentContextPackageStore
@@ -750,6 +770,59 @@ def _cmd_claims_show(args: argparse.Namespace) -> int:
     payload = _claim_payload(record)
     payload["evidence"] = evidence
     print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+_RECEIPT_ERRORS = (
+    ClaimLineageArtifactNotFoundError,
+    ClaimLineageCitationContextNotFoundError,
+    ClaimLineageCitationRepositoryUnavailableError,
+    ClaimLineageClaimNotFoundError,
+    ClaimLineageDocumentNotFoundError,
+    ClaimLineageEvidenceNotFoundError,
+    ClaimLineageExtractionRunNotFoundError,
+    ClaimLineageMismatchError,
+    ClaimLineagePaginationError,
+    DocumentNotFoundError,
+    OSError,
+    RuntimeError,
+    ValueError,
+)
+
+
+def _cmd_claims_receipt(args: argparse.Namespace) -> int:
+    try:
+        receipt = claim_receipt_service().receipt(args.claim_id)
+    except _RECEIPT_ERRORS as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.output_format == "json":
+        print(json.dumps(claim_receipt_view(receipt), indent=2, sort_keys=True))
+        return 0
+    if args.output_format == "html":
+        sys.stdout.write(claim_receipt_html(receipt))
+        return 0
+    sys.stdout.write(claim_receipt_markdown(receipt))
+    return 0
+
+
+def _cmd_documents_brief(args: argparse.Namespace) -> int:
+    try:
+        brief = claim_receipt_service().document_brief(
+            args.document_id,
+            offset=args.offset,
+            limit=args.limit,
+        )
+    except _RECEIPT_ERRORS as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.output_format == "json":
+        print(json.dumps(document_brief_view(brief), indent=2, sort_keys=True))
+        return 0
+    if args.output_format == "html":
+        sys.stdout.write(document_brief_html(brief))
+        return 0
+    sys.stdout.write(document_brief_markdown(brief))
     return 0
 
 
@@ -1473,6 +1546,17 @@ def _claims_parser() -> argparse.ArgumentParser:
     show = sub.add_parser("show", help="show one claim with exact evidence")
     show.add_argument("claim_id", type=_parse_claim_id)
     show.set_defaults(func=_cmd_claims_show)
+
+    receipt = sub.add_parser("receipt", help="show one human-readable claim receipt")
+    receipt.add_argument("claim_id", type=_parse_claim_id)
+    receipt.add_argument(
+        "--format",
+        dest="output_format",
+        choices=("markdown", "json", "html"),
+        default="markdown",
+        help="receipt representation; markdown is the default human view",
+    )
+    receipt.set_defaults(func=_cmd_claims_receipt)
     return parser
 
 
@@ -1672,6 +1756,19 @@ def _documents_parser() -> argparse.ArgumentParser:
     saved_package = sub.add_parser("saved-package", help="resolve one saved context-package handle")
     saved_package.add_argument("context_package_id", type=_parse_context_package_id)
     saved_package.set_defaults(func=_cmd_documents_saved_package)
+
+    brief = sub.add_parser("brief", help="compile a deterministic brief of claim receipts")
+    brief.add_argument("document_id", type=_parse_document_id)
+    brief.add_argument("--offset", type=int, default=0)
+    brief.add_argument("--limit", type=int, default=20)
+    brief.add_argument(
+        "--format",
+        dest="output_format",
+        choices=("markdown", "json", "html"),
+        default="markdown",
+        help="brief representation; markdown is the default human view",
+    )
+    brief.set_defaults(func=_cmd_documents_brief)
     return parser
 
 

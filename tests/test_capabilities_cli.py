@@ -8,7 +8,7 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
 
     listing = json.loads(capsys.readouterr().out)
     assert listing["version"] == "1"
-    assert listing["estimated_tokens"] < 300
+    assert listing["estimated_tokens"] < 350
     assert [item["operation_id"] for item in listing["operations"]] == [
         "research.discover",
         "research.documents.manifest",
@@ -16,6 +16,8 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.documents.section",
         "research.documents.replay",
         "research.claims.lineage",
+        "research.claims.receipt",
+        "research.documents.brief",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",

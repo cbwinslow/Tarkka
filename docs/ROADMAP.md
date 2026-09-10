@@ -20,8 +20,19 @@ The merged implementation includes the typed core, content-addressed local artif
 
 The initial source/document intelligence sequence is delivered. Future JATS, EPUB, HTML, PDF,
 crawler, citation, supplement, and provider integrations must extend these preservation boundaries
-rather than forcing rewrites. The next product capability is evidence verification that distinguishes
-citation from actual support.
+rather than forcing rewrites.
+
+The next product layer is a durable **research library** and a compiled **encyclopedia** over that
+library: humans read articles, receipts, and briefs; agents retrieve the same objects through a
+small budgeted tool surface. Proof/replay (#198) remains the trust kernel. The knowledge-layer
+contract is [`RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md).
+
+```text
+Workspace (project)
+  → Library (captured works, claims, evidence, snapshots)
+  → Encyclopedia edition (compiled topic articles)
+  → receipts / briefs (humans) and manifests / wallets (agents)
+```
 
 ## Phase 0 — Foundation
 
@@ -369,6 +380,26 @@ For provider/document adapters, tests should verify preservation of source-nativ
 ### Evaluation
 
 Measure parser preservation quality, identity precision/recall, extraction accuracy, evidence verification, citation resolution quality, retrieval quality, context/token efficiency, latency, and cost.
+
+### Research library and encyclopedia
+
+Durable contract: [`RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md).
+
+Execute as spec-driven GitHub issues, in this order, rather than as a single phase rewrite:
+
+1. [#345](https://github.com/cbwinslow/Tarkka/issues/345) Claim receipts and document briefs (v1 readable surface).
+2. [#346](https://github.com/cbwinslow/Tarkka/issues/346) Compact agent verbs and context wallet.
+3. [#343](https://github.com/cbwinslow/Tarkka/issues/343) Workspace as the product noun (init/run, Frozen/Live, defaults).
+4. [#347](https://github.com/cbwinslow/Tarkka/issues/347) Challenge and contradiction board.
+5. [#344](https://github.com/cbwinslow/Tarkka/issues/344) Named library catalog when one workspace is not enough.
+6. [#348](https://github.com/cbwinslow/Tarkka/issues/348) Deterministic encyclopedia compile + edition diff (after a real corpus).
+7. [#349](https://github.com/cbwinslow/Tarkka/issues/349) Scale-ready isolation and artifact-store port; S3/jobs when measured.
+
+Parent: [#342](https://github.com/cbwinslow/Tarkka/issues/342). Trust kernel remains [#198](https://github.com/cbwinslow/Tarkka/issues/198).
+v1 hides Library/Edition names; the first encyclopedia is a brief of receipts.
+
+Do not generate encyclopedia articles as a system of record. Compilation is a derived composition
+over library objects. Domain packs specialize topic vocabulary; they do not fork this model.
 
 ### Documentation
 

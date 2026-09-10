@@ -35,6 +35,17 @@ The platform is a research infrastructure system with a domain-agnostic core and
         PostgreSQL   pgvector   Artifact Store
 ```
 
+Product layers over that kernel (see
+[`RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md)):
+
+```text
+Workspace → Library → Encyclopedia edition → receipts/briefs (humans)
+                                          → manifests/wallets (agents)
+```
+
+Compilation is a derived composition. The library remains the system of record for captured
+objects. Encyclopedia articles never replace Works, Claims, or Artifacts.
+
 ## Architectural preservation rule
 
 > **Preserve native structure first; normalize second; infer last.**
@@ -96,7 +107,9 @@ Application services depend on domain contracts, not concrete infrastructure.
 The core contains stable concepts and invariants:
 
 - workspace
+- library
 - topic / research question
+- encyclopedia edition / article
 - search strategy
 - source/provider observation
 - capability manifest

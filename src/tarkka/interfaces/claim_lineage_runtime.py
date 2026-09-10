@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from tarkka.application.claim_lineage import ClaimLineageService
+from tarkka.application.claim_receipts import ClaimReceiptService
 from tarkka.config import document_backend
 from tarkka.domain.verification import EvidenceRelation
 from tarkka.infrastructure.postgres.citation_context_repository import (
@@ -48,6 +49,13 @@ def claim_lineage_service(*, home: Path | None = None) -> ClaimLineageService:
     return _postgres_claim_lineage_service()
 
 
+def claim_receipt_service(*, home: Path | None = None) -> ClaimReceiptService:
+    """Construct receipts over the same backends as Claim lineage."""
+    if document_backend() == "json":
+        return _json_claim_receipt_service(home if home is not None else tarkka_home())
+    return _postgres_claim_receipt_service()
+
+
 def _json_claim_lineage_service(home: Path) -> ClaimLineageService:
     extraction_path = home / "extractions.json"
     source = JsonExtractionRepository.open_existing(extraction_path)
@@ -75,4 +83,42 @@ def _postgres_claim_lineage_service() -> ClaimLineageService:
         relations=PostgresVerificationRepository(settings),
         documents=PostgresResearchRepository(settings),
         citations=PostgresCitationContextRepository(settings),
+    )
+
+
+def _json_claim_receipt_service(home: Path) -> ClaimReceiptService:
+    extraction_path = home / "extractions.json"
+    source = JsonExtractionRepository.open_existing(extraction_path)
+    if source is None:
+        raise FileNotFoundError(f"extraction catalog not found: {extraction_path}")
+    research_path = home / "catalog.json"
+    documents = JsonResearchRepository.open_existing(research_path)
+    if documents is None:
+        raise FileNotFoundError(f"research catalog not found: {research_path}")
+    relations = JsonVerificationRepository.open_existing(home / "verifications.json")
+    return ClaimReceiptService(
+        lineage=ClaimLineageService(
+            source=source,
+            relations=relations if relations is not None else _EmptyEvidenceRelationReader(),
+            documents=documents,
+            citations=JsonCitationRepository.open_existing(home / "citations.json"),
+        ),
+        extractions=source,
+        documents=documents,
+    )
+
+
+def _postgres_claim_receipt_service() -> ClaimReceiptService:
+    settings = PostgresSettings.from_environment()
+    extractions = PostgresExtractionRepository(settings)
+    documents = PostgresResearchRepository(settings)
+    return ClaimReceiptService(
+        lineage=ClaimLineageService(
+            source=extractions,
+            relations=PostgresVerificationRepository(settings),
+            documents=documents,
+            citations=PostgresCitationContextRepository(settings),
+        ),
+        extractions=extractions,
+        documents=documents,
     )

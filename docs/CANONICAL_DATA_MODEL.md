@@ -225,6 +225,51 @@ A stated or inferred limitation. Inferred limitations must be explicitly disting
 
 Normalized semantic concepts that support domain packs, linking, filtering, and retrieval.
 
+### Library
+
+A durable warehouse of captured research objects. A workspace contributes to a library; the library
+is the long-term collection, not the project.
+
+Key fields:
+
+- `library_id`
+- `name`
+- `description`
+- owning/contributing `workspace_id` values
+- created/updated timestamps
+- rights/policy defaults
+
+Library membership does not merge Works or Claims. It only catalogs objects that already have
+canonical identity.
+
+### Topic
+
+A scoped subject used to compile encyclopedia articles. A topic may bind to a `ResearchQuestion`, a
+domain-pack concept, or an explicit catalog entry. Similarity to a topic is a candidate, not
+identity.
+
+### EncyclopediaEdition
+
+A frozen compiled view of a library snapshot. Editions are append-only: a later compile creates a
+new edition rather than mutating the previous one.
+
+Key fields:
+
+- `edition_id`
+- `library_id`
+- source snapshot/handle
+- compiler name/version
+- compiled_at
+- rights decision for the compiled output
+
+### EncyclopediaArticle
+
+A derived composition for one topic inside an edition. The article is not a Work and not a Claim.
+It points at claim IDs, evidence relations, and source locators, and it carries estimated-token
+manifests for agent disclosure.
+
+See [`RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md).
+
 ## Provenance model
 
 Every important derived record should be able to answer:

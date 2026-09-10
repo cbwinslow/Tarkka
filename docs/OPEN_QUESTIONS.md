@@ -76,5 +76,17 @@ Resolved decisions should be removed from this file and reflected in the appropr
 
 ## Product direction
 
-- Is the long-term project primarily a library, server, developer platform, or all three with one reference server?
-- Should a first-party UI exist in v1, or should CLI/MCP/Quarto prove the core before UI investment?
+Resolved in [`RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md):
+
+- Tarkka is a **library** of captured research state, a **reference server** (CLI/MCP/HTTP) over
+  that library, and a **developer platform** of replaceable adapters. Those are one product, not
+  three forks.
+- The human v1 surface is receipts, briefs, and compiled encyclopedia articles — not a chat UI
+  and not a full institutional app. CLI/MCP remain the shared application services.
+- Encyclopedia articles are derived compositions. They are not a second system of record.
+
+Still open:
+
+- When should a second workspace share a library versus export/import a proof bundle?
+- What topic-scope language is enough for deterministic article compile before domain packs?
+- How large may an edition grow before article compilation must become an async job?

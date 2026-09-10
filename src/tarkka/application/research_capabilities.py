@@ -21,6 +21,7 @@ from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
+from tarkka.application.workspace import WorkspaceService
 
 # Envelope metadata (version, representation, and routing hints) is included
 # alongside every capability response. Keeping it separate from per-operation
@@ -133,6 +134,7 @@ class _OperationRegistration:
         | type[ClaimLineageService]
         | type[ClaimReceiptService]
         | type[ResearchGetService]
+        | type[WorkspaceService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -408,6 +410,52 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "Walleted evidence or full payload; fails closed instead of truncating.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.workspace.init",
+            "workspace",
+            "Create a workspace from a YAML or JSON research manifest.",
+            4,
+        ),
+        WorkspaceService,
+        "init_from_manifest",
+        (ResearchField("path", "string", True, "Workspace manifest path."),),
+        "Workspace handle, questions, and stored source policy.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.workspace.show",
+            "workspace",
+            "Show one persisted workspace without expanding source text.",
+            4,
+        ),
+        WorkspaceService,
+        "show",
+        (ResearchField("workspace_id", "uuid", True, "Stable workspace identifier."),),
+        "Workspace manifest, questions, warnings, and captured document/claim handles.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.workspace.run",
+            "workspace",
+            "Run Frozen local ingest and claim extraction for a workspace.",
+            4,
+        ),
+        WorkspaceService,
+        "run",
+        (
+            ResearchField("workspace_id", "uuid", True, "Stable workspace identifier."),
+            ResearchField("source", "string", True, "Local source file to ingest."),
+            ResearchField(
+                "mode",
+                "enum",
+                False,
+                "Run mode. Frozen is the default and performs no network calls.",
+                ("frozen", "live"),
+            ),
+        ),
+        "Updated workspace with ingested document and extracted claim handles.",
     ),
     _OperationRegistration(
         ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),

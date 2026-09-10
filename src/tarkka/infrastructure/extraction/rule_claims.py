@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from uuid import UUID, uuid4, uuid5
 
 from tarkka.domain.extraction import (
@@ -33,13 +34,19 @@ class RuleBasedClaimExtractor:
     name = "rule-claims"
     version = "1.1.0"
 
+    def __init__(self, *, run_id: UUID | None = None) -> None:
+        self._run_id = run_id
+
     def extract(self, document: Document) -> ExtractionBatch:
-        run_id = uuid4()
+        run_id = self._run_id if self._run_id is not None else uuid4()
         run = ExtractionRun(
             run_id=run_id,
             document_id=document.document_id,
             extractor_name=self.name,
             extractor_version=self.version,
+            extracted_at=(
+                datetime(2020, 1, 1, tzinfo=UTC) if self._run_id is not None else datetime.now(UTC)
+            ),
         )
         provenance = ExtractionProvenance(run_id=run_id, confidence=1.0)
         evidence: list[Evidence] = []

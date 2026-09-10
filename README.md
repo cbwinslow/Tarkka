@@ -51,6 +51,11 @@ tarkka claims show <claim-id>
 # Walk a Claim back through extraction, exact Evidence, Document, and Artifact provenance.
 tarkka why <claim-id>
 
+# Create a Frozen workspace from a YAML manifest, then ingest a local source.
+tarkka workspace init examples/mlb-research.yaml
+tarkka workspace show <workspace-id>
+tarkka workspace run <workspace-id> --source examples/proof-replay-demo.txt
+
 # Human-readable claim receipt and a stapled document brief (same evidence, no implied support).
 tarkka claims receipt <claim-id>
 tarkka claims receipt <claim-id> --format json

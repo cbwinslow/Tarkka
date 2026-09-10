@@ -299,7 +299,7 @@ _OPERATION_REGISTRATIONS = (
         ResearchOperation(
             "research.claims.receipt",
             "get",
-            "Get one human-readable claim receipt with exact quote and support state.",
+            "Get one human-readable claim receipt with exact quote or locator and support state.",
             8,
         ),
         ClaimReceiptService,

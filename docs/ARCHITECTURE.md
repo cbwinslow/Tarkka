@@ -39,8 +39,9 @@ Product layers over that kernel (see
 [`RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md)):
 
 ```text
-Workspace → Library → Encyclopedia edition → receipts/briefs (humans)
-                                          → manifests/wallets (agents)
+Workspace → Library → receipts/briefs (humans)
+                   → manifests/wallets (agents)
+                   → Encyclopedia edition (later compiled topic articles)
 ```
 
 Compilation is a derived composition. The library remains the system of record for captured

@@ -26,7 +26,12 @@ from tarkka.application.claim_receipts import (
     what_would_change_this,
 )
 from tarkka.application.document_retrieval import DocumentNotFoundError
-from tarkka.domain.extraction import AttributionKind, FigureEvidence, ResearchObjectKind
+from tarkka.domain.extraction import (
+    AttributionKind,
+    FigureEvidence,
+    HumanReviewState,
+    ResearchObjectKind,
+)
 from tarkka.domain.verification import EvidenceRelation, EvidenceRelationKind
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -89,8 +94,8 @@ def test_receipt_from_persisted_lineage_uses_quote_and_verification(
     payload = claim_receipt_view(receipt)
     assert payload["quote"] == "alpha"
     markdown = claim_receipt_markdown(receipt)
-    assert "Alpha is reported." in markdown
-    assert "> alpha" in markdown
+    assert "```text\nAlpha is reported.\n```" in markdown
+    assert "```text\nalpha\n```" in markdown
     html = claim_receipt_html(receipt)
     assert "<blockquote>alpha</blockquote>" in html
 
@@ -125,6 +130,90 @@ def test_no_evidence_assessment_labels_receipt_without_implying_support(
     assert receipt.support_state == "no_evidence"
     markdown = claim_receipt_markdown(receipt)
     assert "support_state: no_evidence" in markdown
+
+
+def test_rejected_assessments_do_not_set_support_state(tmp_path: Path) -> None:
+    fixture = persist_local_claim_lineage(tmp_path, include_verification=False)
+    JsonVerificationRepository(tmp_path / "verifications.json").save_relation(
+        EvidenceRelation(
+            relation_id=UUID(int=40),
+            claim_id=fixture.claim.extraction_id,
+            kind=EvidenceRelationKind.SUPPORTS,
+            evidence_id=fixture.evidence[0].evidence_id,
+            verifier_name="fixture",
+            verifier_version="1",
+            confidence=1.0,
+            human_review_state=HumanReviewState.REJECTED,
+        )
+    )
+    receipt = claim_receipt_service(home=tmp_path).receipt(fixture.claim.extraction_id)
+    assert receipt.support_state == "unreviewed"
+    assert receipt.relation_kinds == ()
+
+
+def test_receipt_pages_all_assessments_before_reducing_support_state(tmp_path: Path) -> None:
+    fixture = persist_local_claim_lineage(tmp_path, include_verification=False)
+    store = JsonVerificationRepository(tmp_path / "verifications.json")
+    for index in range(100):
+        store.save_relation(
+            EvidenceRelation(
+                relation_id=UUID(int=200 + index),
+                claim_id=fixture.claim.extraction_id,
+                kind=EvidenceRelationKind.SUPPORTS,
+                evidence_id=fixture.evidence[0].evidence_id,
+                verifier_name="fixture",
+                verifier_version="1",
+                confidence=1.0,
+            )
+        )
+    store.save_relation(
+        EvidenceRelation(
+            relation_id=UUID(int=400),
+            claim_id=fixture.claim.extraction_id,
+            kind=EvidenceRelationKind.CONTRADICTS,
+            evidence_id=fixture.evidence[0].evidence_id,
+            verifier_name="fixture",
+            verifier_version="1",
+            confidence=1.0,
+        )
+    )
+    receipt = claim_receipt_service(home=tmp_path).receipt(fixture.claim.extraction_id)
+    assert receipt.support_state == "contradicts"
+    assert receipt.relation_kinds.count("supports") == 100
+    assert "contradicts" in receipt.relation_kinds
+
+
+def test_receipt_stops_when_an_assessment_page_is_empty(tmp_path: Path) -> None:
+    fixture = persist_local_claim_lineage(tmp_path)
+    real = claim_receipt_service(home=tmp_path)
+
+    class TruncatingLineage:
+        def inspect(self, claim_id: UUID, **kwargs: object) -> object:
+            result = real._lineage.inspect(claim_id, **kwargs)
+            if int(kwargs.get("offset", 0)) > 0:
+                return replace(result, assessments=(), total_relations=50)
+            return replace(result, total_relations=50)
+
+    truncated = ClaimReceiptService(
+        lineage=TruncatingLineage(),  # type: ignore[arg-type]
+        extractions=real._extractions,
+        documents=real._documents,
+    )
+    receipt = truncated.receipt(fixture.claim.extraction_id)
+    assert receipt.support_state == "supports"
+
+
+def test_markdown_receipt_fences_multiline_and_control_text(tmp_path: Path) -> None:
+    fixture = persist_local_claim_lineage(tmp_path)
+    receipt = claim_receipt_service(home=tmp_path).receipt(fixture.claim.extraction_id)
+    dangerous = replace(
+        receipt,
+        claim_text="one\n## injected heading",
+        quote="```\nnot a fence",
+    )
+    markdown = claim_receipt_markdown(dangerous)
+    assert "```text\none\n## injected heading\n```" in markdown
+    assert "````text\n```\nnot a fence\n````" in markdown
 
 
 def _inspect(tmp_path: Path, **kwargs: int):

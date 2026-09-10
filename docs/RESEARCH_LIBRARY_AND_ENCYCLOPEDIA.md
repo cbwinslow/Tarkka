@@ -110,16 +110,21 @@ Default objects they see:
 Candidate commands (names may change in the implementing issue; the nouns must not):
 
 ```text
+tarkka claims receipt <claim-id>
+tarkka documents brief <document-id>
+tarkka why <claim-id>
 tarkka workspace init <manifest.yaml>
 tarkka workspace run
 tarkka library inspect
 tarkka encyclopedia compile
 tarkka encyclopedia show <article-id>
-tarkka why <claim-id>
 tarkka challenge <claim-id>
 tarkka workspace brief
 tarkka workspace serve
 ```
+
+v1 ships `claims receipt` and `documents brief`. Workspace, named library, and encyclopedia
+commands remain later slices.
 
 `workspace serve` is a local receipt/article viewer plus MCP. It is not a chat UI.
 
@@ -172,7 +177,7 @@ An article is a composition over library objects:
 - rights summary for the compiled output
 - estimated tokens for the article manifest vs each section
 
-Deterministic compilation is required for v1:
+Deterministic compilation is required for encyclopedia editions (#348), after receipts/briefs:
 
 - select claims whose evidence intersects the topic scope
 - group by support/contradict/qualify

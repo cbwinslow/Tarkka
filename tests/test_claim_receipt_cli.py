@@ -26,7 +26,7 @@ def test_claims_receipt_default_markdown(
     output = capsys.readouterr().out
     assert output.startswith("# Claim receipt (receipt-v1)\n")
     assert "support_state: supports" in output
-    assert "> alpha" in output
+    assert "```text\nalpha\n```" in output
 
 
 def test_claims_receipt_json_and_html(

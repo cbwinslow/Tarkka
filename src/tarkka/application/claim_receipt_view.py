@@ -47,28 +47,28 @@ def claim_receipt_markdown(receipt: ClaimReceipt) -> str:
     source_kind = receipt.source_kind if receipt.source_kind is not None else "(none)"
     source_uri = receipt.source_uri if receipt.source_uri is not None else "(none)"
     kinds = ", ".join(receipt.relation_kinds) if receipt.relation_kinds else "(none)"
-    return "\n".join(
-        (
-            f"# Claim receipt ({receipt.schema_version})",
-            f"claim_id: {receipt.claim_id}",
-            f"document_id: {receipt.document_id}",
-            f"title: {receipt.document_title}",
-            f"claim: {receipt.claim_text}",
-            f"attribution: {receipt.attribution.value}",
-            f"support_state: {receipt.support_state}",
-            f"relation_kinds: {kinds}",
-            f"human_review_state: {receipt.human_review_state}",
-            f"source_kind: {source_kind}",
-            f"locator: {locator}",
-            f"artifact_sha256: {receipt.artifact_sha256}",
-            f"source_uri: {source_uri}",
-            "## Quote",
-            f"> {quote}",
-            "## What would change this",
-            receipt.what_would_change_this,
-            "",
-        )
-    )
+    lines = [
+        f"# Claim receipt ({receipt.schema_version})",
+        f"claim_id: {receipt.claim_id}",
+        f"document_id: {receipt.document_id}",
+        f"title: {receipt.document_title}",
+        "claim:",
+        *_fenced_literal(receipt.claim_text),
+        f"attribution: {receipt.attribution.value}",
+        f"support_state: {receipt.support_state}",
+        f"relation_kinds: {kinds}",
+        f"human_review_state: {receipt.human_review_state}",
+        f"source_kind: {source_kind}",
+        f"locator: {locator}",
+        f"artifact_sha256: {receipt.artifact_sha256}",
+        f"source_uri: {source_uri}",
+        "## Quote",
+        *_fenced_literal(quote),
+        "## What would change this",
+        receipt.what_would_change_this,
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def claim_receipt_html(receipt: ClaimReceipt) -> str:
@@ -128,6 +128,14 @@ def document_brief_html(brief: DocumentBrief) -> str:
         f"{receipts}"
         "</main>\n"
     )
+
+
+def _fenced_literal(value: str) -> tuple[str, ...]:
+    """Keep source-derived text from creating false Markdown structure."""
+    fence = "```"
+    while fence in value:
+        fence += "`"
+    return (f"{fence}text", value, fence)
 
 
 def _html_value(value: object) -> str:

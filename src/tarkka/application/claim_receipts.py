@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from tarkka.application.claim_lineage import (
+    MAX_CLAIM_EVIDENCE_PAGE_SIZE,
     MAX_CLAIM_LINEAGE_OFFSET,
     MAX_CLAIM_LINEAGE_PAGE_SIZE,
     ClaimLineage,
@@ -20,6 +21,7 @@ from tarkka.domain.extraction import (
     EquationEvidence,
     Evidence,
     FigureEvidence,
+    HumanReviewState,
     ResearchObjectKind,
     TableEvidence,
 )
@@ -115,7 +117,11 @@ def what_would_change_this(support_state: str) -> str:
 def receipt_from_lineage(lineage: ClaimLineage) -> ClaimReceipt:
     """Compile one receipt from bounded persisted Claim lineage."""
     quote, source_kind, locator = _primary_quote(lineage.claim_evidence)
-    relation_kinds = tuple(item.relation.kind.value for item in lineage.assessments)
+    relation_kinds = tuple(
+        item.relation.kind.value
+        for item in lineage.assessments
+        if item.relation.human_review_state is not HumanReviewState.REJECTED
+    )
     state = support_state_for(relation_kinds)
     return ClaimReceipt(
         schema_version=RECEIPT_SCHEMA_VERSION,
@@ -152,7 +158,37 @@ class ClaimReceiptService:
 
     def receipt(self, claim_id: UUID) -> ClaimReceipt:
         """Return one derived receipt for a persisted Claim."""
-        return receipt_from_lineage(self._lineage.inspect(claim_id))
+        first = self._lineage.inspect(
+            claim_id,
+            offset=0,
+            limit=MAX_CLAIM_LINEAGE_PAGE_SIZE,
+            evidence_offset=0,
+            evidence_limit=MAX_CLAIM_EVIDENCE_PAGE_SIZE,
+        )
+        assessments = list(first.assessments)
+        offset = len(assessments)
+        while offset < first.total_relations:
+            page = self._lineage.inspect(
+                claim_id,
+                offset=offset,
+                limit=MAX_CLAIM_LINEAGE_PAGE_SIZE,
+                evidence_limit=0,
+            )
+            if not page.assessments:
+                break
+            assessments.extend(page.assessments)
+            offset += len(page.assessments)
+        return receipt_from_lineage(
+            ClaimLineage(
+                claim=first.claim,
+                claim_run=first.claim_run,
+                claim_source=first.claim_source,
+                total_claim_evidence=first.total_claim_evidence,
+                claim_evidence=first.claim_evidence,
+                total_relations=first.total_relations,
+                assessments=tuple(assessments),
+            )
+        )
 
     def document_brief(
         self,

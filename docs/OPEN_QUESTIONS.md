@@ -81,8 +81,9 @@ Resolved in [`RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md`](RESEARCH_LIBRARY_AND_ENCYCL
 - Tarkka is a **library** of captured research state, a **reference server** (CLI/MCP/HTTP) over
   that library, and a **developer platform** of replaceable adapters. Those are one product, not
   three forks.
-- The human v1 surface is receipts, briefs, and compiled encyclopedia articles — not a chat UI
-  and not a full institutional app. CLI/MCP remain the shared application services.
+- The human v1 surface is claim receipts and document briefs — not a chat UI, not a full
+  institutional app, and not compiled encyclopedia articles. Topic editions are a later slice.
+  CLI/MCP remain the shared application services.
 - Encyclopedia articles are derived compositions. They are not a second system of record.
 
 Still open:

@@ -53,7 +53,16 @@ tarkka why <claim-id>
 
 # Human-readable claim receipt and a stapled document brief (same evidence, no implied support).
 tarkka claims receipt <claim-id>
+tarkka claims receipt <claim-id> --format json
 tarkka documents brief <document-id>
+tarkka documents brief <document-id> --format html
+
+Receipts and briefs need the same local JSON or PostgreSQL document backend as `tarkka why`.
+Markdown is the default human view; `json` is the agent view; `html` is the same fields as a page.
+Missing claims/documents, catalog errors, and oversize brief pages fail closed with exit status 2
+and do not invent support. Re-running against unchanged persisted state is deterministic
+(`receipt-v1` / `brief-v1`). Agents discover the same operations as `research.claims.receipt` and
+`research.documents.brief`. See [`docs/QUICKSTART_PROOF_REPLAY.md`](docs/QUICKSTART_PROOF_REPLAY.md).
 
 # Export, independently verify, and replay portable research state.
 tarkka bundle create <document-id> --schema-version 3 --output research.tarkka

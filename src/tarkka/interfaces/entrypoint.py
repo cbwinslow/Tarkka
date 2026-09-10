@@ -9,6 +9,7 @@ from tarkka.interfaces import main as research_interface
 from tarkka.interfaces.bundle_cli import main as bundle_main
 from tarkka.interfaces.diff_cli import main as diff_main
 from tarkka.interfaces.replay_cli import main as replay_main
+from tarkka.interfaces.telemetry_cli import main as telemetry_main
 from tarkka.interfaces.why_cli import main as why_main
 
 CommandMain = Callable[[list[str] | None], int]
@@ -18,6 +19,7 @@ _COMMANDS: dict[str, CommandMain] = {
     "bundle": lambda argv: bundle_main(argv),
     "diff": lambda argv: diff_main(argv),
     "replay": lambda argv: replay_main(argv),
+    "telemetry": lambda argv: telemetry_main(argv),
     "why": lambda argv: why_main(argv),
 }
 

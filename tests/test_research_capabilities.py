@@ -2,6 +2,7 @@ import pytest
 
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.claim_lineage import ClaimLineageService
+from tarkka.application.claim_receipts import ClaimReceiptService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
@@ -29,6 +30,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.documents.section",
         "research.documents.replay",
         "research.claims.lineage",
+        "research.claims.receipt",
+        "research.documents.brief",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
@@ -40,7 +43,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
     )
-    assert capabilities.estimated_tokens < 300
+    assert capabilities.estimated_tokens < 350
     assert [(item.service_type, item.method_name) for item in _OPERATION_REGISTRATIONS] == [
         (DiscoveryService, "discover"),
         (DocumentRetrievalService, "manifest"),
@@ -48,6 +51,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (DocumentRetrievalService, "section"),
         (DocumentReplayService, "replay"),
         (ClaimLineageService, "inspect"),
+        (ClaimReceiptService, "receipt"),
+        (ClaimReceiptService, "document_brief"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),
@@ -65,6 +70,8 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     document_section = research_operation_schema("research.documents.section")
     document_replay = research_operation_schema("research.documents.replay")
     lineage = research_operation_schema("research.claims.lineage")
+    receipt = research_operation_schema("research.claims.receipt")
+    brief = research_operation_schema("research.documents.brief")
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
     context = research_operation_schema("research.verify.context")
@@ -145,6 +152,12 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
         "Claim extraction provenance, exact evidence/source lineage, and bounded assessments."
     )
     assert lineage.estimated_tokens < 100
+
+    assert [field.name for field in receipt.inputs] == ["claim_id"]
+    assert receipt.operation.family == "get"
+    assert [field.name for field in brief.inputs] == ["document_id", "offset", "limit"]
+    assert brief.inputs[1].maximum == 10_000
+    assert brief.inputs[2].maximum == 100
 
     assert [field.name for field in verify.inputs] == [
         "claim_id",

@@ -33,6 +33,7 @@ Load additional docs only when the task touches them:
 | service/module boundaries | `docs/ARCHITECTURE.md` |
 | source/document preservation, formats, crawling, citations | `docs/SOURCE_DOCUMENT_PRESERVATION.md` |
 | artifact derivation, composition, and portable exports | `docs/ARTIFACT_COMPOSITION.md` |
+| research library, workspace product surface, compiled encyclopedia | `docs/RESEARCH_LIBRARY_AND_ENCYCLOPEDIA.md` |
 | OCR, vision, or conversion-quality gates | `docs/OCR_QUALITY_AND_DERIVATIONS.md` |
 | semantic similarity, consensus, or graph-shaped retrieval | `docs/SIMILARITY_CONSENSUS_AND_GRAPH.md` |
 | ingestion/workflows | `docs/RESEARCH_PIPELINE.md` |

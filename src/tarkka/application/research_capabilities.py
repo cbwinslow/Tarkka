@@ -13,6 +13,7 @@ from tarkka.application.claim_lineage import (
     MAX_CLAIM_LINEAGE_PAGE_SIZE,
     ClaimLineageService,
 )
+from tarkka.application.claim_receipts import ClaimReceiptService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
@@ -129,6 +130,7 @@ class _OperationRegistration:
         | type[DocumentReplayService]
         | type[LexicalRetrievalService]
         | type[ClaimLineageService]
+        | type[ClaimReceiptService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -292,6 +294,48 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "Claim extraction provenance, exact evidence/source lineage, and bounded assessments.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.claims.receipt",
+            "get",
+            "Get one human-readable claim receipt with exact quote or locator and support state.",
+            8,
+        ),
+        ClaimReceiptService,
+        "receipt",
+        (ResearchField("claim_id", "uuid", True, "Stable Claim extraction identifier."),),
+        "Claim receipt fields, exact quote or locator, and what would change the assessment.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.documents.brief",
+            "get",
+            "Get a bounded brief of claim receipts for one Document.",
+            10,
+        ),
+        ClaimReceiptService,
+        "document_brief",
+        (
+            ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
+            ResearchField(
+                "offset",
+                "integer",
+                False,
+                "Zero-based claim offset.",
+                minimum=0,
+                maximum=MAX_CLAIM_LINEAGE_OFFSET,
+            ),
+            ResearchField(
+                "limit",
+                "integer",
+                False,
+                "Maximum claim receipts to include.",
+                minimum=0,
+                maximum=MAX_CLAIM_LINEAGE_PAGE_SIZE,
+            ),
+        ),
+        "Document title and ordered claim receipts without full source text.",
     ),
     _OperationRegistration(
         ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),

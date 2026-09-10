@@ -18,6 +18,7 @@ from tarkka.application.research_capabilities import (
 from tarkka.application.research_get import ResearchGetService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
+from tarkka.application.workspace import WorkspaceService
 
 
 def test_research_capabilities_are_stable_and_compact() -> None:
@@ -35,6 +36,9 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.documents.brief",
         "research.get",
         "research.expand",
+        "research.workspace.init",
+        "research.workspace.show",
+        "research.workspace.run",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
@@ -58,6 +62,9 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (ClaimReceiptService, "document_brief"),
         (ResearchGetService, "get"),
         (ResearchGetService, "expand"),
+        (WorkspaceService, "init_from_manifest"),
+        (WorkspaceService, "show"),
+        (WorkspaceService, "run"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),

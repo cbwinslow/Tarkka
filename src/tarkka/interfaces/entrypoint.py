@@ -11,6 +11,7 @@ from tarkka.interfaces.diff_cli import main as diff_main
 from tarkka.interfaces.replay_cli import main as replay_main
 from tarkka.interfaces.telemetry_cli import main as telemetry_main
 from tarkka.interfaces.why_cli import main as why_main
+from tarkka.interfaces.workspace_cli import main as workspace_main
 
 CommandMain = Callable[[list[str] | None], int]
 
@@ -21,6 +22,7 @@ _COMMANDS: dict[str, CommandMain] = {
     "replay": lambda argv: replay_main(argv),
     "telemetry": lambda argv: telemetry_main(argv),
     "why": lambda argv: why_main(argv),
+    "workspace": lambda argv: workspace_main(argv),
 }
 
 

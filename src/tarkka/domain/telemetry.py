@@ -32,3 +32,44 @@ class AgentUsageEvent:
             raise ValueError("successful telemetry events must not contain an error code")
         if self.outcome == "error" and (self.error_code is None or not self.error_code.strip()):
             raise ValueError("failed telemetry events require a non-blank error code")
+
+
+@dataclass(frozen=True, slots=True)
+class AgentUsageExport:
+    """Vendor-neutral aggregate payload suitable for optional telemetry export."""
+
+    occurred_at: datetime
+    interface: str
+    operation_id: str
+    outcome: str
+    elapsed_ms: int
+    response_bytes: int
+    estimated_tokens: int
+    error_code: str | None = None
+
+    @classmethod
+    def from_event(cls, event: AgentUsageEvent) -> AgentUsageExport:
+        """Map one already-validated local measurement without adding content fields."""
+        return cls(
+            occurred_at=event.occurred_at,
+            interface=event.interface,
+            operation_id=event.operation_id,
+            outcome=event.outcome,
+            elapsed_ms=event.elapsed_ms,
+            response_bytes=event.response_bytes,
+            estimated_tokens=event.estimated_tokens,
+            error_code=event.error_code,
+        )
+
+    def to_dict(self) -> dict[str, int | str | None]:
+        """Return the complete, bounded export payload."""
+        return {
+            "occurred_at": self.occurred_at.isoformat(),
+            "interface": self.interface,
+            "operation_id": self.operation_id,
+            "outcome": self.outcome,
+            "elapsed_ms": self.elapsed_ms,
+            "response_bytes": self.response_bytes,
+            "estimated_tokens": self.estimated_tokens,
+            "error_code": self.error_code,
+        }

@@ -311,6 +311,10 @@ segment digest and derivation/configuration key together with model identifier/r
 configuration, normalization, and dimension. They never replace canonical Passage, Evidence, or
 citation boundaries; different model/configuration derivations remain distinct.
 
+The local reference profile persists those derivations atomically behind a replaceable embedding-store
+port. A later PostgreSQL/pgvector adapter must preserve the same immutable identity and collision
+semantics rather than treating a vector as mutable source state.
+
 ### Artifact storage
 
 Raw and derived files should live outside ordinary relational rows using content-addressed storage.

@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.ingest import IngestService
@@ -24,6 +24,7 @@ from tarkka.infrastructure.simple_yaml import (
 )
 
 KNOWN_DOMAIN_PACKS = frozenset({"baseball", "finance"})
+_WORKSPACE_EXTRACT_NAMESPACE = UUID("7f3e2c1a-9b80-4d6e-a1c2-5d8f0e1b2a34")
 
 
 class WorkspaceMode(StrEnum):
@@ -74,6 +75,16 @@ class WorkspaceStore(Protocol):
 
     def find_by_name(self, name: str) -> WorkspaceRecord | None: ...
 
+    def create_named(self, record: WorkspaceRecord) -> WorkspaceRecord: ...
+
+    def record_run(
+        self,
+        workspace_id: UUID,
+        *,
+        document_id: UUID,
+        claim_ids: tuple[UUID, ...],
+    ) -> WorkspaceRecord: ...
+
 
 def load_workspace_spec(path: Path) -> Mapping[str, object]:
     """Load and validate one research_workspace YAML or JSON manifest."""
@@ -90,12 +101,15 @@ def load_workspace_spec(path: Path) -> Mapping[str, object]:
             loaded = load_simple_yaml(text)
     except (json.JSONDecodeError, SimpleYamlError) as exc:
         raise WorkspaceManifestError(f"invalid workspace manifest: {exc}") from exc
-    mapping = require_mapping(loaded, what="workspace manifest")
+    try:
+        mapping = require_mapping(loaded, what="workspace manifest")
+        metadata = require_mapping(mapping.get("metadata"), what="metadata")
+    except SimpleYamlError as exc:
+        raise WorkspaceManifestError(f"invalid workspace manifest: {exc}") from exc
     if mapping.get("kind") != "research_workspace":
         raise WorkspaceManifestError("workspace manifest kind must be research_workspace")
     if mapping.get("version") != 1:
         raise WorkspaceManifestError("workspace manifest version must be 1")
-    metadata = require_mapping(mapping.get("metadata"), what="metadata")
     name = metadata.get("name")
     if not isinstance(name, str) or not name.strip():
         raise WorkspaceManifestError("workspace name must not be blank")
@@ -112,22 +126,27 @@ def questions_from_spec(spec: Mapping[str, object]) -> tuple[WorkspaceQuestion, 
     topics = spec.get("topics", [])
     if topics == []:
         return ()
-    sequence = require_sequence(topics, what="topics")
-    questions: list[WorkspaceQuestion] = []
-    for item in sequence:
-        mapping = require_mapping(item, what="topic")
-        question_id = mapping.get("id")
-        text = mapping.get("question")
-        if not isinstance(question_id, str) or not question_id.strip():
-            raise WorkspaceManifestError("topic id must not be blank")
-        if not isinstance(text, str) or not text.strip():
-            raise WorkspaceManifestError("topic question must not be blank")
-        raw_subtopics = mapping.get("subtopics", [])
-        subtopics = tuple(
-            str(part) for part in require_sequence(raw_subtopics, what="subtopics")
-        )
-        questions.append(WorkspaceQuestion(question_id=question_id, text=text, subtopics=subtopics))
-    return tuple(questions)
+    try:
+        sequence = require_sequence(topics, what="topics")
+        questions: list[WorkspaceQuestion] = []
+        for item in sequence:
+            mapping = require_mapping(item, what="topic")
+            question_id = mapping.get("id")
+            text = mapping.get("question")
+            if not isinstance(question_id, str) or not question_id.strip():
+                raise WorkspaceManifestError("topic id must not be blank")
+            if not isinstance(text, str) or not text.strip():
+                raise WorkspaceManifestError("topic question must not be blank")
+            raw_subtopics = mapping.get("subtopics", [])
+            subtopics = tuple(
+                str(part) for part in require_sequence(raw_subtopics, what="subtopics")
+            )
+            questions.append(
+                WorkspaceQuestion(question_id=question_id, text=text, subtopics=subtopics)
+            )
+        return tuple(questions)
+    except SimpleYamlError as exc:
+        raise WorkspaceManifestError(f"invalid workspace manifest: {exc}") from exc
 
 
 class WorkspaceService:
@@ -149,13 +168,6 @@ class WorkspaceService:
         digest = spec_digest(spec)
         metadata = require_mapping(spec.get("metadata"), what="metadata")
         name = str(metadata["name"]).strip()
-        existing = self._store.find_by_name(name)
-        if existing is not None:
-            if existing.spec_digest == digest:
-                return existing
-            raise WorkspaceConflictError(
-                f"workspace name already exists with a different manifest: {name}"
-            )
         domain_pack = metadata.get("domain_pack")
         warnings: list[str] = []
         if isinstance(domain_pack, str) and domain_pack not in KNOWN_DOMAIN_PACKS:
@@ -180,8 +192,7 @@ class WorkspaceService:
             questions=questions_from_spec(spec),
             warnings=tuple(warnings),
         )
-        self._store.save(record)
-        return record
+        return self._store.create_named(record)
 
     def show(self, workspace_id: UUID) -> WorkspaceRecord:
         record = self._store.get(workspace_id)
@@ -202,19 +213,24 @@ class WorkspaceService:
                 "live workspace run is not implemented; use frozen mode for local ingest"
             )
         ingested = self._ingest.ingest(source)
-        batch = self._extraction.extract(ingested.document, RuleBasedClaimExtractor())
+        if ingested.document.document_id in record.document_ids:
+            return record
+        run_id = uuid5(
+            _WORKSPACE_EXTRACT_NAMESPACE,
+            f"{workspace_id}:{ingested.document.document_id}:"
+            f"{RuleBasedClaimExtractor.name}:{RuleBasedClaimExtractor.version}",
+        )
+        batch = self._extraction.extract(
+            ingested.document, RuleBasedClaimExtractor(run_id=run_id)
+        )
         claim_ids = tuple(
             item.extraction_id for item in batch.extractions if item.kind.value == "claim"
         )
-        updated = replace(
-            record,
-            mode=WorkspaceMode.FROZEN,
-            document_ids=record.document_ids + (ingested.document.document_id,),
-            claim_ids=record.claim_ids + claim_ids,
-            updated_at=utc_now(),
+        return self._store.record_run(
+            workspace_id,
+            document_id=ingested.document.document_id,
+            claim_ids=claim_ids,
         )
-        self._store.save(updated)
-        return updated
 
 
 def workspace_view(record: WorkspaceRecord) -> dict[str, object]:

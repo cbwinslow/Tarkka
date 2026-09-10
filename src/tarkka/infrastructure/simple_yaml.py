@@ -133,7 +133,7 @@ def _parse_scalar(raw: str) -> object:
         inner = value[1:-1].strip()
         if not inner:
             return []
-        return [_parse_scalar(part.strip()) for part in inner.split(",")]
+        return [_parse_scalar(part) for part in _split_flow_list(inner)]
     if (value.startswith('"') and value.endswith('"')) or (
         value.startswith("'") and value.endswith("'")
     ):
@@ -141,6 +141,36 @@ def _parse_scalar(raw: str) -> object:
     if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
         return int(value)
     return value
+
+
+def _split_flow_list(inner: str) -> list[str]:
+    """Split an inline YAML list without treating quoted commas as separators."""
+    parts: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    for char in inner:
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            current.append(char)
+            continue
+        if char == ",":
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+            continue
+        current.append(char)
+    if quote is not None:
+        raise SimpleYamlError("unclosed quote in inline list")
+    part = "".join(current).strip()
+    if part:
+        parts.append(part)
+    return parts
 
 
 def require_mapping(value: object, *, what: str) -> Mapping[str, object]:

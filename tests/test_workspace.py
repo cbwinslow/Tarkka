@@ -82,6 +82,14 @@ def test_init_conflict_and_invalid_manifest(tmp_path: Path) -> None:
         service.init_from_manifest(tmp_path / "missing.yaml")
     with pytest.raises(WorkspaceNotFoundError):
         service.show(UUID(int=1))
+    with pytest.raises(WorkspaceManifestError, match="topics"):
+        _service(tmp_path).init_from_manifest(
+            _write(
+                tmp_path,
+                "topics.yaml",
+                "version: 1\nkind: research_workspace\nmetadata:\n  name: t5\ntopics: nope\n",
+            )
+        )
 
 
 def test_unknown_domain_pack_is_warning_not_semantics(tmp_path: Path) -> None:
@@ -107,6 +115,12 @@ def test_frozen_run_ingests_proof_fixture_without_network(tmp_path: Path) -> Non
     assert len(ran.document_ids) == 1
     assert ran.claim_ids
     assert ran.mode.value == "frozen"
+    again = service.run(
+        workspace.workspace.workspace_id,
+        source=root / "examples/proof-replay-demo.txt",
+    )
+    assert again.document_ids == ran.document_ids
+    assert again.claim_ids == ran.claim_ids
     with pytest.raises(LiveModeUnsupportedError):
         service.run(
             workspace.workspace.workspace_id,
@@ -191,6 +205,8 @@ def test_json_manifest_and_schema_errors(tmp_path: Path) -> None:
         )
     with pytest.raises(WorkspaceManifestError, match="invalid"):
         load_workspace_spec(_write(tmp_path, "bad.json", "{"))
+    with pytest.raises(WorkspaceManifestError, match="mapping"):
+        load_workspace_spec(_write(tmp_path, "array.json", "[]"))
     with pytest.raises(WorkspaceManifestError, match="topic id"):
         _service(tmp_path).init_from_manifest(
             _write(
@@ -247,6 +263,58 @@ def test_workspace_store_rejects_corrupt_files(tmp_path: Path) -> None:
     path.write_text(json.dumps({"schema_version": 1, "workspaces": []}), encoding="utf-8")
     with pytest.raises(RuntimeError, match="workspaces must be"):
         JsonWorkspaceStore(path).get(UUID(int=1))
+    path.write_text(
+        json.dumps({"schema_version": 1, "workspaces": {str(UUID(int=1)): {}}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="invalid workspace record"):
+        JsonWorkspaceStore(path).get(UUID(int=1))
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "workspaces": {str(UUID(int=1)): {"workspace": []}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="invalid workspace record"):
+        JsonWorkspaceStore(path).get(UUID(int=1))
+    path.write_text(
+        json.dumps({"schema_version": 1, "workspaces": {str(UUID(int=2)): "nope"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="invalid workspace record"):
+        JsonWorkspaceStore(path).get(UUID(int=2))
+
+
+def test_store_named_lookup_and_record_run_guards(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    service = _service(tmp_path)
+    created = service.init_from_manifest(root / "examples/mlb-research.yaml")
+    service.init_from_manifest(root / "examples/finance-research.yaml")
+    store = JsonWorkspaceStore(tmp_path / "workspaces.json")
+    assert store.find_by_name("mlb-game-outcome-research") is not None
+    assert store.find_by_name("missing") is None
+    with pytest.raises(WorkspaceNotFoundError):
+        store.record_run(UUID(int=9), document_id=UUID(int=1), claim_ids=())
+    ran = service.run(
+        created.workspace.workspace_id,
+        source=root / "examples/proof-replay-demo.txt",
+    )
+    same = store.record_run(
+        created.workspace.workspace_id,
+        document_id=ran.document_ids[0],
+        claim_ids=ran.claim_ids,
+    )
+    assert same.document_ids == ran.document_ids
+    extra = store.record_run(
+        created.workspace.workspace_id,
+        document_id=UUID(int=42),
+        claim_ids=(ran.claim_ids[0], UUID(int=99)),
+    )
+    assert UUID(int=42) in extra.document_ids
+    assert UUID(int=99) in extra.claim_ids
 
 
 def test_workspace_cli_rejects_invalid_id() -> None:
@@ -271,8 +339,15 @@ def test_workspace_store_replace_failure(
         raise OSError("replace failed")
 
     monkeypatch.setattr(os, "replace", boom)
+    store_path = tmp_path / "workspaces.json"
     with pytest.raises(OSError, match="replace failed"):
-        JsonWorkspaceStore(tmp_path / "workspaces.json").save(record)
+        JsonWorkspaceStore(store_path).save(record)
+    monkeypatch.undo()
+    restored = JsonWorkspaceStore(store_path).get(record.workspace.workspace_id)
+    assert restored is not None
+    assert restored.workspace.name == record.workspace.name
+    leftovers = list(tmp_path.glob(".tarkka-workspaces-*"))
+    assert leftovers == []
 
 
 def _write(tmp_path: Path, name: str, text: str) -> Path:

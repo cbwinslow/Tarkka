@@ -5,17 +5,20 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
 from tarkka.application.workspace import (
+    WorkspaceConflictError,
     WorkspaceMode,
+    WorkspaceNotFoundError,
     WorkspaceQuestion,
     WorkspaceRecord,
 )
-from tarkka.domain.models import Workspace
+from tarkka.domain.models import Workspace, utc_now
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
@@ -51,6 +54,55 @@ class JsonWorkspaceStore:
             if record.workspace.name == name:
                 return record
         return None
+
+    def create_named(self, record: WorkspaceRecord) -> WorkspaceRecord:
+        with exclusive_lock(self.path):
+            data = self._read()
+            workspaces = cast(dict[str, Any], data["workspaces"])
+            for payload in workspaces.values():
+                existing = _record_from_dict(payload)
+                if existing.workspace.name != record.workspace.name:
+                    continue
+                if existing.spec_digest == record.spec_digest:
+                    return existing
+                raise WorkspaceConflictError(
+                    "workspace name already exists with a different manifest: "
+                    f"{record.workspace.name}"
+                )
+            workspaces[str(record.workspace.workspace_id)] = _record_to_dict(record)
+            self._write(data)
+            return record
+
+    def record_run(
+        self,
+        workspace_id: UUID,
+        *,
+        document_id: UUID,
+        claim_ids: tuple[UUID, ...],
+    ) -> WorkspaceRecord:
+        with exclusive_lock(self.path):
+            data = self._read()
+            workspaces = cast(dict[str, Any], data["workspaces"])
+            payload = workspaces.get(str(workspace_id))
+            if payload is None:
+                raise WorkspaceNotFoundError(f"workspace not found: {workspace_id}")
+            current = _record_from_dict(payload)
+            if document_id in current.document_ids:
+                return current
+            merged_claims = current.claim_ids
+            for claim_id in claim_ids:
+                if claim_id not in merged_claims:
+                    merged_claims = merged_claims + (claim_id,)
+            updated = replace(
+                current,
+                mode=WorkspaceMode.FROZEN,
+                document_ids=current.document_ids + (document_id,),
+                claim_ids=merged_claims,
+                updated_at=utc_now(),
+            )
+            workspaces[str(workspace_id)] = _record_to_dict(updated)
+            self._write(data)
+            return updated
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -106,31 +158,38 @@ def _record_to_dict(record: WorkspaceRecord) -> dict[str, Any]:
 
 
 def _record_from_dict(payload: MappingLike) -> WorkspaceRecord:
-    workspace_payload = payload["workspace"]
-    return WorkspaceRecord(
-        workspace=Workspace(
-            workspace_id=UUID(workspace_payload["workspace_id"]),
-            name=workspace_payload["name"],
-            description=workspace_payload.get("description", ""),
-            domain_pack=workspace_payload.get("domain_pack"),
-            created_at=datetime.fromisoformat(workspace_payload["created_at"]),
-            settings=workspace_payload.get("settings") or {},
-        ),
-        spec_digest=payload["spec_digest"],
-        questions=tuple(
-            WorkspaceQuestion(
-                question_id=str(item["question_id"]),
-                text=str(item["text"]),
-                subtopics=tuple(str(part) for part in item.get("subtopics", ())),
-            )
-            for item in payload.get("questions", ())
-        ),
-        mode=WorkspaceMode(payload.get("mode", "frozen")),
-        warnings=tuple(str(item) for item in payload.get("warnings", ())),
-        document_ids=tuple(UUID(item) for item in payload.get("document_ids", ())),
-        claim_ids=tuple(UUID(item) for item in payload.get("claim_ids", ())),
-        updated_at=datetime.fromisoformat(payload["updated_at"]),
-    )
+    try:
+        if not isinstance(payload, dict):
+            raise TypeError("workspace record must be a JSON object")
+        workspace_payload = payload["workspace"]
+        if not isinstance(workspace_payload, dict):
+            raise TypeError("workspace object must be a JSON object")
+        return WorkspaceRecord(
+            workspace=Workspace(
+                workspace_id=UUID(workspace_payload["workspace_id"]),
+                name=workspace_payload["name"],
+                description=workspace_payload.get("description", ""),
+                domain_pack=workspace_payload.get("domain_pack"),
+                created_at=datetime.fromisoformat(workspace_payload["created_at"]),
+                settings=workspace_payload.get("settings") or {},
+            ),
+            spec_digest=payload["spec_digest"],
+            questions=tuple(
+                WorkspaceQuestion(
+                    question_id=str(item["question_id"]),
+                    text=str(item["text"]),
+                    subtopics=tuple(str(part) for part in item.get("subtopics", ())),
+                )
+                for item in payload.get("questions", ())
+            ),
+            mode=WorkspaceMode(payload.get("mode", "frozen")),
+            warnings=tuple(str(item) for item in payload.get("warnings", ())),
+            document_ids=tuple(UUID(item) for item in payload.get("document_ids", ())),
+            claim_ids=tuple(UUID(item) for item in payload.get("claim_ids", ())),
+            updated_at=datetime.fromisoformat(payload["updated_at"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"invalid workspace record: {exc}") from exc
 
 
 MappingLike = dict[str, Any]

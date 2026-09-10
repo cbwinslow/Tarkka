@@ -76,6 +76,16 @@ def test_simple_yaml_rejects_empty_and_tabs() -> None:
     }
     tilde = load_simple_yaml("missing: ~\n")
     assert tilde["missing"] is None
+    quoted_comma = load_simple_yaml('tags: ["salary, cap", bonus]\n')
+    assert quoted_comma["tags"] == ["salary, cap", "bonus"]
+    with pytest.raises(SimpleYamlError, match="unclosed quote"):
+        load_simple_yaml('tags: ["salary, cap]\n')
+    trailing = load_simple_yaml("tags: [alpha, ]\n")
+    assert trailing["tags"] == ["alpha"]
+    leading_comma = load_simple_yaml("tags: [, alpha]\n")
+    assert leading_comma["tags"] == ["alpha"]
+    singles = load_simple_yaml("tags: ['pay, cut']\n")
+    assert singles["tags"] == ["pay, cut"]
 
 
 def test_load_simple_yaml_rejects_unconsumed_lines(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -15,6 +15,7 @@ from tarkka.application.claim_lineage import (
 )
 from tarkka.application.claim_lineage_protocol import agent_error
 from tarkka.application.document_retrieval import DocumentNotFoundError
+from tarkka.application.encyclopedia import EncyclopediaNotFoundError
 from tarkka.application.research_get import (
     InvalidResourceIdError,
     ModelDispatchDeniedError,
@@ -36,6 +37,7 @@ _GET_ERRORS = (
     ClaimLineageMismatchError,
     ClaimLineagePaginationError,
     DocumentNotFoundError,
+    EncyclopediaNotFoundError,
     OSError,
     RuntimeError,
     ValueError,

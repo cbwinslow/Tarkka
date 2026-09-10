@@ -23,12 +23,13 @@ from tarkka.application.claim_lineage import (
 from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
+from tarkka.application.research_get import ResearchGetService
 from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.interfaces import mcp, why_cli
-from tarkka.interfaces.claim_lineage_runtime import claim_lineage_service
+from tarkka.interfaces.claim_lineage_runtime import claim_lineage_service, claim_receipt_service
 from tarkka.interfaces.mcp import create_server
 from tests.support.claim_lineage import persist_local_claim_lineage
 
@@ -526,7 +527,66 @@ def test_mcp_research_get_reports_backend_failures(
     monkeypatch.setattr(mcp, "configured_claim_receipt_service", invalid)
     bad = _call(
         create_server(),
+        "research_get",
+        {"resource_id": f"claim:{UUID(int=8)}", "representation": "receipt"},
+    )
+    assert bad["error"]["code"] == "invalid_argument"
+
+    monkeypatch.setattr(mcp, "configured_claim_receipt_service", missing)
+    expand_unavailable = _call(
+        create_server(),
         "research_expand",
         {"resource_id": f"claim:{UUID(int=8)}", "include": "evidence"},
     )
-    assert bad["error"]["code"] == "invalid_argument"
+    assert expand_unavailable["error"]["code"] == "backend_unavailable"
+
+    monkeypatch.setattr(mcp, "configured_claim_receipt_service", invalid)
+    expand_invalid = _call(
+        create_server(),
+        "research_expand",
+        {"resource_id": f"claim:{UUID(int=8)}", "include": "evidence"},
+    )
+    assert expand_invalid["error"]["code"] == "invalid_argument"
+
+
+def test_mcp_research_get_reuses_injected_receipt_and_get_services(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("TARKKA_HOME", str(home))
+    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+    fixture = persist_local_claim_lineage(home)
+    documents = JsonResearchRepository.open_existing(home / "catalog.json")
+    assert documents is not None
+    retrieval = DocumentRetrievalService(documents=documents)
+    receipts = claim_receipt_service(home=home)
+    lineage = claim_lineage_service(home=home)
+    arguments = {
+        "resource_id": f"claim:{fixture.claim.extraction_id}",
+        "representation": "receipt",
+    }
+
+    injected_receipts = create_server(
+        documents=retrieval,
+        lineage=lineage,
+        receipts=receipts,
+    )
+    first = _call(injected_receipts, "research_get", arguments)
+    assert first["ok"] is True
+
+    getter = ResearchGetService(
+        receipts=receipts,
+        documents=retrieval,
+        lineage=lineage,
+    )
+    injected_getter = create_server(
+        documents=retrieval,
+        lineage=lineage,
+        receipts=receipts,
+        getter=getter,
+    )
+    second = _call(injected_getter, "research_get", arguments)
+    third = _call(injected_getter, "research_get", arguments)
+    assert second["payload"]["quote"] == "alpha"
+    assert third["payload"]["quote"] == "alpha"

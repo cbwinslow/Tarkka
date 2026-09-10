@@ -36,6 +36,29 @@ Tarkka exposes a deliberately staged MCP contract:
 This keeps first-turn tool context small while allowing an agent to discover deeper
 capabilities only when needed.
 
+## Get and expand
+
+The compact agent verbs:
+
+```text
+research.get
+research.expand
+```
+
+are implemented by `ResearchGetService`. MCP tools `research_get` and `research_expand`
+are thin adapters. Existing tools such as `document_manifest` and `claim_lineage` remain
+as aliases; they are not removed.
+
+`research.get` requires `resource_id` (`claim:UUID` or `doc:UUID`), `representation`
+(`manifest`, `receipt`, `evidence`, or `full`), and an optional `max_tokens` wallet
+(default 8000). `send_to_model=true` on `evidence` or `full` fails with `rights_denied`
+when the model-dispatch policy forbids it.
+
+`research.expand` is the same walleted path for `include=evidence|full`. Oversized
+payloads return `content_too_large` and never truncate source text.
+
+HTTP may later expose the same application service; this slice ships MCP first.
+
 ## Claim lineage
 
 The semantic operation:

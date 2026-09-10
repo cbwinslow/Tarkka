@@ -18,6 +18,7 @@ from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
+from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
 
@@ -131,6 +132,7 @@ class _OperationRegistration:
         | type[LexicalRetrievalService]
         | type[ClaimLineageService]
         | type[ClaimReceiptService]
+        | type[ResearchGetService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -336,6 +338,76 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "Document title and ordered claim receipts without full source text.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.get",
+            "get",
+            "Get one resource representation under an explicit token wallet.",
+            8,
+        ),
+        ResearchGetService,
+        "get",
+        (
+            ResearchField("resource_id", "string", True, "claim:UUID or doc:UUID handle."),
+            ResearchField(
+                "representation",
+                "enum",
+                True,
+                "Progressive representation to return.",
+                ("manifest", "receipt", "evidence", "full"),
+            ),
+            ResearchField(
+                "max_tokens",
+                "integer",
+                False,
+                "Per-request estimated-token wallet.",
+                minimum=0,
+                maximum=DEFAULT_GET_MAX_TOKENS,
+            ),
+            ResearchField(
+                "send_to_model",
+                "boolean",
+                False,
+                "Whether the caller intends to send source text to a model.",
+            ),
+        ),
+        "Walleted representation payload, estimated tokens, and may_send_to_model.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.expand",
+            "get",
+            "Expand one resource to evidence or full source under a token wallet.",
+            8,
+        ),
+        ResearchGetService,
+        "expand",
+        (
+            ResearchField("resource_id", "string", True, "claim:UUID or doc:UUID handle."),
+            ResearchField(
+                "include",
+                "enum",
+                True,
+                "Source expansion to return.",
+                ("evidence", "full"),
+            ),
+            ResearchField(
+                "max_tokens",
+                "integer",
+                False,
+                "Per-request estimated-token wallet.",
+                minimum=0,
+                maximum=DEFAULT_GET_MAX_TOKENS,
+            ),
+            ResearchField(
+                "send_to_model",
+                "boolean",
+                False,
+                "Whether the caller intends to send source text to a model.",
+            ),
+        ),
+        "Walleted evidence or full payload; fails closed instead of truncating.",
     ),
     _OperationRegistration(
         ResearchOperation("research.verify", "verify", "Record an evidence assessment.", 24),

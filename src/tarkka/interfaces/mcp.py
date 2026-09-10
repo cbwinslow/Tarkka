@@ -28,6 +28,7 @@ from tarkka.application.claim_lineage_protocol import (
     agent_error,
     claim_lineage_response,
 )
+from tarkka.application.claim_receipts import ClaimReceiptService
 from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 from tarkka.application.document_replay import DocumentReplayer
 from tarkka.application.document_replay_protocol import (
@@ -52,12 +53,17 @@ from tarkka.application.research_capability_view import (
     research_capabilities_view,
     research_operation_schema_view,
 )
+from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
+from tarkka.application.research_get_protocol import research_expand_response, research_get_response
 from tarkka.domain.manifest import estimate_tokens
 from tarkka.domain.models import Section
 from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorder
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service as configured_claim_lineage_service,
+)
+from tarkka.interfaces.claim_lineage_runtime import (
+    claim_receipt_service as configured_claim_receipt_service,
 )
 from tarkka.interfaces.document_replay_runtime import (
     document_replay_service as configured_document_replay_service,
@@ -82,6 +88,8 @@ def create_server(
     documents: DocumentRetrievalService | None = None,
     lexical: LexicalRetrievalService | None = None,
     lineage: ClaimLineageService | None = None,
+    receipts: ClaimReceiptService | None = None,
+    getter: ResearchGetService | None = None,
     replay: DocumentReplayer | None = None,
     telemetry: AgentUsageRecorder | None = None,
 ) -> MCPServer:
@@ -93,6 +101,8 @@ def create_server(
     retrieval = documents
     lexical_retrieval = lexical
     lineage_reader = lineage
+    receipt_reader = receipts
+    get_reader = getter
     replay_reader = replay
 
     def retrieval_service() -> DocumentRetrievalService:
@@ -122,6 +132,24 @@ def create_server(
         if replay_reader is None:
             replay_reader = configured_document_replay_service()
         return replay_reader
+
+    def receipt_service() -> ClaimReceiptService:
+        """Create the configured receipt backend only when get/expand needs it."""
+        nonlocal receipt_reader
+        if receipt_reader is None:
+            receipt_reader = configured_claim_receipt_service()
+        return receipt_reader
+
+    def get_service() -> ResearchGetService:
+        """Create the configured get/expand service only when those tools run."""
+        nonlocal get_reader
+        if get_reader is None:
+            get_reader = ResearchGetService(
+                receipts=receipt_service(),
+                documents=retrieval_service(),
+                lineage=lineage_service(),
+            )
+        return get_reader
 
     def instrument(
         operation_id: str,
@@ -173,6 +201,64 @@ def create_server(
                 "unknown_operation", str(exc), next_actions=("research_capabilities",)
             )
         return {"ok": True, **research_operation_schema_view(schema)}
+
+    @server.tool(
+        name="research_get",
+        description=(
+            "Get one claim or document representation under an explicit token wallet."
+        ),
+        annotations=_READ_ONLY,
+    )
+    @instrument("research.get")
+    def research_get(
+        resource_id: object,
+        representation: object,
+        max_tokens: int = DEFAULT_GET_MAX_TOKENS,
+        send_to_model: bool = False,
+    ) -> dict[str, object]:
+        """Return a budgeted representation without truncating source text."""
+        try:
+            service = get_service()
+        except (OSError, RuntimeError) as exc:
+            return _unavailable_error(exc)
+        except ValueError as exc:
+            return _invalid_argument_error(exc)
+        return research_get_response(
+            service,
+            resource_id,
+            representation=representation,
+            max_tokens=max_tokens,
+            send_to_model=send_to_model,
+        )
+
+    @server.tool(
+        name="research_expand",
+        description=(
+            "Expand one claim or document to evidence or full source under a token wallet."
+        ),
+        annotations=_READ_ONLY,
+    )
+    @instrument("research.expand")
+    def research_expand(
+        resource_id: object,
+        include: object,
+        max_tokens: int = DEFAULT_GET_MAX_TOKENS,
+        send_to_model: bool = False,
+    ) -> dict[str, object]:
+        """Expand source only when it fits the wallet and model-dispatch policy."""
+        try:
+            service = get_service()
+        except (OSError, RuntimeError) as exc:
+            return _unavailable_error(exc)
+        except ValueError as exc:
+            return _invalid_argument_error(exc)
+        return research_expand_response(
+            service,
+            resource_id,
+            include=include,
+            max_tokens=max_tokens,
+            send_to_model=send_to_model,
+        )
 
     @server.tool(
         name="claim_lineage",

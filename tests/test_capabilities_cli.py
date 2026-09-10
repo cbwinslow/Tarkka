@@ -18,6 +18,8 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.claims.lineage",
         "research.claims.receipt",
         "research.documents.brief",
+        "research.get",
+        "research.expand",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
@@ -60,8 +62,8 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
 
 
 def test_capabilities_cli_rejects_unknown_operation_without_advertising_it(capsys) -> None:
-    assert main(["capabilities", "show", "research.expand"]) == 2
+    assert main(["capabilities", "show", "research.compare"]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == "error: unknown research operation: research.expand\n"
+    assert captured.err == "error: unknown research operation: research.compare\n"

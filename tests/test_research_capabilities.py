@@ -15,6 +15,7 @@ from tarkka.application.research_capabilities import (
     research_capabilities,
     research_operation_schema,
 )
+from tarkka.application.research_get import ResearchGetService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
 
@@ -32,6 +33,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.claims.lineage",
         "research.claims.receipt",
         "research.documents.brief",
+        "research.get",
+        "research.expand",
         "research.verify",
         "research.verify.candidates",
         "research.verify.context",
@@ -53,6 +56,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (ClaimLineageService, "inspect"),
         (ClaimReceiptService, "receipt"),
         (ClaimReceiptService, "document_brief"),
+        (ResearchGetService, "get"),
+        (ResearchGetService, "expand"),
         (EvidenceVerificationService, "record"),
         (EvidenceVerificationService, "citation_candidates"),
         (EvidenceVerificationService, "citation_context"),
@@ -72,6 +77,8 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     lineage = research_operation_schema("research.claims.lineage")
     receipt = research_operation_schema("research.claims.receipt")
     brief = research_operation_schema("research.documents.brief")
+    getter = research_operation_schema("research.get")
+    expand = research_operation_schema("research.expand")
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
     context = research_operation_schema("research.verify.context")
@@ -158,6 +165,20 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert [field.name for field in brief.inputs] == ["document_id", "offset", "limit"]
     assert brief.inputs[1].maximum == 10_000
     assert brief.inputs[2].maximum == 100
+    assert [field.name for field in getter.inputs] == [
+        "resource_id",
+        "representation",
+        "max_tokens",
+        "send_to_model",
+    ]
+    assert getter.inputs[1].allowed_values == ("manifest", "receipt", "evidence", "full")
+    assert [field.name for field in expand.inputs] == [
+        "resource_id",
+        "include",
+        "max_tokens",
+        "send_to_model",
+    ]
+    assert expand.inputs[1].allowed_values == ("evidence", "full")
 
     assert [field.name for field in verify.inputs] == [
         "claim_id",
@@ -213,9 +234,9 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert resource.result_summary == (
         "One exact resource link with preserved native metadata; target resolution is separate."
     )
-    with pytest.raises(UnknownResearchOperationError, match="research.expand") as error:
-        research_operation_schema("research.expand")
-    assert error.value.operation_id == "research.expand"
+    with pytest.raises(UnknownResearchOperationError, match="research.compare") as error:
+        research_operation_schema("research.compare")
+    assert error.value.operation_id == "research.compare"
 
 
 def test_research_field_rejects_invalid_schema_metadata() -> None:

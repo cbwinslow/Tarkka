@@ -20,6 +20,11 @@ from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.encyclopedia import EncyclopediaService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
+from tarkka.application.library import (
+    MAX_LIBRARY_OFFSET,
+    MAX_LIBRARY_PAGE_SIZE,
+    LibraryService,
+)
 from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
@@ -139,6 +144,7 @@ class _OperationRegistration:
         | type[WorkspaceService]
         | type[ChallengeService]
         | type[EncyclopediaService]
+        | type[LibraryService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -473,6 +479,115 @@ _OPERATION_REGISTRATIONS = (
     ),
     _OperationRegistration(
         ResearchOperation(
+            "research.library.show",
+            "library",
+            "Show one durable library catalog without expanding source text.",
+            4,
+        ),
+        LibraryService,
+        "show",
+        (
+            ResearchField(
+                "library_id",
+                "uuid",
+                False,
+                "Library identifier; omit when only one exists.",
+            ),
+        ),
+        "Library membership counts and unknown rights summary.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.library.documents",
+            "library",
+            "List document manifests in a library.",
+            4,
+        ),
+        LibraryService,
+        "list_documents",
+        (
+            ResearchField("library_id", "uuid", True, "Library identifier."),
+            ResearchField(
+                "offset",
+                "integer",
+                False,
+                "Zero-based listing offset.",
+                minimum=0,
+                maximum=MAX_LIBRARY_OFFSET,
+            ),
+            ResearchField(
+                "limit",
+                "integer",
+                False,
+                "Maximum items to return.",
+                minimum=0,
+                maximum=MAX_LIBRARY_PAGE_SIZE,
+            ),
+        ),
+        "Paged document handles, titles, token estimates, and unknown rights.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.library.claims",
+            "library",
+            "List claim handles in a library.",
+            4,
+        ),
+        LibraryService,
+        "list_claims",
+        (
+            ResearchField("library_id", "uuid", True, "Library identifier."),
+            ResearchField(
+                "offset",
+                "integer",
+                False,
+                "Zero-based listing offset.",
+                minimum=0,
+                maximum=MAX_LIBRARY_OFFSET,
+            ),
+            ResearchField(
+                "limit",
+                "integer",
+                False,
+                "Maximum items to return.",
+                minimum=0,
+                maximum=MAX_LIBRARY_PAGE_SIZE,
+            ),
+        ),
+        "Paged claim handles, token estimates, and unknown rights.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.library.works",
+            "library",
+            "List work handles in a library.",
+            4,
+        ),
+        LibraryService,
+        "list_works",
+        (
+            ResearchField("library_id", "uuid", True, "Library identifier."),
+            ResearchField(
+                "offset",
+                "integer",
+                False,
+                "Zero-based listing offset.",
+                minimum=0,
+                maximum=MAX_LIBRARY_OFFSET,
+            ),
+            ResearchField(
+                "limit",
+                "integer",
+                False,
+                "Maximum items to return.",
+                minimum=0,
+                maximum=MAX_LIBRARY_PAGE_SIZE,
+            ),
+        ),
+        "Paged work handles and unknown rights.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
             "research.encyclopedia.compile",
             "encyclopedia",
             "Compile a Frozen encyclopedia edition from a workspace.",
@@ -745,9 +860,7 @@ _OPERATION_REGISTRATIONS = (
         (
             ResearchField("document_id", "uuid", True, "Stable source Document identifier."),
             ResearchField("query", "string", True, "Non-blank lexical query text."),
-            ResearchField(
-                "derivation_version", "string", True, "Exact derived-index version."
-            ),
+            ResearchField("derivation_version", "string", True, "Exact derived-index version."),
             ResearchField(
                 "configuration_fingerprint",
                 "string",

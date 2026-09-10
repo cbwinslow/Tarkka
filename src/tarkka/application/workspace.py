@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -64,8 +64,28 @@ class WorkspaceRecord:
     warnings: tuple[str, ...] = ()
     document_ids: tuple[UUID, ...] = ()
     claim_ids: tuple[UUID, ...] = ()
+    library_id: UUID | None = None
     updated_at: datetime = field(default_factory=utc_now)
 
+
+class LibraryHandle(Protocol):
+    @property
+    def library_id(self) -> UUID: ...
+
+
+class LibraryMembership(Protocol):
+    def ensure_for_workspace(self, workspace_id: UUID, *, name: str) -> LibraryHandle: ...
+
+    def add_workspace(self, library_id: UUID, workspace_id: UUID) -> object: ...
+
+    def add_members(
+        self,
+        library_id: UUID,
+        *,
+        document_ids: tuple[UUID, ...] = (),
+        claim_ids: tuple[UUID, ...] = (),
+        work_ids: tuple[UUID, ...] = (),
+    ) -> object: ...
 
 
 class WorkspaceStore(Protocol):
@@ -158,10 +178,12 @@ class WorkspaceService:
         store: WorkspaceStore,
         ingest: IngestService,
         extraction: ExtractionService,
+        libraries: LibraryMembership | None = None,
     ) -> None:
         self._store = store
         self._ingest = ingest
         self._extraction = extraction
+        self._libraries = libraries
 
     def init_from_manifest(self, path: Path) -> WorkspaceRecord:
         spec = load_workspace_spec(path)
@@ -192,7 +214,19 @@ class WorkspaceService:
             questions=questions_from_spec(spec),
             warnings=tuple(warnings),
         )
-        return self._store.create_named(record)
+        created = self._store.create_named(record)
+        if self._libraries is None:
+            return created
+        if created.library_id is not None:
+            self._libraries.add_workspace(created.library_id, created.workspace.workspace_id)
+            return created
+        library = self._libraries.ensure_for_workspace(
+            created.workspace.workspace_id,
+            name=f"{created.workspace.name}-library",
+        )
+        updated = replace(created, library_id=library.library_id)
+        self._store.save(updated)
+        return updated
 
     def show(self, workspace_id: UUID) -> WorkspaceRecord:
         record = self._store.get(workspace_id)
@@ -214,23 +248,34 @@ class WorkspaceService:
             )
         ingested = self._ingest.ingest(source)
         if ingested.document.document_id in record.document_ids:
+            if self._libraries is not None and record.library_id is not None:
+                self._libraries.add_members(
+                    record.library_id,
+                    document_ids=(ingested.document.document_id,),
+                    claim_ids=record.claim_ids,
+                )
             return record
         run_id = uuid5(
             _WORKSPACE_EXTRACT_NAMESPACE,
             f"{workspace_id}:{ingested.document.document_id}:"
             f"{RuleBasedClaimExtractor.name}:{RuleBasedClaimExtractor.version}",
         )
-        batch = self._extraction.extract(
-            ingested.document, RuleBasedClaimExtractor(run_id=run_id)
-        )
+        batch = self._extraction.extract(ingested.document, RuleBasedClaimExtractor(run_id=run_id))
         claim_ids = tuple(
             item.extraction_id for item in batch.extractions if item.kind.value == "claim"
         )
-        return self._store.record_run(
+        updated = self._store.record_run(
             workspace_id,
             document_id=ingested.document.document_id,
             claim_ids=claim_ids,
         )
+        if self._libraries is not None and updated.library_id is not None:
+            self._libraries.add_members(
+                updated.library_id,
+                document_ids=(ingested.document.document_id,),
+                claim_ids=claim_ids,
+            )
+        return updated
 
 
 def workspace_view(record: WorkspaceRecord) -> dict[str, object]:
@@ -259,6 +304,7 @@ def workspace_view(record: WorkspaceRecord) -> dict[str, object]:
         "warnings": list(record.warnings),
         "document_ids": [str(item) for item in record.document_ids],
         "claim_ids": [str(item) for item in record.claim_ids],
+        "library_id": str(record.library_id) if record.library_id is not None else None,
     }
 
 

@@ -153,6 +153,7 @@ def _record_to_dict(record: WorkspaceRecord) -> dict[str, Any]:
         "warnings": list(record.warnings),
         "document_ids": [str(item) for item in record.document_ids],
         "claim_ids": [str(item) for item in record.claim_ids],
+        "library_id": str(record.library_id) if record.library_id is not None else None,
         "updated_at": record.updated_at.isoformat(),
     }
 
@@ -186,6 +187,9 @@ def _record_from_dict(payload: MappingLike) -> WorkspaceRecord:
             warnings=tuple(str(item) for item in payload.get("warnings", ())),
             document_ids=tuple(UUID(item) for item in payload.get("document_ids", ())),
             claim_ids=tuple(UUID(item) for item in payload.get("claim_ids", ())),
+            library_id=(
+                UUID(payload["library_id"]) if payload.get("library_id") is not None else None
+            ),
             updated_at=datetime.fromisoformat(payload["updated_at"]),
         )
     except (KeyError, TypeError, ValueError) as exc:

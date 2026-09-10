@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import UUID
 
 from tarkka.application.extraction import ExtractionService
+from tarkka.application.library import LibraryService
 from tarkka.application.workspace import (
     LiveModeUnsupportedError,
     WorkspaceConflictError,
@@ -18,6 +19,7 @@ from tarkka.application.workspace import (
     parse_workspace_mode,
     workspace_view,
 )
+from tarkka.infrastructure.storage.json_library_store import JsonLibraryStore
 from tarkka.infrastructure.storage.json_workspace_store import JsonWorkspaceStore
 from tarkka.interfaces import cli as research_cli
 from tarkka.interfaces import main as research_main
@@ -26,10 +28,18 @@ from tarkka.interfaces import main as research_main
 def configured_workspace_service() -> WorkspaceService:
     """Compose workspace run over the same local ingest/extract runtime as the CLI."""
     store, repository, acquisitions = research_cli._runtime()
+    home = research_cli._home()
+    libraries = LibraryService(
+        store=JsonLibraryStore(home / "libraries.json"),
+        workspaces=JsonWorkspaceStore(home / "workspaces.json"),
+        documents=repository,
+        extractions=research_main._extraction_repository(),
+    )
     return WorkspaceService(
-        store=JsonWorkspaceStore(research_cli._home() / "workspaces.json"),
+        store=JsonWorkspaceStore(home / "workspaces.json"),
         ingest=research_cli._ingest_service(store, repository, acquisitions),
         extraction=ExtractionService(research_main._extraction_repository()),
+        libraries=libraries,
     )
 
 

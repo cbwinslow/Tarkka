@@ -13,6 +13,7 @@ from tarkka.interfaces.challenge_cli import (
 )
 from tarkka.interfaces.diff_cli import main as diff_main
 from tarkka.interfaces.encyclopedia_cli import main as encyclopedia_main
+from tarkka.interfaces.library_cli import main as library_main
 from tarkka.interfaces.replay_cli import main as replay_main
 from tarkka.interfaces.telemetry_cli import main as telemetry_main
 from tarkka.interfaces.why_cli import main as why_main
@@ -27,6 +28,7 @@ _COMMANDS: dict[str, CommandMain] = {
     "bundle": lambda argv: bundle_main(argv),
     "diff": lambda argv: diff_main(argv),
     "encyclopedia": lambda argv: encyclopedia_main(argv),
+    "library": lambda argv: library_main(argv),
     "replay": lambda argv: replay_main(argv),
     "telemetry": lambda argv: telemetry_main(argv),
     "why": lambda argv: why_main(argv),

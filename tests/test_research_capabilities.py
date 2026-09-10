@@ -9,6 +9,7 @@ from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.encyclopedia import EncyclopediaService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
+from tarkka.application.library import LibraryService
 from tarkka.application.research_capabilities import (
     _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD,
     _OPERATION_REGISTRATIONS,
@@ -41,6 +42,10 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.workspace.init",
         "research.workspace.show",
         "research.workspace.run",
+        "research.library.show",
+        "research.library.documents",
+        "research.library.claims",
+        "research.library.works",
         "research.encyclopedia.compile",
         "research.encyclopedia.show",
         "research.encyclopedia.diff",
@@ -72,6 +77,10 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (WorkspaceService, "init_from_manifest"),
         (WorkspaceService, "show"),
         (WorkspaceService, "run"),
+        (LibraryService, "show"),
+        (LibraryService, "list_documents"),
+        (LibraryService, "list_claims"),
+        (LibraryService, "list_works"),
         (EncyclopediaService, "compile"),
         (EncyclopediaService, "show_article"),
         (EncyclopediaService, "diff"),

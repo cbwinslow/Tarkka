@@ -2,7 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -76,6 +76,8 @@ def test_mcp_server_registers_only_read_only_initial_operations() -> None:
     assert [tool.name for tool in tools] == [
         "research_capabilities",
         "research_operation_schema",
+        "research_get",
+        "research_expand",
         "claim_lineage",
         "document_manifest",
         "document_sections",
@@ -369,13 +371,13 @@ def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(
     server = create_server(documents=DocumentRetrievalService(documents=documents))
 
     unknown_operation = _call(
-        server, "research_operation_schema", {"operation_id": "research.expand"}
+        server, "research_operation_schema", {"operation_id": "research.compare"}
     )
     assert unknown_operation == {
         "ok": False,
         "error": {
             "code": "unknown_operation",
-            "message": "unknown research operation: research.expand",
+            "message": "unknown research operation: research.compare",
             "next_actions": ["research_capabilities"],
         },
     }
@@ -454,3 +456,77 @@ def test_mcp_server_refuses_an_unbounded_section_expansion(tmp_path: Path) -> No
 
     assert response["error"]["code"] == "content_too_large"
     assert response["error"]["next_actions"] == ["document_sections"]
+
+
+def test_mcp_research_get_receipt_matches_persisted_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("TARKKA_HOME", str(home))
+    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+    fixture = persist_local_claim_lineage(home)
+    server = create_server()
+    response = _call(
+        server,
+        "research_get",
+        {
+            "resource_id": f"claim:{fixture.claim.extraction_id}",
+            "representation": "receipt",
+        },
+    )
+    assert response["ok"] is True
+    assert response["payload"]["quote"] == "alpha"
+    assert response["representation"] == "receipt"
+
+
+def test_mcp_research_expand_wallet_does_not_leak_quote(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("TARKKA_HOME", str(home))
+    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+    persist_local_claim_lineage(home)
+    response = _call(
+        create_server(),
+        "research_expand",
+        {
+            "resource_id": f"claim:{UUID(int=8)}",
+            "include": "evidence",
+            "max_tokens": 1,
+        },
+    )
+    assert response["ok"] is False
+    assert response["error"]["code"] == "content_too_large"
+    assert "alpha" not in str(response)
+
+
+def test_mcp_research_get_reports_backend_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "empty"))
+    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+
+    def missing() -> object:
+        raise FileNotFoundError("extraction catalog not found")
+
+    monkeypatch.setattr(mcp, "configured_claim_receipt_service", missing)
+    unavailable = _call(
+        create_server(),
+        "research_get",
+        {"resource_id": f"claim:{UUID(int=8)}", "representation": "receipt"},
+    )
+    assert unavailable["error"]["code"] == "backend_unavailable"
+
+    def invalid() -> object:
+        raise ValueError("bad configuration")
+
+    monkeypatch.setattr(mcp, "configured_claim_receipt_service", invalid)
+    bad = _call(
+        create_server(),
+        "research_expand",
+        {"resource_id": f"claim:{UUID(int=8)}", "include": "evidence"},
+    )
+    assert bad["error"]["code"] == "invalid_argument"

@@ -13,6 +13,7 @@ from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.application.claim_receipt_view import claim_receipt_view, document_brief_view
 from tarkka.application.claim_receipts import ClaimReceiptService
 from tarkka.application.document_retrieval import DocumentRetrievalService
+from tarkka.application.encyclopedia import EncyclopediaNotFoundError, EncyclopediaService
 from tarkka.domain.manifest import estimate_tokens
 
 DEFAULT_GET_MAX_TOKENS = 8_000
@@ -29,6 +30,7 @@ class Representation(StrEnum):
 class ResourceKind(StrEnum):
     CLAIM = "claim"
     DOCUMENT = "document"
+    ARTICLE = "article"
 
 
 class WalletExhaustedError(ValueError):
@@ -65,7 +67,7 @@ class UnknownExpandIncludeError(ValueError):
 
 class InvalidResourceIdError(ValueError):
     def __init__(self, raw: str) -> None:
-        super().__init__("resource_id must be a claim:UUID or doc:UUID handle")
+        super().__init__("resource_id must be a claim:UUID, doc:UUID, or article:UUID handle")
         self.resource_id = raw
 
 
@@ -125,6 +127,11 @@ def parse_resource_id(raw: str) -> tuple[ResourceKind, UUID]:
             return ResourceKind.DOCUMENT, UUID(raw.removeprefix("doc:"))
         except ValueError as exc:
             raise InvalidResourceIdError(raw) from exc
+    if raw.startswith("article:"):
+        try:
+            return ResourceKind.ARTICLE, UUID(raw.removeprefix("article:"))
+        except ValueError as exc:
+            raise InvalidResourceIdError(raw) from exc
     raise InvalidResourceIdError(raw)
 
 
@@ -145,10 +152,12 @@ class ResearchGetService:
         documents: DocumentRetrievalService,
         lineage: ClaimLineageService,
         model_dispatch: ModelDispatchPolicy | None = None,
+        encyclopedia: EncyclopediaService | None = None,
     ) -> None:
         self._receipts = receipts
         self._documents = documents
         self._lineage = lineage
+        self._encyclopedia = encyclopedia
         self._model_dispatch = (
             model_dispatch if model_dispatch is not None else AllowAllModelDispatch()
         )
@@ -213,6 +222,8 @@ class ResearchGetService:
     ) -> dict[str, object]:
         if kind is ResourceKind.CLAIM:
             return self._claim_payload(identifier, representation)
+        if kind is ResourceKind.ARTICLE:
+            return self._article_payload(identifier, representation)
         return self._document_payload(identifier, representation)
 
     def _claim_payload(
@@ -258,6 +269,25 @@ class ResearchGetService:
             "next_actions": ["document_section"],
             "detail": "full document text is not returned in one expand; request exact sections",
         }
+
+    def _article_payload(
+        self, article_id: UUID, representation: Representation
+    ) -> dict[str, object]:
+        if self._encyclopedia is None:
+            raise EncyclopediaNotFoundError(f"article not found: {article_id}")
+        if representation is Representation.MANIFEST:
+            return self._encyclopedia.article_manifest(article_id)
+        article = self._encyclopedia.show_article(article_id)
+        if representation is Representation.RECEIPT:
+            return {
+                "article_id": str(article.article_id),
+                "title": article.title,
+                "claim_ids": [str(item) for item in article.claim_ids],
+                "contradiction_count": article.contradiction_count,
+            }
+        if representation is Representation.EVIDENCE:
+            return {"claim_ids": [str(item) for item in article.claim_ids]}
+        return {"body_markdown": article.body_markdown}
 
 
 def _payload_tokens(payload: dict[str, object]) -> int:

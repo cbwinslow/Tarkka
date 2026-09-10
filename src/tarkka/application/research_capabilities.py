@@ -18,6 +18,7 @@ from tarkka.application.claim_receipts import ClaimReceiptService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
+from tarkka.application.encyclopedia import EncyclopediaService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
 from tarkka.application.research_packages import ResearchPackageService
@@ -137,6 +138,7 @@ class _OperationRegistration:
         | type[ResearchGetService]
         | type[WorkspaceService]
         | type[ChallengeService]
+        | type[EncyclopediaService]
         | type[EvidenceVerificationService]
         | type[CitationTraversalService]
         | type[ResearchPackageService]
@@ -353,7 +355,12 @@ _OPERATION_REGISTRATIONS = (
         ResearchGetService,
         "get",
         (
-            ResearchField("resource_id", "string", True, "claim:UUID or doc:UUID handle."),
+            ResearchField(
+                "resource_id",
+                "string",
+                True,
+                "claim:UUID, doc:UUID, or article:UUID handle.",
+            ),
             ResearchField(
                 "representation",
                 "enum",
@@ -388,7 +395,12 @@ _OPERATION_REGISTRATIONS = (
         ResearchGetService,
         "expand",
         (
-            ResearchField("resource_id", "string", True, "claim:UUID or doc:UUID handle."),
+            ResearchField(
+                "resource_id",
+                "string",
+                True,
+                "claim:UUID, doc:UUID, or article:UUID handle.",
+            ),
             ResearchField(
                 "include",
                 "enum",
@@ -458,6 +470,54 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "Updated workspace with ingested document and extracted claim handles.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.encyclopedia.compile",
+            "encyclopedia",
+            "Compile a Frozen encyclopedia edition from a workspace.",
+            4,
+        ),
+        EncyclopediaService,
+        "compile",
+        (
+            ResearchField("workspace_id", "uuid", True, "Workspace whose claims are compiled."),
+            ResearchField("topic_id", "string", False, "Optional topic id from the workspace."),
+            ResearchField(
+                "redistribution_allowed",
+                "boolean",
+                True,
+                "Must be true to write a compiled edition.",
+            ),
+        ),
+        "New edition handle, article manifests, and body hashes.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.encyclopedia.show",
+            "encyclopedia",
+            "Show one compiled encyclopedia article.",
+            4,
+        ),
+        EncyclopediaService,
+        "show_article",
+        (ResearchField("article_id", "uuid", True, "Compiled article identifier."),),
+        "Article manifest and Markdown body compiled from receipts.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.encyclopedia.diff",
+            "encyclopedia",
+            "Diff two Frozen encyclopedia editions.",
+            4,
+        ),
+        EncyclopediaService,
+        "diff",
+        (
+            ResearchField("from_edition_id", "uuid", True, "Earlier edition."),
+            ResearchField("to_edition_id", "uuid", True, "Later edition."),
+        ),
+        "Added/removed claim IDs and topics whose article body hash changed.",
     ),
     _OperationRegistration(
         ResearchOperation(

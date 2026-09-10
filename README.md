@@ -57,6 +57,9 @@ tarkka workspace show <workspace-id>
 tarkka workspace run <workspace-id> --source examples/proof-replay-demo.txt
 tarkka challenge <claim-id>
 tarkka contradictions list <workspace-id>
+tarkka encyclopedia compile <workspace-id> --allow-redistribution
+tarkka encyclopedia show <article-id>
+tarkka encyclopedia diff <edition-a> <edition-b>
 
 # Human-readable claim receipt and a stapled document brief (same evidence, no implied support).
 tarkka claims receipt <claim-id>

@@ -206,6 +206,11 @@ Migration design should preserve:
 
 SQLFluff was adopted after migrations `0001`–`0006`; those historical files are baselined in `.sqlfluffignore` rather than rewritten. Every new migration must pass the configured PostgreSQL SQLFluff rules before merge.
 
+When the optional pgvector embedding profile is enabled, a database administrator must provision the
+`vector` extension before running Tarkka migrations. The migration intentionally relies on PostgreSQL's
+native vector type and fails rather than silently substituting a scalar or JSON representation. The
+repository's pgvector CI service pre-provisions the extension for its disposable test databases.
+
 ## Performance philosophy
 
 Optimize after measuring, except where a boundary would make efficient operation impossible.

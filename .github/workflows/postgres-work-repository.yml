@@ -108,7 +108,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:17-alpine
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: tarkka
           POSTGRES_DB: tarkka_test
@@ -137,6 +137,8 @@ jobs:
         run: uv lock --check
       - name: Sync PostgreSQL test environment
         run: uv sync --frozen --group dev --extra postgres
+      - name: Enable pgvector
+        run: psql "$TARKKA_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector"
       - name: Run PostgreSQL repository contracts
         run: >-
           uv run --no-sync tarkka db upgrade && uv run --no-sync pytest

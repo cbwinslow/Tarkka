@@ -221,6 +221,12 @@ does not implement a distributed lease.
 Do **not** introduce a graph database, dedicated vector product, or mandatory queue before a
 measured library hurts. pgvector and a durable job table are the first scale-out tools.
 
+Embedding indexing is an explicit, transport-neutral application operation over one exact persisted
+retrieval-segment projection. Its caller supplies both the replaceable embedder and immutable store;
+the operation does not select, download, or silently substitute a model. Each returned vector is
+validated against the exact segment identity, digest, and derivation/configuration key before it can
+be persisted.
+
 Federation comes after one library works: workspaces and foreign Tarkka bundles are cited by
 digest. Foreign articles are references, not silent merges.
 

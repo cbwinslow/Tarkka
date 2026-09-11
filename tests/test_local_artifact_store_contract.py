@@ -90,6 +90,29 @@ def test_memory_artifact_store_preserves_the_artifact_port_contract(tmp_path: Pa
     StreamingArtifactStoreContract.assert_streaming_read(store, artifact, payload, chunk_size=9)
 
 
+def test_memory_artifact_store_handles_file_cache_and_integrity_edges(tmp_path: Path) -> None:
+    store = MemoryArtifactStore(tmp_path / "materialized")
+    source = tmp_path / "paper.txt"
+    source.write_bytes(b"preserved evidence")
+    artifact = store.put_file(source)
+
+    assert artifact.original_name == "paper.txt"
+    assert artifact.source_uri == source.resolve().as_uri()
+    assert store.exists(artifact.sha256) is True
+    assert store.exists("0" * 64) is False
+    assert store.path_for(artifact).is_file()
+
+    store._objects.clear()
+    assert store.read_bytes_by_sha256(artifact.sha256) == b"preserved evidence"
+    store._objects[artifact.sha256] = b"corrupted"
+    with pytest.raises(OSError, match="does not match"):
+        store.read_bytes(artifact)
+    with pytest.raises(ValueError, match="SHA-256"):
+        store.read_bytes_by_sha256("bad")
+    with pytest.raises(FileNotFoundError):
+        store.put_file(tmp_path / "missing.txt")
+
+
 def test_local_artifact_store_rejects_missing_source(
     store: LocalArtifactStore,
     tmp_path: Path,

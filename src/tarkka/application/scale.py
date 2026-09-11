@@ -25,6 +25,14 @@ class ScaleQuotaExceededError(ValueError):
         self.limit = limit
 
 
+class JobInProgressError(RuntimeError):
+    """Raised when another worker owns the matching local job."""
+
+    def __init__(self, job: ResearchJob) -> None:
+        super().__init__(f"research job already in progress: {job.job_id}")
+        self.job = job
+
+
 class JobKind(StrEnum):
     INGEST = "ingest"
     EXTRACT = "extract"
@@ -98,12 +106,20 @@ class ResearchJob:
         object.__setattr__(self, "checkpoint", MappingProxyType(dict(self.checkpoint)))
 
 
+@dataclass(frozen=True, slots=True)
+class JobClaim:
+    """The result of atomically acquiring permission to execute a job."""
+
+    job: ResearchJob
+    acquired: bool
+
+
 class JobStore(Protocol):
     def save(self, job: ResearchJob) -> None: ...
 
     def get(self, job_id: UUID) -> ResearchJob | None: ...
 
-    def create_or_get(self, job: ResearchJob) -> ResearchJob: ...
+    def acquire(self, job: ResearchJob) -> JobClaim: ...
 
 
 class JobService:
@@ -121,7 +137,27 @@ class JobService:
         library_id: UUID | None = None,
         workspace_id: UUID | None = None,
     ) -> ResearchJob:
-        existing = self._store.create_or_get(
+        claim = self.acquire(
+            kind=kind,
+            input_digest=input_digest,
+            configuration_fingerprint=configuration_fingerprint,
+            library_id=library_id,
+            workspace_id=workspace_id,
+        )
+        if not claim.acquired and claim.job.status is JobStatus.RUNNING:
+            raise JobInProgressError(claim.job)
+        return claim.job
+
+    def acquire(
+        self,
+        *,
+        kind: JobKind,
+        input_digest: str,
+        configuration_fingerprint: str,
+        library_id: UUID | None = None,
+        workspace_id: UUID | None = None,
+    ) -> JobClaim:
+        return self._store.acquire(
             ResearchJob(
                 job_id=new_id(),
                 kind=kind,
@@ -131,15 +167,6 @@ class JobService:
                 workspace_id=workspace_id,
             )
         )
-        if existing.status is JobStatus.FAILED:
-            retried = replace(
-                existing,
-                status=JobStatus.RUNNING,
-                updated_at=utc_now(),
-            )
-            self._store.save(retried)
-            return retried
-        return existing
 
     def complete(self, job_id: UUID, checkpoint: Mapping[str, object]) -> ResearchJob:
         return self._update(job_id, status=JobStatus.COMPLETED, checkpoint=checkpoint)
@@ -191,5 +218,7 @@ def job_view(job: ResearchJob) -> dict[str, object]:
 
 
 def _require(dimension: str, used: int, limit: int) -> None:
+    if not isinstance(used, int) or isinstance(used, bool) or used < 0:
+        raise ValueError(f"scale quota usage {dimension} must be a non-negative integer")
     if used > limit:
         raise ScaleQuotaExceededError(dimension=dimension, used=used, limit=limit)

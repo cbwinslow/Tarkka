@@ -22,7 +22,15 @@ from tarkka.application.encyclopedia import (
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.ingest import IngestService
 from tarkka.application.research_get import ResearchGetService
-from tarkka.application.scale import JobService
+from tarkka.application.scale import (
+    JobClaim,
+    JobInProgressError,
+    JobKind,
+    JobService,
+    ResearchJob,
+    ScaleQuota,
+    ScaleQuotaExceededError,
+)
 from tarkka.application.verification import EvidenceVerificationService
 from tarkka.application.workspace import WorkspaceNotFoundError, WorkspaceQuestion, WorkspaceService
 from tarkka.infrastructure.storage.json_encyclopedia_store import JsonEncyclopediaStore
@@ -121,8 +129,68 @@ def test_compile_job_reuses_the_completed_edition_for_an_unchanged_snapshot(
     assert second.edition_id == first.edition_id
 
 
+def test_compile_job_identity_includes_topic(tmp_path: Path) -> None:
+    jobs = JobService(JsonJobStore(tmp_path / "jobs.json"))
+    encyclopedia, workspaces, _challenge = _stack(tmp_path, jobs=jobs)
+    source = tmp_path / "topics.txt"
+    source.write_text("The trial improved survival.\n", encoding="utf-8")
+    manifest = tmp_path / "topics.yaml"
+    manifest.write_text(
+        "version: 1\nkind: research_workspace\nmetadata:\n  name: topic-jobs\n"
+        "topics:\n  - id: trial\n    question: Does the trial improve survival?\n"
+        "  - id: methods\n    question: What method was used?\n",
+        encoding="utf-8",
+    )
+    workspace = workspaces.init_from_manifest(manifest)
+    ran = workspaces.run(workspace.workspace.workspace_id, source=source)
+
+    scoped = encyclopedia.compile(
+        ran.workspace.workspace_id, topic_id="trial", redistribution_allowed=True
+    )
+    full = encyclopedia.compile(ran.workspace.workspace_id, redistribution_allowed=True)
+
+    assert scoped.edition_id != full.edition_id
+    assert len(scoped.articles) == 1
+    assert len(full.articles) > len(scoped.articles)
+
+
+def test_completed_compile_still_obeys_a_new_token_quota(tmp_path: Path) -> None:
+    jobs = JobService(JsonJobStore(tmp_path / "jobs.json"))
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(tmp_path, jobs=jobs)
+    encyclopedia.compile(workspace_id, redistribution_allowed=True)
+    restricted = EncyclopediaService(
+        workspaces=JsonWorkspaceStore(tmp_path / "workspaces.json"),
+        receipts=claim_receipt_service(home=tmp_path),
+        store=JsonEncyclopediaStore(tmp_path / "encyclopedia.json"),
+        jobs=jobs,
+        quota=ScaleQuota(wallet_tokens=0),
+    )
+
+    with pytest.raises(ScaleQuotaExceededError, match="wallet_tokens"):
+        restricted.compile(workspace_id, redistribution_allowed=True)
+
+
+def test_compile_refuses_to_duplicate_an_in_progress_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jobs = JobService(JsonJobStore(tmp_path / "jobs.json"))
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(tmp_path, jobs=jobs)
+    running = ResearchJob(
+        job_id=UUID(int=3),
+        kind=JobKind.COMPILE,
+        input_digest="running",
+        configuration_fingerprint="encyclopedia-receipts@1",
+    )
+    monkeypatch.setattr(jobs, "acquire", lambda **_kwargs: JobClaim(running, False))
+
+    with pytest.raises(JobInProgressError, match="already in progress"):
+        encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+
 def test_compile_after_challenge_diff_mentions_claim(tmp_path: Path) -> None:
-    encyclopedia, workspaces, challenge = _stack(tmp_path)
+    encyclopedia, workspaces, challenge = _stack(
+        tmp_path, jobs=JobService(JsonJobStore(tmp_path / "jobs.json"))
+    )
     source = tmp_path / "conflict.txt"
     source.write_text(
         "The trial found that treatment improved survival in adults.\n"
@@ -140,6 +208,7 @@ def test_compile_after_challenge_diff_mentions_claim(tmp_path: Path) -> None:
     first = encyclopedia.compile(ran.workspace.workspace_id, redistribution_allowed=True)
     challenge.challenge(ran.claim_ids[0])
     second = encyclopedia.compile(ran.workspace.workspace_id, redistribution_allowed=True)
+    assert second.edition_id != first.edition_id
     diff = encyclopedia.diff(first.edition_id, second.edition_id)
     assert diff.unchanged_body is False
     assert str(ran.claim_ids[0]) in " ".join(diff.changed_topics + diff.added_claim_ids) or (

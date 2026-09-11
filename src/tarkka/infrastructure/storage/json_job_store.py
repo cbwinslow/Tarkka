@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
-from tarkka.application.scale import JobKind, JobStatus, ResearchJob
+from tarkka.application.scale import JobClaim, JobKind, JobStatus, ResearchJob
+from tarkka.domain.models import utc_now
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
@@ -36,17 +38,34 @@ class JsonJobStore:
             return None
         return _job_from_dict(payload)
 
-    def create_or_get(self, job: ResearchJob) -> ResearchJob:
+    def acquire(self, job: ResearchJob) -> JobClaim:
+        """Create or claim a failed job while holding the process lock.
+
+        A RUNNING or COMPLETED matching job remains owned by its original caller.
+        This local store deliberately has no expiry lease: recovery from a process
+        crash is an explicit operator action rather than a second worker silently
+        duplicating an expensive operation.
+        """
         with exclusive_lock(self.path):
             data = self._read()
             jobs = cast(dict[str, Any], data["jobs"])
-            for payload in jobs.values():
+            for key, payload in jobs.items():
                 existing = _job_from_dict(payload)
-                if _same_identity(existing, job):
-                    return existing
+                if not _same_identity(existing, job):
+                    continue
+                if existing.status is JobStatus.FAILED:
+                    retried = replace(
+                        existing,
+                        status=JobStatus.RUNNING,
+                        updated_at=utc_now(),
+                    )
+                    jobs[key] = _job_to_dict(retried)
+                    self._write(data)
+                    return JobClaim(job=retried, acquired=True)
+                return JobClaim(job=existing, acquired=False)
             jobs[str(job.job_id)] = _job_to_dict(job)
             self._write(data)
-        return job
+        return JobClaim(job=job, acquired=True)
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -68,9 +87,21 @@ class JsonJobStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
-        except Exception:
+            _fsync_directory(self.path.parent)
+        finally:
             temp_path.unlink(missing_ok=True)
-            raise
+
+
+def _fsync_directory(path: Path) -> None:
+    """Flush an atomic rename where the platform exposes POSIX directory fsync."""
+    if os.name != "posix":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _job_to_dict(job: ResearchJob) -> dict[str, Any]:

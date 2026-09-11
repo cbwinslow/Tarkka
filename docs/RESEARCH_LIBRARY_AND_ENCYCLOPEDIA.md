@@ -214,7 +214,9 @@ library home. A repeated compile with the same workspace snapshot and compiler f
 the already-completed edition; a failed job retains its checkpoint for an explicit retry. Job
 identity is scoped to the workspace and library, so one library cannot reuse another library's
 compile result. This local JSON implementation is an offline adapter, not the future shared durable
-job table.
+job table. A concurrent request for the same running job fails with a typed in-progress error rather
+than producing a second edition; local crash recovery is deliberately explicit because this adapter
+does not implement a distributed lease.
 
 Do **not** introduce a graph database, dedicated vector product, or mandatory queue before a
 measured library hurts. pgvector and a durable job table are the first scale-out tools.

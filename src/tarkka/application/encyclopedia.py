@@ -13,7 +13,13 @@ from uuid import UUID, uuid5
 from tarkka.application.challenge import ChallengeService, ContradictionEntry
 from tarkka.application.claim_receipt_view import claim_receipt_markdown
 from tarkka.application.claim_receipts import ClaimReceipt, ClaimReceiptService
-from tarkka.application.scale import JobKind, JobService, JobStatus, ScaleQuota
+from tarkka.application.scale import (
+    JobInProgressError,
+    JobKind,
+    JobService,
+    JobStatus,
+    ScaleQuota,
+)
 from tarkka.application.workspace import (
     WorkspaceNotFoundError,
     WorkspaceQuestion,
@@ -134,21 +140,31 @@ class EncyclopediaService:
             topics = tuple(item for item in topics if item.question_id == topic_id)
             if not topics:
                 raise EncyclopediaNotFoundError(f"topic not found: {topic_id}")
-        snapshot = _snapshot_handle(workspace, receipts)
+        snapshot = _snapshot_handle(
+            workspace,
+            receipts,
+            topic_id=topic_id,
+            contradictions=contradictions,
+        )
         fingerprint = f"{COMPILER_NAME}@{COMPILER_VERSION}"
         jobs = self._jobs
         job = None
         if jobs is not None:
-            job = jobs.start(
+            claim = jobs.acquire(
                 kind=JobKind.COMPILE,
                 input_digest=snapshot,
                 configuration_fingerprint=fingerprint,
                 library_id=workspace.library_id,
                 workspace_id=workspace_id,
             )
+            job = claim.job
             edition_id = job.checkpoint.get("edition_id")
             if job.status is JobStatus.COMPLETED and isinstance(edition_id, str):
-                return self.show_edition(UUID(edition_id))
+                edition = self.show_edition(UUID(edition_id))
+                _require_quota(self._quota, edition.articles)
+                return edition
+            if not claim.acquired:
+                raise JobInProgressError(job)
         try:
             edition_id = new_id()
             articles = tuple(
@@ -160,9 +176,7 @@ class EncyclopediaService:
                 )
                 for question in topics
             )
-            if self._quota is not None:
-                estimated = sum(int(item.estimated_tokens.get("article", 0)) for item in articles)
-                self._quota.require_tokens(estimated)
+            _require_quota(self._quota, articles)
             edition = EncyclopediaEdition(
                 edition_id=edition_id,
                 workspace_id=workspace_id,
@@ -377,17 +391,44 @@ def _article_markdown(
 
 
 def _snapshot_handle(
-    workspace: WorkspaceRecord, receipts: tuple[ClaimReceipt, ...]
+    workspace: WorkspaceRecord,
+    receipts: tuple[ClaimReceipt, ...],
+    *,
+    topic_id: str | None,
+    contradictions: tuple[ContradictionEntry, ...],
 ) -> str:
     payload = {
         "workspace_id": str(workspace.workspace.workspace_id),
         "spec_digest": workspace.spec_digest,
         "claim_ids": [str(item.claim_id) for item in receipts],
         "states": [item.support_state for item in receipts],
+        "topic_id": topic_id,
+        "contradictions": [
+            {
+                "claim_id": str(item.claim_id),
+                "relation_id": str(item.relation_id),
+                "kind": item.kind,
+                "evidence_id": str(item.evidence_id) if item.evidence_id is not None else None,
+                "verifier_name": item.verifier_name,
+                "verifier_version": item.verifier_version,
+                "reasoning_summary": item.reasoning_summary,
+            }
+            for item in sorted(
+                contradictions,
+                key=lambda item: (str(item.claim_id), str(item.relation_id)),
+            )
+        ],
         "compiler": f"{COMPILER_NAME}@{COMPILER_VERSION}",
     }
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _require_quota(
+    quota: ScaleQuota | None, articles: tuple[EncyclopediaArticle, ...]
+) -> None:
+    if quota is not None:
+        quota.require_tokens(sum(int(item.estimated_tokens.get("article", 0)) for item in articles))
 
 
 def _claim_ids(edition: EncyclopediaEdition) -> set[str]:

@@ -187,6 +187,38 @@ def test_compile_refuses_to_duplicate_an_in_progress_job(
         encyclopedia.compile(workspace_id, redistribution_allowed=True)
 
 
+def test_compile_marks_an_acquired_job_failed_when_edition_storage_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(
+        tmp_path, jobs=JobService(JsonJobStore(jobs_path))
+    )
+
+    def fail_save(*_args: object) -> None:
+        raise OSError("edition store unavailable")
+
+    monkeypatch.setattr(encyclopedia._store, "save_edition", fail_save)
+    with pytest.raises(OSError, match="edition store unavailable"):
+        encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+    jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
+    assert [job["status"] for job in jobs.values()] == ["failed"]
+
+
+def test_compile_reraises_an_edition_storage_failure_without_a_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(tmp_path)
+
+    def fail_save(*_args: object) -> None:
+        raise OSError("edition store unavailable")
+
+    monkeypatch.setattr(encyclopedia._store, "save_edition", fail_save)
+    with pytest.raises(OSError, match="edition store unavailable"):
+        encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+
 def test_compile_after_challenge_diff_mentions_claim(tmp_path: Path) -> None:
     encyclopedia, workspaces, challenge = _stack(
         tmp_path, jobs=JobService(JsonJobStore(tmp_path / "jobs.json"))

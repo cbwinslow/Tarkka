@@ -33,6 +33,10 @@ class LibraryNotFoundError(LookupError):
     """Raised when a library handle does not exist."""
 
 
+class IsolationRequiredError(LibraryNotFoundError):
+    """Raised when a cross-library read has no explicit library handle."""
+
+
 class LibraryPaginationError(ValueError):
     """Raised when a library listing page is out of bounds."""
 
@@ -154,14 +158,11 @@ class LibraryService:
         return self._mutate(library_id, update)
 
     def show(self, library_id: UUID | None = None) -> LibraryRecord:
-        if library_id is not None:
-            return self._require(library_id)
         libraries = self._store.list_all()
-        if not libraries:
-            raise LibraryNotFoundError("no libraries are cataloged")
-        if len(libraries) == 1:
-            return libraries[0]
-        raise LibraryNotFoundError("multiple libraries exist; pass library_id")
+        handle = require_library_handle(
+            library_id, tuple(item.library_id for item in libraries)
+        )
+        return self._require(handle)
 
     def list_documents(
         self, library_id: UUID, *, offset: int = 0, limit: int = 20
@@ -273,6 +274,19 @@ def library_view(record: LibraryRecord) -> dict[str, object]:
         "work_count": len(record.work_ids),
         "rights": dict(UNKNOWN_RIGHTS),
     }
+
+
+def require_library_handle(
+    library_id: UUID | None, available: tuple[UUID, ...]
+) -> UUID:
+    """Fail closed when more than one library exists and no handle was supplied."""
+    if library_id is not None:
+        return library_id
+    if len(available) == 1:
+        return available[0]
+    if not available:
+        raise IsolationRequiredError("no libraries are cataloged")
+    raise IsolationRequiredError("multiple libraries exist; pass library_id")
 
 
 def _unique_extend(existing: tuple[UUID, ...], extra: tuple[UUID, ...]) -> tuple[UUID, ...]:

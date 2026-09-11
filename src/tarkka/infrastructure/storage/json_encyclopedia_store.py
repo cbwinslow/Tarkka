@@ -75,6 +75,7 @@ def _edition_to_dict(edition: EncyclopediaEdition) -> dict[str, Any]:
     return {
         "edition_id": str(edition.edition_id),
         "workspace_id": str(edition.workspace_id),
+        "library_id": str(edition.library_id) if edition.library_id is not None else None,
         "compiler_name": edition.compiler_name,
         "compiler_version": edition.compiler_version,
         "snapshot_handle": edition.snapshot_handle,
@@ -104,6 +105,9 @@ def _edition_from_dict(payload: dict[str, Any]) -> EncyclopediaEdition:
         return EncyclopediaEdition(
             edition_id=UUID(payload["edition_id"]),
             workspace_id=UUID(payload["workspace_id"]),
+            library_id=(
+                UUID(payload["library_id"]) if payload.get("library_id") is not None else None
+            ),
             compiler_name=str(payload["compiler_name"]),
             compiler_version=str(payload["compiler_version"]),
             snapshot_handle=str(payload["snapshot_handle"]),

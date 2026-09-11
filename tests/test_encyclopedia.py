@@ -22,10 +22,20 @@ from tarkka.application.encyclopedia import (
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.ingest import IngestService
 from tarkka.application.research_get import ResearchGetService
+from tarkka.application.scale import (
+    JobClaim,
+    JobInProgressError,
+    JobKind,
+    JobService,
+    ResearchJob,
+    ScaleQuota,
+    ScaleQuotaExceededError,
+)
 from tarkka.application.verification import EvidenceVerificationService
 from tarkka.application.workspace import WorkspaceNotFoundError, WorkspaceQuestion, WorkspaceService
 from tarkka.infrastructure.storage.json_encyclopedia_store import JsonEncyclopediaStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
+from tarkka.infrastructure.storage.json_job_store import JsonJobStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 from tarkka.infrastructure.storage.json_workspace_store import JsonWorkspaceStore
@@ -37,7 +47,9 @@ from tarkka.interfaces.entrypoint import main
 pytestmark = [pytest.mark.unit, pytest.mark.integration]
 
 
-def _stack(tmp_path: Path) -> tuple[EncyclopediaService, WorkspaceService, ChallengeService]:
+def _stack(
+    tmp_path: Path, *, jobs: JobService | None = None
+) -> tuple[EncyclopediaService, WorkspaceService, ChallengeService]:
     documents = JsonResearchRepository(tmp_path / "catalog.json")
     extractions = JsonExtractionRepository(tmp_path / "extractions.json")
     relations = JsonVerificationRepository(tmp_path / "verifications.json")
@@ -63,13 +75,16 @@ def _stack(tmp_path: Path) -> tuple[EncyclopediaService, WorkspaceService, Chall
         receipts=claim_receipt_service(home=tmp_path),
         store=JsonEncyclopediaStore(tmp_path / "encyclopedia.json"),
         challenge=challenge,
+        jobs=jobs,
     )
     return encyclopedia, workspace_service, challenge
 
 
-def _prepared_workspace(tmp_path: Path) -> tuple[EncyclopediaService, UUID, UUID]:
+def _prepared_workspace(
+    tmp_path: Path, *, jobs: JobService | None = None
+) -> tuple[EncyclopediaService, UUID, UUID]:
     root = Path(__file__).resolve().parents[1]
-    encyclopedia, workspaces, challenge = _stack(tmp_path)
+    encyclopedia, workspaces, challenge = _stack(tmp_path, jobs=jobs)
     record = workspaces.init_from_manifest(root / "examples/mlb-research.yaml")
     ran = workspaces.run(
         record.workspace.workspace_id,
@@ -101,8 +116,113 @@ def test_compile_proof_replay_article_has_evidence_backed_claims(tmp_path: Path)
     assert diff.unchanged_body is True
 
 
+def test_compile_job_reuses_the_completed_edition_for_an_unchanged_snapshot(
+    tmp_path: Path,
+) -> None:
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(
+        tmp_path, jobs=JobService(JsonJobStore(tmp_path / "jobs.json"))
+    )
+
+    first = encyclopedia.compile(workspace_id, redistribution_allowed=True)
+    second = encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+    assert second.edition_id == first.edition_id
+
+
+def test_compile_job_identity_includes_topic(tmp_path: Path) -> None:
+    jobs = JobService(JsonJobStore(tmp_path / "jobs.json"))
+    encyclopedia, workspaces, _challenge = _stack(tmp_path, jobs=jobs)
+    source = tmp_path / "topics.txt"
+    source.write_text("The trial improved survival.\n", encoding="utf-8")
+    manifest = tmp_path / "topics.yaml"
+    manifest.write_text(
+        "version: 1\nkind: research_workspace\nmetadata:\n  name: topic-jobs\n"
+        "topics:\n  - id: trial\n    question: Does the trial improve survival?\n"
+        "  - id: methods\n    question: What method was used?\n",
+        encoding="utf-8",
+    )
+    workspace = workspaces.init_from_manifest(manifest)
+    ran = workspaces.run(workspace.workspace.workspace_id, source=source)
+
+    scoped = encyclopedia.compile(
+        ran.workspace.workspace_id, topic_id="trial", redistribution_allowed=True
+    )
+    full = encyclopedia.compile(ran.workspace.workspace_id, redistribution_allowed=True)
+
+    assert scoped.edition_id != full.edition_id
+    assert len(scoped.articles) == 1
+    assert len(full.articles) > len(scoped.articles)
+
+
+def test_completed_compile_still_obeys_a_new_token_quota(tmp_path: Path) -> None:
+    jobs = JobService(JsonJobStore(tmp_path / "jobs.json"))
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(tmp_path, jobs=jobs)
+    encyclopedia.compile(workspace_id, redistribution_allowed=True)
+    restricted = EncyclopediaService(
+        workspaces=JsonWorkspaceStore(tmp_path / "workspaces.json"),
+        receipts=claim_receipt_service(home=tmp_path),
+        store=JsonEncyclopediaStore(tmp_path / "encyclopedia.json"),
+        jobs=jobs,
+        quota=ScaleQuota(wallet_tokens=0),
+    )
+
+    with pytest.raises(ScaleQuotaExceededError, match="wallet_tokens"):
+        restricted.compile(workspace_id, redistribution_allowed=True)
+
+
+def test_compile_refuses_to_duplicate_an_in_progress_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jobs = JobService(JsonJobStore(tmp_path / "jobs.json"))
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(tmp_path, jobs=jobs)
+    running = ResearchJob(
+        job_id=UUID(int=3),
+        kind=JobKind.COMPILE,
+        input_digest="running",
+        configuration_fingerprint="encyclopedia-receipts@1",
+    )
+    monkeypatch.setattr(jobs, "acquire", lambda **_kwargs: JobClaim(running, False))
+
+    with pytest.raises(JobInProgressError, match="already in progress"):
+        encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+
+def test_compile_marks_an_acquired_job_failed_when_edition_storage_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jobs_path = tmp_path / "jobs.json"
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(
+        tmp_path, jobs=JobService(JsonJobStore(jobs_path))
+    )
+
+    def fail_save(*_args: object) -> None:
+        raise OSError("edition store unavailable")
+
+    monkeypatch.setattr(encyclopedia._store, "save_edition", fail_save)
+    with pytest.raises(OSError, match="edition store unavailable"):
+        encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+    jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
+    assert [job["status"] for job in jobs.values()] == ["failed"]
+
+
+def test_compile_reraises_an_edition_storage_failure_without_a_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(tmp_path)
+
+    def fail_save(*_args: object) -> None:
+        raise OSError("edition store unavailable")
+
+    monkeypatch.setattr(encyclopedia._store, "save_edition", fail_save)
+    with pytest.raises(OSError, match="edition store unavailable"):
+        encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+
 def test_compile_after_challenge_diff_mentions_claim(tmp_path: Path) -> None:
-    encyclopedia, workspaces, challenge = _stack(tmp_path)
+    encyclopedia, workspaces, challenge = _stack(
+        tmp_path, jobs=JobService(JsonJobStore(tmp_path / "jobs.json"))
+    )
     source = tmp_path / "conflict.txt"
     source.write_text(
         "The trial found that treatment improved survival in adults.\n"
@@ -120,6 +240,7 @@ def test_compile_after_challenge_diff_mentions_claim(tmp_path: Path) -> None:
     first = encyclopedia.compile(ran.workspace.workspace_id, redistribution_allowed=True)
     challenge.challenge(ran.claim_ids[0])
     second = encyclopedia.compile(ran.workspace.workspace_id, redistribution_allowed=True)
+    assert second.edition_id != first.edition_id
     diff = encyclopedia.diff(first.edition_id, second.edition_id)
     assert diff.unchanged_body is False
     assert str(ran.claim_ids[0]) in " ".join(diff.changed_topics + diff.added_claim_ids) or (
@@ -337,6 +458,8 @@ def test_encyclopedia_cli(
     assert main(["encyclopedia", "show", str(UUID(int=9))]) == 2
     assert main(["encyclopedia", "compile", workspace_id, "--allow-redistribution"]) == 0
     second = json.loads(capsys.readouterr().out)
+    assert second["edition_id"] == edition["edition_id"]
+    assert (tmp_path / "home" / "jobs.json").is_file()
     assert (
         main(["encyclopedia", "diff", edition["edition_id"], second["edition_id"]]) == 0
     )

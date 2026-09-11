@@ -16,10 +16,12 @@ from tarkka.application.encyclopedia import (
     diff_view,
     edition_view,
 )
+from tarkka.application.scale import JobService
 from tarkka.application.verification import EvidenceVerificationService
 from tarkka.application.workspace import WorkspaceNotFoundError
 from tarkka.infrastructure.storage.json_encyclopedia_store import JsonEncyclopediaStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
+from tarkka.infrastructure.storage.json_job_store import JsonJobStore
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 from tarkka.infrastructure.storage.json_workspace_store import JsonWorkspaceStore
 from tarkka.interfaces.claim_lineage_runtime import claim_receipt_service
@@ -41,6 +43,7 @@ def configured_encyclopedia_service() -> EncyclopediaService:
             relations=relations,
             workspaces=workspaces,
         ),
+        jobs=JobService(JsonJobStore(home / "jobs.json")),
     )
 
 

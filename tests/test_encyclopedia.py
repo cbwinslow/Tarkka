@@ -22,10 +22,12 @@ from tarkka.application.encyclopedia import (
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.ingest import IngestService
 from tarkka.application.research_get import ResearchGetService
+from tarkka.application.scale import JobService
 from tarkka.application.verification import EvidenceVerificationService
 from tarkka.application.workspace import WorkspaceNotFoundError, WorkspaceQuestion, WorkspaceService
 from tarkka.infrastructure.storage.json_encyclopedia_store import JsonEncyclopediaStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
+from tarkka.infrastructure.storage.json_job_store import JsonJobStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 from tarkka.infrastructure.storage.json_workspace_store import JsonWorkspaceStore
@@ -37,7 +39,9 @@ from tarkka.interfaces.entrypoint import main
 pytestmark = [pytest.mark.unit, pytest.mark.integration]
 
 
-def _stack(tmp_path: Path) -> tuple[EncyclopediaService, WorkspaceService, ChallengeService]:
+def _stack(
+    tmp_path: Path, *, jobs: JobService | None = None
+) -> tuple[EncyclopediaService, WorkspaceService, ChallengeService]:
     documents = JsonResearchRepository(tmp_path / "catalog.json")
     extractions = JsonExtractionRepository(tmp_path / "extractions.json")
     relations = JsonVerificationRepository(tmp_path / "verifications.json")
@@ -63,13 +67,16 @@ def _stack(tmp_path: Path) -> tuple[EncyclopediaService, WorkspaceService, Chall
         receipts=claim_receipt_service(home=tmp_path),
         store=JsonEncyclopediaStore(tmp_path / "encyclopedia.json"),
         challenge=challenge,
+        jobs=jobs,
     )
     return encyclopedia, workspace_service, challenge
 
 
-def _prepared_workspace(tmp_path: Path) -> tuple[EncyclopediaService, UUID, UUID]:
+def _prepared_workspace(
+    tmp_path: Path, *, jobs: JobService | None = None
+) -> tuple[EncyclopediaService, UUID, UUID]:
     root = Path(__file__).resolve().parents[1]
-    encyclopedia, workspaces, challenge = _stack(tmp_path)
+    encyclopedia, workspaces, challenge = _stack(tmp_path, jobs=jobs)
     record = workspaces.init_from_manifest(root / "examples/mlb-research.yaml")
     ran = workspaces.run(
         record.workspace.workspace_id,
@@ -99,6 +106,19 @@ def test_compile_proof_replay_article_has_evidence_backed_claims(tmp_path: Path)
     assert again.articles[0].body_sha256 == article.body_sha256
     diff = encyclopedia.diff(edition.edition_id, again.edition_id)
     assert diff.unchanged_body is True
+
+
+def test_compile_job_reuses_the_completed_edition_for_an_unchanged_snapshot(
+    tmp_path: Path,
+) -> None:
+    encyclopedia, workspace_id, _claim_id = _prepared_workspace(
+        tmp_path, jobs=JobService(JsonJobStore(tmp_path / "jobs.json"))
+    )
+
+    first = encyclopedia.compile(workspace_id, redistribution_allowed=True)
+    second = encyclopedia.compile(workspace_id, redistribution_allowed=True)
+
+    assert second.edition_id == first.edition_id
 
 
 def test_compile_after_challenge_diff_mentions_claim(tmp_path: Path) -> None:
@@ -337,6 +357,8 @@ def test_encyclopedia_cli(
     assert main(["encyclopedia", "show", str(UUID(int=9))]) == 2
     assert main(["encyclopedia", "compile", workspace_id, "--allow-redistribution"]) == 0
     second = json.loads(capsys.readouterr().out)
+    assert second["edition_id"] == edition["edition_id"]
+    assert (tmp_path / "home" / "jobs.json").is_file()
     assert (
         main(["encyclopedia", "diff", edition["edition_id"], second["edition_id"]]) == 0
     )

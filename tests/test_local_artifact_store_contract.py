@@ -7,6 +7,7 @@ import pytest
 from tarkka.conformance import ArtifactStoreContract, StreamingArtifactStoreContract
 from tarkka.domain.models import Artifact
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
+from tarkka.infrastructure.storage.memory_artifacts import MemoryArtifactStore
 
 
 class _AcceptsMissingArtifactStore(LocalArtifactStore):
@@ -77,6 +78,16 @@ def test_local_artifact_store_duplicate_writes_are_idempotent(
 
 def test_local_artifact_store_reports_missing_digest(store: LocalArtifactStore) -> None:
     ArtifactStoreContract.assert_missing_digest_is_absent(store)
+
+
+def test_memory_artifact_store_preserves_the_artifact_port_contract(tmp_path: Path) -> None:
+    store = MemoryArtifactStore(tmp_path / "materialized")
+    payload = b"a content-addressed object must retain its identity across stores"
+    artifact = store.put_bytes(payload, original_name="research.txt")
+
+    assert store.read_bytes(artifact) == payload
+    assert store.storage_key_for_digest(artifact.sha256) == artifact.storage_key
+    StreamingArtifactStoreContract.assert_streaming_read(store, artifact, payload, chunk_size=9)
 
 
 def test_local_artifact_store_rejects_missing_source(

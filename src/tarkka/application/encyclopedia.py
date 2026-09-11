@@ -13,6 +13,7 @@ from uuid import UUID, uuid5
 from tarkka.application.challenge import ChallengeService, ContradictionEntry
 from tarkka.application.claim_receipt_view import claim_receipt_markdown
 from tarkka.application.claim_receipts import ClaimReceipt, ClaimReceiptService
+from tarkka.application.scale import JobKind, JobService, JobStatus, ScaleQuota
 from tarkka.application.workspace import (
     WorkspaceNotFoundError,
     WorkspaceQuestion,
@@ -62,6 +63,7 @@ class EncyclopediaArticle:
 class EncyclopediaEdition:
     edition_id: UUID
     workspace_id: UUID
+    library_id: UUID | None
     compiler_name: str
     compiler_version: str
     snapshot_handle: str
@@ -98,11 +100,15 @@ class EncyclopediaService:
         receipts: ClaimReceiptService,
         store: EncyclopediaStore,
         challenge: ChallengeService | None = None,
+        jobs: JobService | None = None,
+        quota: ScaleQuota | None = None,
     ) -> None:
         self._workspaces = workspaces
         self._receipts = receipts
         self._store = store
         self._challenge = challenge
+        self._jobs = jobs
+        self._quota = quota
 
     def compile(
         self,
@@ -129,28 +135,53 @@ class EncyclopediaService:
             if not topics:
                 raise EncyclopediaNotFoundError(f"topic not found: {topic_id}")
         snapshot = _snapshot_handle(workspace, receipts)
-        edition_id = new_id()
-        articles = tuple(
-            _compile_article(
-                edition_id=edition_id,
-                question=question,
-                receipts=_select_receipts(question, receipts, fallback=topics[0]),
-                contradictions=contradictions,
+        fingerprint = f"{COMPILER_NAME}@{COMPILER_VERSION}"
+        jobs = self._jobs
+        job = None
+        if jobs is not None:
+            job = jobs.start(
+                kind=JobKind.COMPILE,
+                input_digest=snapshot,
+                configuration_fingerprint=fingerprint,
+                library_id=workspace.library_id,
+                workspace_id=workspace_id,
             )
-            for question in topics
-        )
-        edition = EncyclopediaEdition(
-            edition_id=edition_id,
-            workspace_id=workspace_id,
-            compiler_name=COMPILER_NAME,
-            compiler_version=COMPILER_VERSION,
-            snapshot_handle=snapshot,
-            redistribution_allowed=True,
-            compiled_at=utc_now(),
-            articles=articles,
-        )
-        self._store.save_edition(edition)
-        return edition
+            edition_id = job.checkpoint.get("edition_id")
+            if job.status is JobStatus.COMPLETED and isinstance(edition_id, str):
+                return self.show_edition(UUID(edition_id))
+        try:
+            edition_id = new_id()
+            articles = tuple(
+                _compile_article(
+                    edition_id=edition_id,
+                    question=question,
+                    receipts=_select_receipts(question, receipts, fallback=topics[0]),
+                    contradictions=contradictions,
+                )
+                for question in topics
+            )
+            if self._quota is not None:
+                estimated = sum(int(item.estimated_tokens.get("article", 0)) for item in articles)
+                self._quota.require_tokens(estimated)
+            edition = EncyclopediaEdition(
+                edition_id=edition_id,
+                workspace_id=workspace_id,
+                library_id=workspace.library_id,
+                compiler_name=COMPILER_NAME,
+                compiler_version=COMPILER_VERSION,
+                snapshot_handle=snapshot,
+                redistribution_allowed=True,
+                compiled_at=utc_now(),
+                articles=articles,
+            )
+            self._store.save_edition(edition)
+            if job is not None and jobs is not None:
+                jobs.complete(job.job_id, {"edition_id": str(edition.edition_id)})
+            return edition
+        except Exception:
+            if jobs is not None and job is not None and job.status is not JobStatus.COMPLETED:
+                jobs.fail(job.job_id, job.checkpoint)
+            raise
 
     def show_article(self, article_id: UUID) -> EncyclopediaArticle:
         article = self._store.get_article(article_id)
@@ -205,6 +236,7 @@ def edition_view(edition: EncyclopediaEdition) -> dict[str, object]:
     return {
         "edition_id": str(edition.edition_id),
         "workspace_id": str(edition.workspace_id),
+        "library_id": str(edition.library_id) if edition.library_id is not None else None,
         "compiler_name": edition.compiler_name,
         "compiler_version": edition.compiler_version,
         "snapshot_handle": edition.snapshot_handle,

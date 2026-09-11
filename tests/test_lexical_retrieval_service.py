@@ -121,6 +121,33 @@ def test_index_rejects_a_missing_canonical_document() -> None:
             derivation_version="v1",
             configuration_fingerprint="whole-passage-v1",
         )
+    with pytest.raises(DocumentNotFoundError, match="document not found"):
+        service.input_digest(
+            _DOCUMENT_ID,
+            derivation_version="v1",
+            configuration_fingerprint="whole-passage-v1",
+        )
+
+
+def test_input_digest_is_deterministic_and_configuration_scoped() -> None:
+    service = _service(_document(), _Indexes())
+
+    first = service.input_digest(
+        _DOCUMENT_ID, derivation_version="v1", configuration_fingerprint="whole-passage-v1"
+    )
+    second = service.input_digest(
+        _DOCUMENT_ID, derivation_version="v1", configuration_fingerprint="whole-passage-v1"
+    )
+    alternate = service.input_digest(
+        _DOCUMENT_ID, derivation_version="v1", configuration_fingerprint="alternate-v1"
+    )
+    changed_source = _service(_document(all_blank=True), _Indexes()).input_digest(
+        _DOCUMENT_ID, derivation_version="v1", configuration_fingerprint="whole-passage-v1"
+    )
+
+    assert first == second
+    assert alternate != first
+    assert changed_source != first
 
 
 def test_index_uses_canonical_section_and_passage_order_with_full_nonblank_spans() -> None:
@@ -153,11 +180,14 @@ def test_index_excludes_blank_passages_and_persists_an_empty_projection() -> Non
     )
 
     assert index.segments == ()
-    assert indexes.get(
-        document_id=_DOCUMENT_ID,
-        derivation_version="v1",
-        configuration_fingerprint="whole-passage-v1",
-    ) == index
+    assert (
+        indexes.get(
+            document_id=_DOCUMENT_ID,
+            derivation_version="v1",
+            configuration_fingerprint="whole-passage-v1",
+        )
+        == index
+    )
 
 
 def test_unchanged_indexing_is_idempotent_without_a_second_store_replace() -> None:
@@ -187,16 +217,22 @@ def test_configuration_scoped_index_replacement_keeps_other_projection() -> None
     )
 
     assert indexes.replace_calls == 2
-    assert indexes.get(
-        document_id=_DOCUMENT_ID,
-        derivation_version="v1",
-        configuration_fingerprint="whole-passage-v1",
-    ) == first
-    assert indexes.get(
-        document_id=_DOCUMENT_ID,
-        derivation_version="v1",
-        configuration_fingerprint="alternate-v1",
-    ) == second
+    assert (
+        indexes.get(
+            document_id=_DOCUMENT_ID,
+            derivation_version="v1",
+            configuration_fingerprint="whole-passage-v1",
+        )
+        == first
+    )
+    assert (
+        indexes.get(
+            document_id=_DOCUMENT_ID,
+            derivation_version="v1",
+            configuration_fingerprint="alternate-v1",
+        )
+        == second
+    )
 
 
 def test_persisted_projection_search_returns_exact_canonical_source_span(tmp_path: Path) -> None:

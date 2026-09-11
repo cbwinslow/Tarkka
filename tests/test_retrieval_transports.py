@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 from pathlib import Path
@@ -19,7 +20,7 @@ from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.interfaces import mcp
-from tarkka.interfaces.main import main
+from tarkka.interfaces.main import _parse_workspace_id, main
 from tarkka.interfaces.mcp import create_server
 
 
@@ -40,6 +41,11 @@ def _persist_document(home: Path) -> str:
         parsers=(PlainTextParser(),),
     ).ingest(source)
     return str(result.document.document_id)
+
+
+def test_workspace_id_parser_rejects_invalid_value() -> None:
+    with pytest.raises(argparse.ArgumentTypeError, match="invalid workspace id"):
+        _parse_workspace_id("workspace:not-a-uuid")
 
 
 def test_cli_indexes_and_searches_one_exact_local_projection(
@@ -119,9 +125,7 @@ def test_cli_indexes_and_searches_one_exact_local_projection(
     assert found["document_id"] == document_id
     assert found["hits"][0]["text"] == "Evidence first for retrieval."
     assert found["hits"][0]["source_spans"][0]["char_start"] == 0
-    assert found["hits"][0]["source_spans"][0]["char_end"] == len(
-        "Evidence first for retrieval."
-    )
+    assert found["hits"][0]["source_spans"][0]["char_end"] == len("Evidence first for retrieval.")
 
 
 def test_cli_rejects_missing_projection_and_over_limit_search(

@@ -17,9 +17,7 @@ class ScaleQuotaExceededError(ValueError):
     """Raised when a quota would be exceeded; sources must remain unchanged."""
 
     def __init__(self, *, dimension: str, used: int, limit: int) -> None:
-        super().__init__(
-            f"scale quota exceeded: {dimension} used={used} limit={limit}"
-        )
+        super().__init__(f"scale quota exceeded: {dimension} used={used} limit={limit}")
         self.dimension = dimension
         self.used = used
         self.limit = limit
@@ -171,9 +169,12 @@ class JobService:
     def complete(self, job_id: UUID, checkpoint: Mapping[str, object]) -> ResearchJob:
         return self._update(job_id, status=JobStatus.COMPLETED, checkpoint=checkpoint)
 
-    def fail(
-        self, job_id: UUID, checkpoint: Mapping[str, object] | None = None
-    ) -> ResearchJob:
+    def checkpoint(self, job_id: UUID, checkpoint: Mapping[str, object]) -> ResearchJob:
+        """Durably record resumable progress without changing the job status."""
+        current = self.show(job_id)
+        return self._update(job_id, status=current.status, checkpoint=checkpoint)
+
+    def fail(self, job_id: UUID, checkpoint: Mapping[str, object] | None = None) -> ResearchJob:
         return self._update(
             job_id,
             status=JobStatus.FAILED,

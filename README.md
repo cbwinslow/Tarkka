@@ -113,11 +113,13 @@ tarkka documents package <document-id> --section <section-id> --section <section
 tarkka documents package <document-id> --section <section-id> --save
 tarkka documents saved-package <context-package-id>
 
-# Explicitly derive and search one local lexical projection. MCP exposes the
-# same bounded read-only search operation but never creates indexes.
+# Explicitly derive and search one local lexical projection. Add --workspace
+# for the durable, workspace/library-scoped job path; MCP exposes the same
+# bounded read-only search operation but never creates indexes.
 tarkka retrieval index <document-id> \
   --derivation-version whole-passage-v1 \
-  --configuration-fingerprint whole-passage-v1
+  --configuration-fingerprint whole-passage-v1 \
+  --workspace <workspace-id>
 tarkka retrieval search <document-id> "evidence provenance" \
   --derivation-version whole-passage-v1 \
   --configuration-fingerprint whole-passage-v1 \
@@ -135,7 +137,10 @@ compact-list then explicit-detail pattern without fetching or identity-resolving
 Local lexical retrieval is an explicit, versioned derived projection over canonical passages. Each
 hit retains its stable segment ID and exact passage-local source spans; it never replaces the
 Document, Evidence, or citation boundary. Search requires the exact derivation/configuration pair
-that was indexed and never falls back to a different projection.
+that was indexed and never falls back to a different projection. A workspace-scoped index request
+validates that the document belongs to both the workspace and its library, records a resumable
+durable job, and reuses only the checkpointed exact projection. The bare index command remains
+available for compatibility with existing local projections.
 Verification assessments are separately auditable and expand back to their exact source evidence.
 
 Install the optional Docling integration for richer formats such as PDF, DOCX, PPTX, HTML, and

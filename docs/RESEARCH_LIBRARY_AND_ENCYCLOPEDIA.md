@@ -234,7 +234,8 @@ Already implemented and reused:
 - proof bundles v1–v3, replay, frozen-bundle diff
 - composition manifests (section-only Markdown v1)
 - capability index, MCP read path, context packages
-- lexical retrieval as an explicit derivation
+- lexical retrieval as an explicit derivation; workspace-scoped index requests use durable
+  library/workspace `INDEX` jobs while preserving a reusable document/configuration projection
 - workspace domain object (not yet the product noun)
 
 Specified nearby, not yet the encyclopedia:

@@ -72,6 +72,7 @@ from tarkka.application.saved_document_context_packages import (
     SavedDocumentContextPackageNotFoundError,
     SavedDocumentContextPackageService,
 )
+from tarkka.application.scale import JobInProgressError, JobService
 from tarkka.application.verification import (
     CitationContextNotFoundError,
     CitationMentionNotFoundError,
@@ -81,6 +82,8 @@ from tarkka.application.verification import (
     EvidenceVerificationRequest,
     EvidenceVerificationService,
 )
+from tarkka.application.workspace import WorkspaceNotFoundError
+from tarkka.application.workspace_lexical_index import WorkspaceLexicalIndexService
 from tarkka.domain.citations import (
     BibliographicReference,
     CitationContext,
@@ -128,6 +131,8 @@ from tarkka.infrastructure.storage.json_extraction_repository import (
     ExtractionConflictError,
     JsonExtractionRepository,
 )
+from tarkka.infrastructure.storage.json_job_store import JsonJobStore
+from tarkka.infrastructure.storage.json_library_store import JsonLibraryStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_source_observation_repository import (
     JsonSourceObservationRepository,
@@ -136,6 +141,7 @@ from tarkka.infrastructure.storage.json_verification_repository import (
     JsonVerificationRepository,
     VerificationConflictError,
 )
+from tarkka.infrastructure.storage.json_workspace_store import JsonWorkspaceStore
 from tarkka.infrastructure.storage.search_snapshot_log import (
     JsonlSearchSnapshotLog,
     SnapshotDataError,
@@ -174,6 +180,13 @@ def _parse_document_id(raw: str) -> UUID:
         return UUID(raw.removeprefix("doc:"))
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid document id: {raw}") from exc
+
+
+def _parse_workspace_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.removeprefix("workspace:"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid workspace id: {raw}") from exc
 
 
 def _parse_claim_id(raw: str) -> UUID:
@@ -308,6 +321,16 @@ def _lexical_retrieval_service() -> LexicalRetrievalService:
     )
 
 
+def _workspace_lexical_index_service() -> WorkspaceLexicalIndexService:
+    home = _home()
+    return WorkspaceLexicalIndexService(
+        workspaces=JsonWorkspaceStore(home / "workspaces.json"),
+        libraries=JsonLibraryStore(home / "libraries.json"),
+        lexical=_lexical_retrieval_service(),
+        jobs=JobService(JsonJobStore(home / "jobs.json")),
+    )
+
+
 def _document_context_package_service() -> DocumentContextPackageService:
     return DocumentContextPackageService(documents=_document_retrieval_service())
 
@@ -364,12 +387,27 @@ def _cmd_capabilities_show(args: argparse.Namespace) -> int:
 
 def _cmd_retrieval_index(args: argparse.Namespace) -> int:
     try:
-        index = _lexical_retrieval_service().index(
-            args.document_id,
-            derivation_version=args.derivation_version,
-            configuration_fingerprint=args.configuration_fingerprint,
-        )
-    except (DocumentNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        if args.workspace_id is None:
+            index = _lexical_retrieval_service().index(
+                args.document_id,
+                derivation_version=args.derivation_version,
+                configuration_fingerprint=args.configuration_fingerprint,
+            )
+        else:
+            index = _workspace_lexical_index_service().index(
+                args.workspace_id,
+                args.document_id,
+                derivation_version=args.derivation_version,
+                configuration_fingerprint=args.configuration_fingerprint,
+            )
+    except (
+        DocumentNotFoundError,
+        JobInProgressError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        WorkspaceNotFoundError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(lexical_index_view(index), indent=2, sort_keys=True))
@@ -1712,6 +1750,7 @@ def _retrieval_parser() -> argparse.ArgumentParser:
     index.add_argument("document_id", type=_parse_document_id)
     index.add_argument("--derivation-version", required=True)
     index.add_argument("--configuration-fingerprint", required=True)
+    index.add_argument("--workspace", dest="workspace_id", type=_parse_workspace_id)
     index.set_defaults(func=_cmd_retrieval_index)
     search = sub.add_parser("search", help="search one exact persisted lexical projection")
     search.add_argument("document_id", type=_parse_document_id)

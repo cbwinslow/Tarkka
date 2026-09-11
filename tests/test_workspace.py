@@ -177,6 +177,52 @@ def test_workspace_cli_init_show_run(
     )
 
 
+def test_workspace_cli_creates_and_reuses_a_scoped_lexical_index_job(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    home = tmp_path / "home"
+    monkeypatch.setenv("TARKKA_HOME", str(home))
+    monkeypatch.delenv("TARKKA_DOCUMENT_BACKEND", raising=False)
+    assert main(["workspace", "init", str(root / "examples/mlb-research.yaml")]) == 0
+    workspace_id = json.loads(capsys.readouterr().out)["workspace_id"]
+    assert (
+        main(
+            [
+                "workspace",
+                "run",
+                workspace_id,
+                "--source",
+                str(root / "examples/proof-replay-demo.txt"),
+            ]
+        )
+        == 0
+    )
+    document_id = json.loads(capsys.readouterr().out)["document_ids"][0]
+    command = [
+        "retrieval",
+        "index",
+        document_id,
+        "--derivation-version",
+        "whole-passage-v1",
+        "--configuration-fingerprint",
+        "whole-passage-v1",
+        "--workspace",
+        workspace_id,
+    ]
+
+    assert main(command) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert main(command) == 0
+    assert json.loads(capsys.readouterr().out)["index_id"] == first["index_id"]
+    assert (home / "jobs.json").exists()
+    command[-1] = str(UUID(int=9))
+    assert main(command) == 2
+    assert "workspace not found" in capsys.readouterr().err
+
+
 def test_json_manifest_and_schema_errors(tmp_path: Path) -> None:
     good = tmp_path / "ok.json"
     good.write_text(
@@ -326,9 +372,7 @@ def test_workspace_cli_rejects_invalid_id() -> None:
         _parse_workspace_id("nope")
 
 
-def test_workspace_store_replace_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_workspace_store_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import os
 
     service = _service(tmp_path)

@@ -476,6 +476,8 @@ def test_evaluation_package_reexports_public_api() -> None:
     assert evaluation_package.ClaimEvaluationReport is claims_module.ClaimEvaluationReport
     assert set(evaluation_package.__all__) == {
         "ClaimEvaluationReport",
+        "CorpusIngestion",
+        "CorpusRunStage",
         "EvidenceRelationEvaluationReport",
         "GoldClaim",
         "GoldEvidenceRelation",
@@ -484,7 +486,10 @@ def test_evaluation_package_reexports_public_api() -> None:
         "RankedRetrievalQuery",
         "RetrievalEvaluationReport",
         "RetrievalQueryEvaluation",
+        "StagedCorpusReport",
+        "StagedCorpusRun",
         "evaluate_claims",
         "evaluate_evidence_relations",
         "evaluate_retrieval",
+        "run_staged_corpus",
     }

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "corpus_recipe": "real_world_sources.json",
+  "derivation_version": "staged-corpus-v1",
+  "configuration_fingerprint": "canonical-passage-v1",
+  "queries": [
+    {"query_id":"efca548d-2635-51ff-a707-dfad4509f927","text":"creation creature","relevant_segments":[
+      {"source_id":"gutenberg-frankenstein-epub","document_id":"104a11d7-63ff-510d-889d-52590dd6faec","segment_id":"5342fafb-6c00-5a6a-b9d4-e4f27e26846b","section_id":"b5ec298c-76ec-50cf-87ed-cb40a853fe31","passage_id":"8ab1a214-4d85-5b59-97c8-613ca0838a7d","char_start":0,"char_end":1422},
+      {"source_id":"gutenberg-frankenstein-html","document_id":"a9e789db-5ca3-5118-8191-6870deff5206","segment_id":"33fad38d-3aee-5a4c-99f8-1a7a3d85a0de","section_id":"e19ebdfe-cab2-5395-af22-292a1c74d4a0","passage_id":"e8c9b937-d7bf-5add-b18d-6e82c6320490","char_start":0,"char_end":1422}]},
+    {"query_id":"41ac298a-1942-515e-b2c1-b35c81e16580","text":"Robert Walton letter","relevant_segments":[
+      {"source_id":"gutenberg-frankenstein-epub","document_id":"104a11d7-63ff-510d-889d-52590dd6faec","segment_id":"f28723bb-f6e9-59da-90de-3eb439a2456d","section_id":"2623e4bc-ab0d-5681-93df-7f1366e04c58","passage_id":"bcd94e16-62f7-536f-b7fc-84454a4710c1","char_start":0,"char_end":40},
+      {"source_id":"gutenberg-frankenstein-html","document_id":"a9e789db-5ca3-5118-8191-6870deff5206","segment_id":"afe1c667-6fbd-5f83-b95b-4fe5953f7ad7","section_id":"b3a87219-76ed-5a3a-bf08-2ae48ff93956","passage_id":"78dd1456-6d9a-5f5c-be97-9056d2626a09","char_start":0,"char_end":40}]}
+  ]
+}

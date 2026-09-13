@@ -36,6 +36,22 @@ query IDs, explicit relevant RetrievalSegment handles, and the ordered candidate
 reciprocal rank plus aggregate means. It never infers relevance from model or lexical scores, and
 does not select a retrieval model or fetch corpus inputs.
 
+## Staged retrieval relevance
+
+[`staged_retrieval_relevance.json`](../tests/fixtures/retrieval/staged_retrieval_relevance.json)
+is the small, reviewed relevance set for the first successfully staged corpus. It records query IDs,
+query text, the corpus source ID, exact persisted Document and RetrievalSegment handles, and the
+canonical section/passage character span behind every relevance judgment. The manifest is bound to
+the corpus-recipe name and lexical derivation/configuration identifiers. Revalidate it against the
+selected persisted projections before scoring; a missing handle or changed span fails closed rather
+than treating a regenerated segment as equivalent.
+
+The dependency-free lexical baseline can be measured over the selected exact segments with
+`evaluate_lexical_projection`. Supply vector or hybrid rankings only when their existing adapters
+are actually configured. Otherwise report those modalities as unavailable with a reason: unavailable
+is neither a failed ranking nor evidence that a reranker is needed. The current two-query fixture is
+only a reproducibility slice, not a basis for selecting a retrieval model or reranker.
+
 ## How to debug
 
 If a hash changes, retain the previous recipe entry and investigate the fetched bytes, canonical URL,

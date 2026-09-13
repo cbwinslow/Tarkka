@@ -548,6 +548,54 @@ def test_mcp_research_compare_returns_handles_and_rejects_an_exhausted_wallet(
     )
     assert invalid_wallet["error"]["code"] == "invalid_argument"
 
+    malformed_claim = _call(server, "research_compare", {"claim_id": "not-a-claim"})
+    assert malformed_claim["error"]["code"] == "invalid_argument"
+
+
+def test_mcp_research_compare_rejects_max_tokens_above_the_advertised_maximum(
+    tmp_path: Path,
+) -> None:
+    from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS
+    from tests.test_challenge import _challenge_stack
+
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "workspace-oversized.yaml"
+    manifest.write_text(
+        "version: 1\nkind: research_workspace\nmetadata:\n  name: mcp-compare-oversized\n",
+        encoding="utf-8",
+    )
+    workspace = workspaces.init_from_manifest(manifest)
+    ran = workspaces.run(workspace.workspace.workspace_id, source=source)
+    server = create_server(challenge=challenge)
+
+    oversized = _call(
+        server,
+        "research_compare",
+        {
+            "claim_id": str(ran.claim_ids[0]),
+            "max_tokens": DEFAULT_GET_MAX_TOKENS + 1,
+        },
+    )
+    assert oversized["error"]["code"] == "invalid_argument"
+
+
+def test_mcp_research_compare_lazily_builds_configured_service_and_reports_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "empty"))
+
+    def missing() -> object:
+        raise FileNotFoundError("challenge backend not found")
+
+    monkeypatch.setattr(mcp, "configured_challenge_service", missing)
+    unavailable = _call(
+        create_server(),
+        "research_compare",
+        {"claim_id": str(UUID(int=8))},
+    )
+    assert unavailable["error"]["code"] == "backend_unavailable"
+
 
 def test_mcp_research_get_reports_backend_failures(
     tmp_path: Path,

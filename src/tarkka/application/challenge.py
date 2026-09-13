@@ -256,19 +256,7 @@ class ChallengeService:
             for relation in self._relations.list_relations(claim_id)
             if relation.kind in _BOARD_KINDS
         )
-        estimated_tokens = estimate_tokens(
-            json.dumps(
-                contradiction_comparison_view(
-                    ContradictionComparison(
-                        claim_id=claim_id,
-                        entries=entries,
-                        estimated_tokens=0,
-                    )
-                ),
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-        )
+        estimated_tokens = _stable_comparison_tokens(claim_id, entries)
         wallet = ContextWallet(max_tokens)
         if not wallet.admits(estimated_tokens):
             raise WalletExhaustedError(
@@ -362,6 +350,37 @@ def contradiction_comparison_view(result: ContradictionComparison) -> dict[str, 
         "entries": [_contradiction_entry_view(item) for item in result.entries],
         "estimated_tokens": result.estimated_tokens,
     }
+
+
+def _stable_comparison_tokens(claim_id: UUID, entries: tuple[ContradictionEntry, ...]) -> int:
+    """Estimate tokens for the exact view returned, including its own embedded count.
+
+    ``estimated_tokens`` is itself serialized inside the view it measures, so a
+    single pass can under-count: widening the placeholder digits (e.g. 0 -> 100)
+    grows the serialized payload after the estimate was taken. Recompute against
+    the candidate value until it stops changing so the returned representation
+    never exceeds what the caller's wallet admitted. This always converges in a
+    handful of steps: the embedded value only ever grows by its own decimal
+    digit count, which grows far slower than the token estimate it feeds.
+    """
+    estimated = 0
+    while True:
+        candidate = estimate_tokens(
+            json.dumps(
+                contradiction_comparison_view(
+                    ContradictionComparison(
+                        claim_id=claim_id,
+                        entries=entries,
+                        estimated_tokens=estimated,
+                    )
+                ),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        if candidate == estimated:
+            return candidate
+        estimated = candidate
 
 
 def _contradiction_entry_view(item: ContradictionEntry) -> dict[str, object]:

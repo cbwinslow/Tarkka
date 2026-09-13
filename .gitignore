@@ -10,3 +10,7 @@ build/
 .tarkka/
 mutants/
 .env
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

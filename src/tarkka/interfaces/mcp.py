@@ -294,6 +294,17 @@ def create_server(
         parsed = _uuid_or_error(claim_id, kind="claim")
         if isinstance(parsed, dict):
             return parsed
+        if (
+            not isinstance(max_tokens, int)
+            or isinstance(max_tokens, bool)
+            or max_tokens > DEFAULT_GET_MAX_TOKENS
+        ):
+            return _invalid_argument_error(
+                ValueError(
+                    "max_tokens must be an integer no greater than "
+                    f"{DEFAULT_GET_MAX_TOKENS}"
+                )
+            )
         try:
             result = challenge_service().compare(parsed, max_tokens=max_tokens)
         except WalletExhaustedError as exc:

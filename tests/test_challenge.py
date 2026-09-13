@@ -230,6 +230,41 @@ def test_compare_returns_only_recorded_relationship_handles_and_respects_wallet(
         challenge.compare(UUID(int=1))
 
 
+def test_compare_estimated_tokens_matches_its_own_serialized_view(
+    tmp_path: Path,
+) -> None:
+    from tarkka.application.challenge import contradiction_comparison_view
+    from tarkka.application.context_wallet import WalletExhaustedError
+    from tarkka.domain.manifest import estimate_tokens
+
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "ws-boundary.yaml"
+    manifest.write_text(
+        "version: 1\nkind: research_workspace\nmetadata:\n  name: compare-boundary\n",
+        encoding="utf-8",
+    )
+    workspace = workspaces.init_from_manifest(manifest)
+    ran = workspaces.run(workspace.workspace.workspace_id, source=source)
+    claim_id = ran.claim_ids[0]
+    challenge.challenge(claim_id)
+
+    comparison = challenge.compare(claim_id)
+    actual_tokens = estimate_tokens(
+        json.dumps(
+            contradiction_comparison_view(comparison),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    # The returned estimate must describe the exact response it is embedded in,
+    # not a smaller placeholder-based approximation of it.
+    assert comparison.estimated_tokens == actual_tokens
+
+    with pytest.raises(WalletExhaustedError):
+        challenge.compare(claim_id, max_tokens=comparison.estimated_tokens - 1)
+    boundary = challenge.compare(claim_id, max_tokens=comparison.estimated_tokens)
+    assert boundary.estimated_tokens == comparison.estimated_tokens
+
 
 def test_challenge_cli(
     tmp_path: Path,

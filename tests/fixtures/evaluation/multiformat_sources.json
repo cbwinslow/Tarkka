@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "items": [
+    {
+      "id": "gutenberg-frankenstein-plain-text",
+      "staged_filename": "frankenstein.txt",
+      "canonical_url": "https://www.gutenberg.org/files/84/84-0.txt",
+      "sha256": "06c37d2c52d208d3d81eb12c3b10b5edbd7728b73554325ddceadbe2fb427e77",
+      "rights_note": "Project Gutenberg public-domain edition; retain source attribution.",
+      "media_type": "text/plain",
+      "expected_parser": "plain-text",
+      "expected_capability": "supported",
+      "minimum_sections": 1,
+      "minimum_passages": 750
+    },
+    {
+      "id": "gutenberg-frankenstein-epub",
+      "staged_filename": "frankenstein.epub",
+      "canonical_url": "https://www.gutenberg.org/ebooks/84.epub.images",
+      "sha256": "487d0a02785731ac30d3f5cbfb6b954aa52d358f7f6375b39b1d7288de01c3db",
+      "rights_note": "Project Gutenberg public-domain edition; retain source attribution.",
+      "media_type": "application/epub+zip",
+      "expected_parser": "epub",
+      "expected_capability": "supported",
+      "minimum_sections": 30,
+      "minimum_passages": 700
+    },
+    {
+      "id": "gutenberg-frankenstein-html",
+      "staged_filename": "frankenstein.html",
+      "canonical_url": "https://www.gutenberg.org/cache/epub/84/pg84-images.html",
+      "sha256": "9dbc00dc1b8fb9eebe3382c173d813b5a7ce0f8a015e580890a7a4667a222156",
+      "rights_note": "Project Gutenberg public-domain edition; retain source attribution.",
+      "media_type": "text/html",
+      "expected_parser": "semantic_html",
+      "expected_capability": "supported",
+      "minimum_sections": 30,
+      "minimum_passages": 700
+    },
+    {
+      "id": "ccr-roadmap-jats",
+      "staged_filename": "ccr-roadmap.jats.xml",
+      "canonical_url": "https://gist.githubusercontent.com/vanatteveldt/58d3c82c871f72536f073040fe176cb5/raw/example.jats.xml",
+      "sha256": "255d5e6c224d6557ff8f9dfdeadac05dc26f8901b5155efc5ee8b48b6bf145ec",
+      "rights_note": "Source document declares CC-BY 4.0; retain author and source attribution.",
+      "media_type": "application/jats+xml",
+      "expected_parser": "jats",
+      "expected_capability": "supported",
+      "minimum_sections": 5,
+      "minimum_passages": 20
+    },
+    {
+      "id": "latex2e-class-guide",
+      "staged_filename": "clsguide.tex",
+      "canonical_url": "https://raw.githubusercontent.com/latex3/latex2e/main/base/doc/clsguide.tex",
+      "sha256": "8b5d76501c28d0e147316c4f93796d9a5deb6efb506ed2a93e5110d12b2659f7",
+      "rights_note": "LaTeX2e source under the LaTeX Project Public License 1.3c; retain source attribution.",
+      "media_type": "text/x-tex",
+      "expected_parser": "latex",
+      "expected_capability": "supported",
+      "minimum_sections": 20,
+      "minimum_passages": 150
+    }
+  ]
+}

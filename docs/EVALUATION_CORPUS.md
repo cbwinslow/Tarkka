@@ -1,18 +1,24 @@
 # Real-world evaluation corpus
 
 The deterministic suite uses small local fixtures. The real-world corpus complements those tests
-with a source recipe, not redistributed third-party files. Its first version is
-[`tests/fixtures/evaluation/real_world_sources.json`](../tests/fixtures/evaluation/real_world_sources.json).
+with a source recipe, not redistributed third-party files. The original two-representation smoke
+recipe is [`tests/fixtures/evaluation/real_world_sources.json`](../tests/fixtures/evaluation/real_world_sources.json).
+The multi-format reproducibility profile is
+[`tests/fixtures/evaluation/multiformat_sources.json`](../tests/fixtures/evaluation/multiformat_sources.json).
 
 Each entry pins a canonical URL, acquired SHA-256, rights note, media type, expected parser, and
-whether that parser is currently optional. Downloaded files belong in an ignored local directory
-such as `.tarkka/real-world-corpus`; ordinary CI must not fetch them.
+whether that parser is currently optional. Schema-v2 profiles additionally pin minimum normalized
+section and passage counts. Those are preservation floors, not a general parser-quality score:
+they make a silent loss of most source structure a typed evaluation failure without claiming that
+the remaining structure is complete or semantically correct. Downloaded files belong in an ignored
+local directory such as `.tarkka/real-world-corpus`; ordinary CI must not fetch them.
 
-The initial recipe covers public-domain EPUB and HTML. PDF coverage will be added only after a
-source has a recorded rights/access decision and a repeatable optional-parser expectation. A future
-isolated runner will verify the retained artifact hash, ingestion outcome, normalized structure,
-claim/evidence lineage, proof bundle, and replay against this recipe. It must report unsupported
-optional capabilities as expected outcomes, not successes or silent omissions.
+The v2 profile covers plain text, EPUB, semantic HTML, JATS/XML, and standalone LaTeX with already
+supported parsers. PDF coverage will be added only after a source has a recorded rights/access
+decision and a repeatable optional-parser expectation. The isolated runner verifies retained
+artifact hashes, parser selection, bounded normalized structure, proof bundles, and replay. It does
+not yet measure claim/evidence quality; unsupported optional capabilities must be explicit expected
+outcomes, never silent omissions.
 
 ## How to run
 
@@ -36,15 +42,17 @@ or invoke network fetches from ordinary CI.
 verification, and replay services (not a test double) and prints a deterministic JSON report:
 
 ```bash
-tarkka eval --recipe tests/fixtures/evaluation/real_world_sources.json \
-  --staged-root .tarkka/real-world-corpus
+tarkka eval --recipe tests/fixtures/evaluation/multiformat_sources.json \
+  --staged-root .tarkka/multiformat-corpus
 ```
 
 It never fetches the network. A source recipe entry with no staged bytes at `--staged-root` is
 reported with `staged_status: "missing"` and `stage: "not_staged"` — an expected outcome, not a
 failure, and carries `error: null`. Each recipe entry's terminal `stage` is one of `not_staged`,
 `ingest`, `proof`, `verify`, `replay`, or `complete`; a failed `ingest`/`proof`/`verify`/`replay`
-stage carries a bounded (512-character) `error` string describing the failure. Exit status is `0`
+stage carries a bounded (512-character) `error` string describing the failure. Schema-v2 profiles
+can also report `stage: "preservation"` after a successful ingest when a normalized section or
+passage floor is missed; Artifact and Document handles remain in that result for diagnosis. Exit status is `0`
 only when every recipe entry reaches `complete`, so it composes with CI gating. See
 [`EVALUATION_RESULTS.md`](EVALUATION_RESULTS.md) for what this reports in an environment with no
 downloaded corpus, and for what publishing real measured results requires.
@@ -84,11 +92,13 @@ ordinary CI neither installs it nor downloads model bytes.
 ## How to debug
 
 If a hash changes, retain the previous recipe entry and investigate the fetched bytes, canonical URL,
-and rights status before updating any expectation. If a parser or capability expectation fails, first
+and rights status before updating any expectation. If a parser, capability, or preservation expectation fails, first
 confirm the locally installed adapter/version and preserve the failure as an explicit expected result
 when the adapter is optional. The future runner will add artifact, structural, proof-bundle, and
 replay diagnostics; until then, use the existing local `tarkka ingest`, `bundle verify`, and `replay`
 commands against a manually staged ignored file.
 
 Expand the recipe only with sources whose rights/access posture is recorded. Keep provider snapshots
-and live smoke checks separate from deterministic fixture tests.
+and live smoke checks separate from deterministic fixture tests. Do not lower a structural floor to
+accept a regression; add a source-version/adapter change explanation and a new profile entry when a
+legitimate upstream source revision is intentionally adopted.

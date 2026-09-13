@@ -38,7 +38,7 @@ class _Pipeline:
         self.calls.append("ingest")
         if self.failure == "ingest":
             raise RuntimeError("ingest failed")
-        return CorpusIngestion(UUID(int=1), UUID(int=2))
+        return CorpusIngestion(UUID(int=1), UUID(int=2), section_count=2, passage_count=3)
 
     def build_proof(self, document_id: UUID) -> bytes:
         self.calls.append("proof")
@@ -99,3 +99,29 @@ def test_runner_classifies_each_pipeline_failure_without_stopping_other_items(
         result = run_staged_corpus((source,), tmp_path, _Pipeline(failure=failure)).runs[0]
         assert result.stage is expected
         assert result.error == f"RuntimeError: {failure} failed"
+
+
+def test_runner_preserves_handles_when_a_structure_expectation_fails(tmp_path: Path) -> None:
+    contents = b"ready"
+    source = CorpusSource(
+        source_id="expected-structure",
+        staged_filename="ready.txt",
+        canonical_url="https://example.com/source",
+        sha256=__import__("hashlib").sha256(contents).hexdigest(),
+        rights_note="fixture",
+        media_type="text/plain",
+        expected_parser="plain-text",
+        expected_capability="supported",
+        minimum_sections=3,
+        minimum_passages=4,
+    )
+    (tmp_path / source.staged_filename).write_bytes(contents)
+
+    result = run_staged_corpus((source,), tmp_path, _Pipeline()).runs[0]
+
+    assert result.stage is CorpusRunStage.PRESERVATION
+    assert result.artifact_id == UUID(int=1)
+    assert result.document_id == UUID(int=2)
+    assert result.error == (
+        "CorpusExpectationError: expected-structure: expected at least 3 sections, got 2"
+    )

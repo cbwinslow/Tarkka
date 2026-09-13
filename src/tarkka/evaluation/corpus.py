@@ -19,6 +19,10 @@ class StagedCorpusStatus(StrEnum):
     HASH_MISMATCH = "hash_mismatch"
 
 
+class CorpusExpectationError(ValueError):
+    """A hash-ready source failed one bounded recipe preservation expectation."""
+
+
 @dataclass(frozen=True, slots=True)
 class CorpusSource:
     source_id: str
@@ -29,6 +33,8 @@ class CorpusSource:
     media_type: str
     expected_parser: str
     expected_capability: str
+    minimum_sections: int | None = None
+    minimum_passages: int | None = None
 
     def __post_init__(self) -> None:
         for field_name, value in (
@@ -51,6 +57,14 @@ class CorpusSource:
         require_sha256(self.sha256, field_name="corpus SHA-256")
         if self.expected_capability not in {"supported", "optional"}:
             raise ValueError("corpus expected_capability is unsupported")
+        for field_name, expectation in (
+            ("minimum_sections", self.minimum_sections),
+            ("minimum_passages", self.minimum_passages),
+        ):
+            if expectation is not None and (
+                not isinstance(expectation, int) or expectation < 1
+            ):
+                raise ValueError(f"corpus {field_name} must be a positive integer when provided")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,17 +75,18 @@ class StagedCorpusCheck:
 
 
 def load_corpus_recipe(path: Path) -> tuple[CorpusSource, ...]:
-    """Load a schema-v1 corpus recipe without performing network access."""
+    """Load a schema-v1/v2 corpus recipe without performing network access."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("invalid corpus recipe") from exc
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2}:
         raise ValueError("unsupported corpus recipe schema")
     raw_items = payload.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         raise ValueError("corpus recipe items must be a non-empty list")
-    sources = tuple(_source_from_payload(item) for item in raw_items)
+    schema_version = payload["schema_version"]
+    sources = tuple(_source_from_payload(item, schema_version=schema_version) for item in raw_items)
     if len({source.source_id for source in sources}) != len(sources):
         raise ValueError("corpus recipe source IDs must be unique")
     if len({source.staged_filename for source in sources}) != len(sources):
@@ -86,11 +101,25 @@ def check_staged_corpus(
     return tuple(_check_source(source, root) for source in sources)
 
 
-def _source_from_payload(value: Any) -> CorpusSource:
+def validate_preservation_expectations(
+    source: CorpusSource, *, section_count: int, passage_count: int
+) -> None:
+    """Fail with a compact diagnostic when normalized structure regresses below recipe bounds."""
+    for field_name, actual, expected in (
+        ("sections", section_count, source.minimum_sections),
+        ("passages", passage_count, source.minimum_passages),
+    ):
+        if expected is not None and actual < expected:
+            raise CorpusExpectationError(
+                f"{source.source_id}: expected at least {expected} {field_name}, got {actual}"
+            )
+
+
+def _source_from_payload(value: Any, *, schema_version: int) -> CorpusSource:
     if not isinstance(value, dict):
         raise ValueError("corpus recipe item must be an object")
     try:
-        return CorpusSource(
+        source = CorpusSource(
             source_id=value["id"],
             staged_filename=value["staged_filename"],
             canonical_url=value["canonical_url"],
@@ -99,9 +128,16 @@ def _source_from_payload(value: Any) -> CorpusSource:
             media_type=value["media_type"],
             expected_parser=value["expected_parser"],
             expected_capability=value["expected_capability"],
+            minimum_sections=value.get("minimum_sections"),
+            minimum_passages=value.get("minimum_passages"),
         )
     except KeyError as exc:
         raise ValueError(f"corpus recipe item is missing {exc.args[0]}") from exc
+    if schema_version == 2 and (
+        source.minimum_sections is None or source.minimum_passages is None
+    ):
+        raise ValueError("corpus recipe v2 item requires minimum_sections and minimum_passages")
+    return source
 
 
 def _check_source(source: CorpusSource, root: Path) -> StagedCorpusCheck:

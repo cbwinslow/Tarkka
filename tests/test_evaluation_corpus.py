@@ -60,6 +60,57 @@ def test_corpus_recipe_loads_and_staged_bytes_are_classified(tmp_path: Path) -> 
     assert check_staged_corpus((source,), staged)[0].status is StagedCorpusStatus.READY
 
 
+def test_corpus_recipe_v2_requires_and_loads_structure_expectations(tmp_path: Path) -> None:
+    source = _source()
+    item = {
+        "id": source.source_id,
+        "staged_filename": source.staged_filename,
+        "canonical_url": source.canonical_url,
+        "sha256": source.sha256,
+        "rights_note": source.rights_note,
+        "media_type": source.media_type,
+        "expected_parser": source.expected_parser,
+        "expected_capability": source.expected_capability,
+        "minimum_sections": 2,
+        "minimum_passages": 3,
+    }
+    recipe = tmp_path / "recipe-v2.json"
+    recipe.write_text(json.dumps({"schema_version": 2, "items": [item]}), encoding="utf-8")
+
+    expected = CorpusSource(
+        source_id=source.source_id,
+        staged_filename=source.staged_filename,
+        canonical_url=source.canonical_url,
+        sha256=source.sha256,
+        rights_note=source.rights_note,
+        media_type=source.media_type,
+        expected_parser=source.expected_parser,
+        expected_capability=source.expected_capability,
+        minimum_sections=2,
+        minimum_passages=3,
+    )
+    assert load_corpus_recipe(recipe) == (expected,)
+
+
+def test_corpus_recipe_v2_rejects_missing_structure_expectations(tmp_path: Path) -> None:
+    source = _source()
+    item = {
+        "id": source.source_id,
+        "staged_filename": source.staged_filename,
+        "canonical_url": source.canonical_url,
+        "sha256": source.sha256,
+        "rights_note": source.rights_note,
+        "media_type": source.media_type,
+        "expected_parser": source.expected_parser,
+        "expected_capability": source.expected_capability,
+    }
+    recipe = tmp_path / "recipe-v2.json"
+    recipe.write_text(json.dumps({"schema_version": 2, "items": [item]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires minimum_sections"):
+        load_corpus_recipe(recipe)
+
+
 @pytest.mark.parametrize("items", [[], ["bad"], [{"id": "item"}]])
 def test_corpus_recipe_rejects_invalid_items(tmp_path: Path, items: object) -> None:
     with pytest.raises(ValueError):
@@ -69,7 +120,7 @@ def test_corpus_recipe_rejects_invalid_items(tmp_path: Path, items: object) -> N
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
-        ({"schema_version": 2, "items": []}, "schema"),
+        ({"schema_version": 3, "items": []}, "schema"),
         ({"schema_version": 1, "items": "bad"}, "items"),
     ],
 )
@@ -159,3 +210,21 @@ def test_corpus_source_rejects_invalid_contract_fields(
     values[field] = value
     with pytest.raises(ValueError, match=message):
         CorpusSource(**values)
+
+
+@pytest.mark.parametrize(("field", "value"), [("minimum_sections", 0), ("minimum_passages", -1)])
+def test_corpus_source_rejects_invalid_structure_expectations(field: str, value: int) -> None:
+    values: dict[str, object] = {
+        "source_id": "item",
+        "staged_filename": "item.txt",
+        "canonical_url": "https://example.test",
+        "sha256": "a" * 64,
+        "rights_note": "public",
+        "media_type": "text/plain",
+        "expected_parser": "plain",
+        "expected_capability": "supported",
+    }
+    values[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        CorpusSource(**values)  # type: ignore[arg-type]

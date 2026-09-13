@@ -329,6 +329,12 @@ The local reference profile persists those derivations atomically behind a repla
 port. A later PostgreSQL/pgvector adapter must preserve the same immutable identity and collision
 semantics rather than treating a vector as mutable source state.
 
+Vector candidate retrieval is a separately replaceable, bounded operation over one exact persisted
+retrieval-segment projection and one persisted query-embedding handle. Results retain the scored
+embedding and its original segment/source spans, and are validated against the requested projection
+and model derivation before exposure. They are navigation candidates only: they do not decide
+similarity, identity, support, contradiction, or any canonical relationship.
+
 ### Artifact storage
 
 Raw and derived files should live outside ordinary relational rows using content-addressed storage.

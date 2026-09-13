@@ -81,23 +81,29 @@ Keep path-filtered workflows such as package and Docling validation out of the g
 
 ## Remaining automation work
 
-1. Repository security settings
-   - verify CodeQL default setup is enabled for Python
-   - verify secret scanning and push protection are enabled where GitHub permits them
+1. Repository security settings — **verified live 2026-09-13, complete**
+   - CodeQL default setup: `configured` for `python` and `actions`
+     (`GET /repos/{owner}/{repo}/code-scanning/default-setup`)
+   - secret scanning: `enabled`; push protection: `enabled`
+     (`security_and_analysis` on the repository resource)
+   - Dependabot security updates: `enabled`
 
-2. Repository lifecycle settings
-   - merged head branches are deleted automatically;
-   - auto-merge and the native update-branch action are enabled;
-   - coding agents manage routine PR lifecycle actions without owner intervention.
+2. Repository lifecycle settings — **verified live 2026-09-13, complete**
+   - `delete_branch_on_merge: true` — merged head branches are deleted automatically
+   - `allow_auto_merge: true`, `allow_update_branch: true`
+   - coding agents manage routine PR lifecycle actions without owner intervention, including the
+     documented owner bypass below when a stale/non-required review state is the only blocker
 
 3. Release automation
    - finalize the project license and public package/release policy first
    - then add tag-driven builds, GitHub Release artifacts, and optional PyPI trusted publishing
+   - not yet started: the license is finalized (Apache-2.0), but no public package/release policy
+     has been decided, and the package is not yet published anywhere
 
 4. Reviewer operations
    - Codex automatic GitHub code review is prohibited for this repository; do not enable it or
      request `@codex review` without explicit owner direction;
-   - configure `OPENCODE_API_KEY` to activate the Zen reviewer
+   - `OPENCODE_API_KEY` is configured — the Zen reviewer runs successfully on pull requests
    - optionally set `OPENCODE_REVIEW_MODEL` when a different current Zen model is preferred
    - periodically review hosted reviewer overlap and rate limits; remove integrations that add noise without distinct findings
 

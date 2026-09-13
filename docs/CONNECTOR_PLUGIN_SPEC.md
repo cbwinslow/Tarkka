@@ -327,6 +327,11 @@ A domain pack can depend on plugin capabilities, but core plugins should not dep
 
 ## Plugin quality requirements
 
+For the adapter kinds it already covers (artifact stores, repositories, HTTP transports, host
+resolvers), reuse the published, versioned behavioral checks in
+[`CONFORMANCE.md`](CONFORMANCE.md) instead of writing bespoke contract tests from scratch — Tarkka's
+own reference adapters run the same assertions, so plugin and core conformance cannot drift apart.
+
 Reference plugins should include as appropriate:
 
 - contract tests

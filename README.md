@@ -328,5 +328,9 @@ For contributors and coding agents, start with:
 3. `docs/ARCHITECTURE.md`
 4. `docs/ROADMAP.md`
 
+Building a third-party adapter (artifact store, repository, HTTP transport, host resolver)? See
+[`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) for the published, reusable behavioral contracts Tarkka's
+own reference adapters run against.
+
 Then load task-specific documents on demand. The repository intentionally avoids requiring agents or
 humans to read the entire documentation set before doing focused work.

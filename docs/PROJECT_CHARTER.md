@@ -1,8 +1,8 @@
 # Project Charter
 
-## Working title
+## Naming
 
-**Thoth** is the current repository name only. The final project name is intentionally unresolved; see `docs/NAMING.md`.
+The project name is resolved: **Tarkka**. `Thoth` was considered and rejected (an existing project already uses it for an overlapping purpose); see `docs/NAMING.md` for the full naming history and rationale.
 
 ## Mission
 
@@ -149,4 +149,4 @@ A v1 is successful when a new user can configure a workspace, discover and inges
 
 ## Open-source intent
 
-The core is intended to be free and open source. A permissive or weak-copyleft license should be selected after dependency and commercialization review. The project must keep software licensing separate from source-content rights.
+The core is free and open source under Apache-2.0 (see `LICENSE`). The project must keep software licensing separate from source-content rights: the license covers Tarkka's own software and project-authored documentation, not the research content Tarkka acquires, processes, or references.

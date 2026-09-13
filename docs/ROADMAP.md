@@ -14,7 +14,10 @@ Milestone numbers in implementation PRs map to the phases below; the phase names
 - Phase 3 — Structured research extraction: **substantially complete for the initial local workflow;
   source/document intelligence expands incrementally through additional adapters**
 - Phase 4 — Evidence verification: **substantially complete for the initial local workflow**
-- Phase 5 — Agent-first serving: **foundation in progress**
+- Phase 5 — Agent-first serving: **substantially complete for the core read-only MCP/CLI agent
+  surface (capability discovery, progressive get/expand, context packages, bounded comparison,
+  documented client setup for Claude Code/Codex CLI/Claude Desktop); additional portable Agent
+  Skills and CLI/MCP/HTTP transport parity remain open**
 
 The merged implementation includes the typed core, content-addressed local artifacts, normalized documents, optional Docling parsing, acquisition provenance, provider-neutral scholarly discovery, capability-aware routing, reproducible SearchSnapshots, canonical Work identity, selective enrichment, full-text acquisition, review-only fuzzy identity candidates, generalized evidence locators, first-class Figure/Table/Equation source artifacts, evidence-backed claim extraction, the full first-pass research object vocabulary, model-assisted extraction, evaluation fixtures, bounded model requests, and contract-tested local/PostgreSQL Work and normalized-document persistence.
 
@@ -277,15 +280,12 @@ Goal: make Claude, Codex, and custom agents efficient research consumers.
 - explicit opt-in MCP usage telemetry for operation outcome, latency, response bytes, and estimated
   context tokens, with no request arguments or source content persisted
 
-Deliverables:
+Remaining deliverables (everything else in this phase's original list — MCP server, compact
+capability discovery, the manifest/evidence/full expansion ladder, the context-package service,
+stable handles, and token/cost telemetry — has moved to "Delivered foundation" above; do not
+re-list it here as pending):
 
-- MCP server
-- compact capability discovery
-- manifest/summary/evidence/full expansion ladder
-- context-package service
-- stable handles/saved result collections
-- additional portable Agent Skills
-- token/cost telemetry
+- additional portable Agent Skills beyond the first staged `research-discovery` skill
 
 Benchmarks:
 

@@ -90,6 +90,13 @@ repository and optional capability contracts. This keeps conformance focused on
 public port behavior rather than imposing a Tarkka-specific test framework or
 fixture loader.
 
+The example above is not illustrative prose: a genuinely from-scratch
+`ArtifactStore` implementation lives at
+[`examples/conformance/example_artifact_store.py`](../examples/conformance/example_artifact_store.py),
+and [`tests/test_example_conformance_plugin.py`](../tests/test_example_conformance_plugin.py) runs
+the same assertions above against it as part of this repository's own CI. If a future
+`tarkka.conformance` change breaks that test, the documented example is already known to be stale.
+
 ## How to run
 
 Install the Tarkka version or source revision that the adapter intends to support

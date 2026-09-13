@@ -14,3 +14,4 @@ mutants/
 .coverage.*
 coverage.xml
 htmlcov/
+.claude/

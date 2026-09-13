@@ -335,6 +335,12 @@ embedding and its original segment/source spans, and are validated against the r
 and model derivation before exposure. They are navigation candidates only: they do not decide
 similarity, identity, support, contradiction, or any canonical relationship.
 
+Hybrid retrieval fuses already-produced lexical and vector candidates with explicit bounded weights
+and deterministic reciprocal-rank scoring. A fused result retains the complete exact segment plus
+each contributing modality hit; a missing modality is represented explicitly, never inferred. Fusion
+validates compatible segment derivation/configuration keys and remains navigation only, not a
+semantic, evidentiary, identity, or consensus decision.
+
 ### Artifact storage
 
 Raw and derived files should live outside ordinary relational rows using content-addressed storage.

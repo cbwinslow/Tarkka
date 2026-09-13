@@ -3,6 +3,66 @@
 Issue #198 (Priority H) asks Tarkka to "publish results rather than only claiming reliability."
 This document is where those results belong. It intentionally contains no fabricated numbers.
 
+## 2026-09-13 — first multi-format reproducibility profile
+
+`tarkka eval` ran the schema-v2
+[`multiformat_sources.json`](../tests/fixtures/evaluation/multiformat_sources.json) profile against
+five locally staged, SHA-256-verified artifacts. The profile exercises the existing plain-text,
+EPUB, semantic-HTML, JATS/XML, and standalone-LaTeX parser paths. Source bytes remain ignored; the
+versioned recipe records their canonical HTTPS locations and rights notes.
+
+- **Commit:** `2d30804`
+- **OS:** Linux 6.8.0-138-generic x86_64
+- **Python:** 3.12.13
+
+```json
+{
+  "ok": true,
+  "schema_version": 1,
+  "total": 5,
+  "complete": 5,
+  "runs": [
+    {
+      "source_id": "gutenberg-frankenstein-plain-text",
+      "stage": "complete",
+      "artifact_id": "98b13230-58fb-5ab4-8c9a-cf5998ab58fb",
+      "document_id": "515c4133-8978-5976-9956-c1b1ef477d53"
+    },
+    {
+      "source_id": "gutenberg-frankenstein-epub",
+      "stage": "complete",
+      "artifact_id": "78a1e357-bb12-5472-8787-37759a8ad0a1",
+      "document_id": "104a11d7-63ff-510d-889d-52590dd6faec"
+    },
+    {
+      "source_id": "gutenberg-frankenstein-html",
+      "stage": "complete",
+      "artifact_id": "ca322903-74b0-5bb3-a028-83227d97563e",
+      "document_id": "a9e789db-5ca3-5118-8191-6870deff5206"
+    },
+    {
+      "source_id": "ccr-roadmap-jats",
+      "stage": "complete",
+      "artifact_id": "0e33f1a2-43e5-52cd-a9b9-d2e8f622c1b3",
+      "document_id": "b25f71c7-1b89-514a-abea-269f331265b6"
+    },
+    {
+      "source_id": "latex2e-class-guide",
+      "stage": "complete",
+      "artifact_id": "ebdbe54c-64b3-5574-9b3e-c0c8205ce207",
+      "document_id": "51f22a1b-626d-5f58-a5eb-15d775a932f7"
+    }
+  ]
+}
+```
+
+Every item passed its retained-byte hash gate, selected the declared parser, met its bounded
+normalized section/passage floor, built a schema-v3 proof bundle, verified independently, and
+replayed to an exact normalized-document match. This is evidence for preservation and replay across
+these five parser families—not a claim-extraction, citation-accuracy, retrieval-quality, or
+performance benchmark. PDF, OCR, DOCX, provider payload, and live-network profiles remain outside
+this result.
+
 ## 2026-09-13 — first published result
 
 `tarkka eval` (see [`EVALUATION_CORPUS.md`](EVALUATION_CORPUS.md)) run against the actual downloaded

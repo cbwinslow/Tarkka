@@ -38,8 +38,10 @@ def _recipe_item(
     staged_filename: str = "smoke.txt",
     sha256: str,
     expected_parser: str = "plain-text",
+    minimum_sections: int | None = None,
+    minimum_passages: int | None = None,
 ) -> dict[str, Any]:
-    return {
+    item: dict[str, Any] = {
         "id": source_id,
         "staged_filename": staged_filename,
         "canonical_url": "https://example.com/smoke.txt",
@@ -49,6 +51,11 @@ def _recipe_item(
         "expected_parser": expected_parser,
         "expected_capability": "supported",
     }
+    if minimum_sections is not None:
+        item["minimum_sections"] = minimum_sections
+    if minimum_passages is not None:
+        item["minimum_passages"] = minimum_passages
+    return item
 
 
 def _write_recipe(path: Path, items: list[dict[str, Any]]) -> None:
@@ -135,6 +142,40 @@ def test_eval_cli_reports_parser_mismatch_as_an_ingest_stage_error(
     assert run["stage"] == "ingest"
     assert "ParserMismatchError" in run["error"]
     assert "expected parser 'epub'" in run["error"]
+
+
+def test_eval_cli_reports_structure_mismatch_as_a_preservation_stage_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    staged_root = tmp_path / "staged"
+    digest = _stage(staged_root, "smoke.txt", b"one short plain text document\n")
+    recipe = tmp_path / "recipe.json"
+    recipe.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "items": [
+                    _recipe_item(
+                        sha256=digest,
+                        minimum_sections=2,
+                        minimum_passages=2,
+                    )
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = eval_cli.main(["--recipe", str(recipe), "--staged-root", str(staged_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    run = payload["runs"][0]
+    assert run["stage"] == "preservation"
+    assert run["artifact_id"] is not None
+    assert run["document_id"] is not None
+    assert "CorpusExpectationError" in run["error"]
 
 
 def test_eval_cli_reports_replay_mismatch_as_a_replay_stage_error(

@@ -8,12 +8,19 @@ from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
-from tarkka.evaluation.corpus import CorpusSource, StagedCorpusStatus, check_staged_corpus
+from tarkka.evaluation.corpus import (
+    CorpusExpectationError,
+    CorpusSource,
+    StagedCorpusStatus,
+    check_staged_corpus,
+    validate_preservation_expectations,
+)
 
 
 class CorpusRunStage(StrEnum):
     NOT_STAGED = "not_staged"
     INGEST = "ingest"
+    PRESERVATION = "preservation"
     PROOF = "proof"
     VERIFY = "verify"
     REPLAY = "replay"
@@ -26,6 +33,8 @@ class CorpusIngestion:
 
     artifact_id: UUID
     document_id: UUID
+    section_count: int
+    passage_count: int
 
 
 class StagedCorpusPipeline(Protocol):
@@ -74,6 +83,23 @@ def run_staged_corpus(
             ingestion = pipeline.ingest(check.source, path)
         except Exception as exc:
             runs.append(_failed(check.source, check.status, CorpusRunStage.INGEST, exc))
+            continue
+        try:
+            validate_preservation_expectations(
+                check.source,
+                section_count=ingestion.section_count,
+                passage_count=ingestion.passage_count,
+            )
+        except CorpusExpectationError as exc:
+            runs.append(
+                _failed(
+                    check.source,
+                    check.status,
+                    CorpusRunStage.PRESERVATION,
+                    exc,
+                    ingestion,
+                )
+            )
             continue
         try:
             proof = pipeline.build_proof(ingestion.document_id)

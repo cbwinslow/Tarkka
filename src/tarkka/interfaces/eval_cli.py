@@ -95,6 +95,8 @@ class _RealStagedCorpusPipeline:
         return CorpusIngestion(
             artifact_id=result.artifact.artifact_id,
             document_id=result.document.document_id,
+            section_count=len(result.document.sections),
+            passage_count=sum(len(section.passages) for section in result.document.sections),
         )
 
     def build_proof(self, document_id: UUID) -> bytes:

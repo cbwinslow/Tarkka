@@ -9,6 +9,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 _MANIFEST = Path(__file__).parent / "fixtures/evaluation/real_world_sources.json"
+_MULTIFORMAT_MANIFEST = Path(__file__).parent / "fixtures/evaluation/multiformat_sources.json"
 
 
 def test_real_world_corpus_source_recipe_is_versioned_and_rights_aware() -> None:
@@ -35,7 +36,7 @@ def test_real_world_corpus_source_recipe_is_versioned_and_rights_aware() -> None
 def test_real_world_corpus_recipe_does_not_commit_downloaded_artifacts() -> None:
     fixture_directory = _MANIFEST.parent
 
-    allowed_files = {_MANIFEST.resolve()}
+    allowed_files = {_MANIFEST.resolve(), _MULTIFORMAT_MANIFEST.resolve()}
     unexpected_files = [
         path.resolve()
         for path in fixture_directory.rglob("*")
@@ -43,3 +44,21 @@ def test_real_world_corpus_recipe_does_not_commit_downloaded_artifacts() -> None
     ]
 
     assert unexpected_files == []
+
+
+def test_multiformat_corpus_profile_covers_existing_parser_families() -> None:
+    payload = json.loads(_MULTIFORMAT_MANIFEST.read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == 2
+    items = payload["items"]
+    assert len(items) == 5
+    assert {item["expected_parser"] for item in items} == {
+        "plain-text",
+        "epub",
+        "semantic_html",
+        "jats",
+        "latex",
+    }
+    for item in items:
+        assert item["minimum_sections"] >= 1
+        assert item["minimum_passages"] >= 1

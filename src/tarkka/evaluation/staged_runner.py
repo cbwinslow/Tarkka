@@ -9,6 +9,7 @@ from typing import Protocol
 from uuid import UUID
 
 from tarkka.evaluation.corpus import (
+    CorpusExpectationError,
     CorpusSource,
     StagedCorpusStatus,
     check_staged_corpus,
@@ -89,7 +90,7 @@ def run_staged_corpus(
                 section_count=ingestion.section_count,
                 passage_count=ingestion.passage_count,
             )
-        except Exception as exc:
+        except CorpusExpectationError as exc:
             runs.append(
                 _failed(
                     check.source,

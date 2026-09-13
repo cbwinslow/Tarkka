@@ -111,6 +111,27 @@ def test_corpus_recipe_v2_rejects_missing_structure_expectations(tmp_path: Path)
         load_corpus_recipe(recipe)
 
 
+def test_corpus_recipe_v1_rejects_v2_only_structure_expectations(tmp_path: Path) -> None:
+    source = _source()
+    item = {
+        "id": source.source_id,
+        "staged_filename": source.staged_filename,
+        "canonical_url": source.canonical_url,
+        "sha256": source.sha256,
+        "rights_note": source.rights_note,
+        "media_type": source.media_type,
+        "expected_parser": source.expected_parser,
+        "expected_capability": source.expected_capability,
+        "minimum_sections": 1,
+        "minimum_passages": 1,
+    }
+    recipe = tmp_path / "recipe-v1.json"
+    recipe.write_text(json.dumps({"schema_version": 1, "items": [item]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="v1 item cannot define"):
+        load_corpus_recipe(recipe)
+
+
 @pytest.mark.parametrize("items", [[], ["bad"], [{"id": "item"}]])
 def test_corpus_recipe_rejects_invalid_items(tmp_path: Path, items: object) -> None:
     with pytest.raises(ValueError):

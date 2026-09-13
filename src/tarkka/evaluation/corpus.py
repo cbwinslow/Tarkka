@@ -118,6 +118,12 @@ def validate_preservation_expectations(
 def _source_from_payload(value: Any, *, schema_version: int) -> CorpusSource:
     if not isinstance(value, dict):
         raise ValueError("corpus recipe item must be an object")
+    expectation_fields = frozenset(("minimum_sections", "minimum_passages"))
+    present_expectation_fields = expectation_fields.intersection(value)
+    if schema_version == 1 and present_expectation_fields:
+        raise ValueError("corpus recipe v1 item cannot define preservation expectations")
+    if schema_version == 2 and present_expectation_fields != expectation_fields:
+        raise ValueError("corpus recipe v2 item requires minimum_sections and minimum_passages")
     try:
         source = CorpusSource(
             source_id=value["id"],
@@ -133,10 +139,6 @@ def _source_from_payload(value: Any, *, schema_version: int) -> CorpusSource:
         )
     except KeyError as exc:
         raise ValueError(f"corpus recipe item is missing {exc.args[0]}") from exc
-    if schema_version == 2 and (
-        source.minimum_sections is None or source.minimum_passages is None
-    ):
-        raise ValueError("corpus recipe v2 item requires minimum_sections and minimum_passages")
     return source
 
 

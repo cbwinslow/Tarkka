@@ -297,6 +297,52 @@ def verify_proof_bundle_bytes(
         raise ProofBundleVerificationError("proof bundle is not a valid ZIP archive") from exc
 
 
+@dataclass(frozen=True, slots=True)
+class ProofBundleExportPayload:
+    """A fully verified manifest and its raw artifact bytes, for a non-native export format.
+
+    Only produced after the same integrity checks ``verify_proof_bundle`` performs, so an export
+    built from this payload can never diverge from what ``tarkka bundle verify`` already accepts.
+    """
+
+    manifest: ProofBundleManifest | ProofBundleManifestV2 | ProofBundleManifestV3
+    artifact_bytes: bytes
+
+
+def read_verified_proof_bundle(
+    path: Path,
+    *,
+    limits: ProofBundleVerificationLimits = _DEFAULT_VERIFICATION_LIMITS,
+) -> ProofBundleExportPayload:
+    """Fully verify a bundle, then return its manifest and raw artifact bytes for export.
+
+    Intended for read/export-only representations (e.g. RO-Crate) that must never present content
+    ``tarkka bundle verify`` would reject as invalid or tampered.
+    """
+    _validate_limits(limits)
+    try:
+        with path.open("rb") as handle:
+            archive_size = os.fstat(handle.fileno()).st_size
+            if archive_size > limits.max_archive_bytes:
+                raise ProofBundleVerificationError(
+                    "proof bundle archive exceeds the configured limit"
+                )
+            bundle_sha256 = _sha256_stream(handle)
+            handle.seek(0)
+            with zipfile.ZipFile(handle, mode="r") as archive:
+                _verify_archive(archive, bundle_sha256=bundle_sha256, limits=limits)
+                manifest_bytes = _read_member(archive, PROOF_BUNDLE_MANIFEST_PATH)
+                manifest = _parse_manifest(manifest_bytes)
+                artifact_bytes = _read_member(archive, manifest.artifact.path)
+        return ProofBundleExportPayload(manifest=manifest, artifact_bytes=artifact_bytes)
+    except ProofBundleVerificationError:
+        raise
+    except zipfile.BadZipFile as exc:
+        raise ProofBundleVerificationError("proof bundle is not a valid ZIP archive") from exc
+    except OSError as exc:
+        raise ProofBundleVerificationError(f"unable to read proof bundle: {path}") from exc
+
+
 def _verify_archive(
     archive: zipfile.ZipFile,
     *,

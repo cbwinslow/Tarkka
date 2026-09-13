@@ -357,4 +357,27 @@ The versioned bundle and exact-parser replay foundation makes the following exte
 2. transparent model-step input/output/config records;
 3. frozen/live research-state comparison with `tarkka diff`;
 4. additional discovery/search/acquisition/policy provenance;
-5. interoperability evaluation with PROV, JSON-LD, RO-Crate, and related standards after the native contract is stable.
+5. ~~interoperability evaluation with PROV, JSON-LD, RO-Crate, and related standards after the native contract is stable~~ — delivered for Artifact+Document scope via `tarkka bundle export-ro-crate`; see [`BUNDLE_INTEROPERABILITY.md`](BUNDLE_INTEROPERABILITY.md). Claim/Evidence/citation lineage RO-Crate export remains a separate follow-up.
+
+## RO-Crate export (additive, read/export-only)
+
+Independent of the native `.tarkka` format above, a verified bundle's Artifact and Document scope
+(v1-bundle-equivalent) can also be exported as an [RO-Crate](https://www.researchobject.org/ro-crate/)
+directory — a widely used research-reproducibility packaging convention — for tools that consume
+RO-Crate but do not know Tarkka's native format:
+
+```bash
+tarkka bundle export-ro-crate research.tarkka --output research-crate/
+```
+
+This reads and fully verifies `research.tarkka` first (the same checks `tarkka bundle verify`
+performs), then writes `research-crate/ro-crate-metadata.json` plus the content-addressed Artifact
+bytes at `research-crate/files/<sha256>`. The RO-Crate export is **not** a substitute for `tarkka
+bundle verify` or `tarkka replay` — it creates no new canonical identity, is not itself
+byte-deterministic/canonical the way the native format is, and does not carry the native format's
+integrity/replay guarantees on its own. Verify and replay the native `.tarkka` archive; use the
+RO-Crate export only to hand Artifact/Document identity to RO-Crate-aware tooling.
+
+See [`BUNDLE_INTEROPERABILITY.md`](BUNDLE_INTEROPERABILITY.md) for the full design rationale
+(RO-Crate version targeted, how content hashes and Tarkka-specific fields are represented as
+JSON-LD, and what remains deliberately out of scope) and an example emitted crate.

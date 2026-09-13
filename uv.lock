@@ -77,6 +77,15 @@ wheels = [
 ]
 
 [[package]]
+name = "arcp"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/4d/de103380fb1646b720a5318401cf2a49a1a88c082ef06fdd015d848f073b/arcp-0.2.1.tar.gz", hash = "sha256:5c17ac7972c9ef82979cc2caf2b3a87c1aefd3fefe9adb8a5dd728ada57715dd", size = 22063, upload-time = "2020-02-12T12:05:07.422Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/66/df/32574bc8f1d440d40f4aaf3b455316b2b1536c7243c985a90f8516cf3074/arcp-0.2.1-py2.py3-none-any.whl", hash = "sha256:4e09b2d8a9fc3fda7ec112b553498ff032ea7de354e27dbeb1acc53667122444", size = 15838, upload-time = "2020-02-12T12:05:05.769Z" },
+]
+
+[[package]]
 name = "ast-serialize"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3250,6 +3259,22 @@ wheels = [
 ]
 
 [[package]]
+name = "rocrate"
+version = "0.15.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "arcp" },
+    { name = "click" },
+    { name = "jinja2" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/58/04321e914bf9ae7593ea10baf9a111cb37551e3c442d0dbdcb52f6121f5a/rocrate-0.15.1.tar.gz", hash = "sha256:4f4cf6eea66559baa9d9b8f10ae06e0611ba13eb3644edc783bdf7dd0072fced", size = 321715, upload-time = "2026-07-10T07:07:29.271Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/68/c7/3e8a7cdbed5cc7b1295196990f1bdea178ed7e6fc14ef40163e8b61ddca5/rocrate-0.15.1-py3-none-any.whl", hash = "sha256:fc04c1078774259ad8c70779c40acec14d80a8cf310db1e8f51ae65720c153fa", size = 351054, upload-time = "2026-07-10T07:07:27.787Z" },
+]
+
+[[package]]
 name = "rpds-py"
 version = "2026.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3885,6 +3910,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-postgresql" },
+    { name = "rocrate" },
     { name = "ruff" },
     { name = "sqlfluff" },
 ]
@@ -3908,6 +3934,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "pytest-postgresql", specifier = ">=8.1.0" },
+    { name = "rocrate", specifier = ">=0.15,<1" },
     { name = "ruff", specifier = ">=0.9" },
     { name = "sqlfluff", specifier = ">=4.3,<5" },
 ]

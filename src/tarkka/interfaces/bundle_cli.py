@@ -19,9 +19,11 @@ from tarkka.application.proof_bundles import (
 from tarkka.domain.proof_bundles import PROOF_BUNDLE_SCHEMA_VERSION
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
+    read_verified_proof_bundle,
     verify_proof_bundle,
     write_streaming_proof_bundle,
 )
+from tarkka.infrastructure.ro_crate_export import write_ro_crate
 from tarkka.interfaces.proof_bundle_runtime import (
     SUPPORTED_PROOF_BUNDLE_SCHEMA_VERSIONS,
     proof_bundle_artifact_store,
@@ -90,6 +92,33 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export_ro_crate(args: argparse.Namespace) -> int:
+    path = Path(args.path).expanduser().resolve()
+    output = Path(args.output).expanduser().resolve()
+    try:
+        payload = read_verified_proof_bundle(path)
+    except ProofBundleVerificationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        result = write_ro_crate(output, payload.manifest, payload.artifact_bytes)
+    except OSError as exc:
+        print(f"error: unable to write RO-Crate export: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "output_directory": str(result.output_directory),
+                "metadata_path": str(result.metadata_path),
+                "artifact_path": str(result.artifact_path),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tarkka bundle",
@@ -115,6 +144,17 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify", help="verify a proof bundle completely offline")
     verify.add_argument("path", help="proof bundle archive path")
     verify.set_defaults(func=_cmd_verify)
+
+    export_ro_crate = sub.add_parser(
+        "export-ro-crate",
+        help=(
+            "export a verified bundle's Artifact and Document as an additive, read-only "
+            "RO-Crate directory (does not replace `verify`/`replay`)"
+        ),
+    )
+    export_ro_crate.add_argument("path", help="proof bundle archive path")
+    export_ro_crate.add_argument("--output", required=True, help="destination RO-Crate directory")
+    export_ro_crate.set_defaults(func=_cmd_export_ro_crate)
     return parser
 
 

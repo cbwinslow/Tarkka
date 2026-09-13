@@ -23,8 +23,12 @@ uv sync --group dev
 uv run pytest tests/test_real_world_corpus_manifest.py
 ```
 
-The staged-artifact runner is not implemented yet. Do not treat this manifest check as an ingestion
-benchmark or invoke network fetches from ordinary CI.
+The staged-artifact runner is an offline application composition: first classify staged bytes by
+the recipe's pinned digest, then run only READY artifacts through injected existing ingestion,
+proof, verification, and replay services. Its versioned report preserves each source recipe entry,
+staging outcome, artifact/document handles, terminal pipeline stage, and bounded failure message.
+MISSING and HASH_MISMATCH artifacts never invoke ingestion. Do not treat this runner as a benchmark
+or invoke network fetches from ordinary CI.
 
 Hybrid retrieval can be evaluated offline before any staged source is available: provide versioned
 query IDs, explicit relevant RetrievalSegment handles, and the ordered candidate handles to

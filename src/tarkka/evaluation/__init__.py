@@ -13,6 +13,13 @@ from tarkka.evaluation.retrieval import (
     RetrievalQueryEvaluation,
     evaluate_retrieval,
 )
+from tarkka.evaluation.staged_runner import (
+    CorpusIngestion,
+    CorpusRunStage,
+    StagedCorpusReport,
+    StagedCorpusRun,
+    run_staged_corpus,
+)
 from tarkka.evaluation.verification import (
     EvidenceRelationEvaluationReport,
     GoldEvidenceRelation,
@@ -32,4 +39,9 @@ __all__ = [
     "RetrievalEvaluationReport",
     "RetrievalQueryEvaluation",
     "evaluate_retrieval",
+    "CorpusIngestion",
+    "CorpusRunStage",
+    "StagedCorpusReport",
+    "StagedCorpusRun",
+    "run_staged_corpus",
 ]

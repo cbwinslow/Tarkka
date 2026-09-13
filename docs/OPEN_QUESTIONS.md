@@ -39,6 +39,10 @@ Resolved decisions should be removed from this file and reflected in the appropr
 
 - What hybrid lexical/vector strategy provides the best evidence recall at low context cost?
 - When does reranking materially help?
+- If measured evaluation justifies an optional reranker, should a no-cost OpenRouter reranker or
+  OpenCode Zen free-tier capability be evaluated before adding paid or self-hosted infrastructure?
+  Re-verify current availability, terms, privacy/data-egress posture, model identity, and rate limits
+  at that decision point; keep the provider behind a replaceable adapter and never make it required.
 - Which hierarchical-summary strategy is worth the maintenance cost?
 - When, if ever, is a dedicated graph database justified beyond relational graph projections?
 

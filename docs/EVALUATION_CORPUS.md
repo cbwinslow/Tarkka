@@ -26,6 +26,12 @@ uv run pytest tests/test_real_world_corpus_manifest.py
 The staged-artifact runner is not implemented yet. Do not treat this manifest check as an ingestion
 benchmark or invoke network fetches from ordinary CI.
 
+Hybrid retrieval can be evaluated offline before any staged source is available: provide versioned
+query IDs, explicit relevant RetrievalSegment handles, and the ordered candidate handles to
+`tarkka.evaluation.evaluate_retrieval`. The report exposes per-query precision/recall at K and
+reciprocal rank plus aggregate means. It never infers relevance from model or lexical scores, and
+does not select a retrieval model or fetch corpus inputs.
+
 ## How to debug
 
 If a hash changes, retain the previous recipe entry and investigate the fetched bytes, canonical URL,

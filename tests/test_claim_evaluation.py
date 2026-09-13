@@ -480,6 +480,11 @@ def test_evaluation_package_reexports_public_api() -> None:
         "GoldClaim",
         "GoldEvidenceRelation",
         "GoldEvidenceSpan",
+        "GoldRetrievalQuery",
+        "RankedRetrievalQuery",
+        "RetrievalEvaluationReport",
+        "RetrievalQueryEvaluation",
         "evaluate_claims",
         "evaluate_evidence_relations",
+        "evaluate_retrieval",
     }

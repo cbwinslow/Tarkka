@@ -6,6 +6,13 @@ from tarkka.evaluation.claims import (
     GoldEvidenceSpan,
     evaluate_claims,
 )
+from tarkka.evaluation.retrieval import (
+    GoldRetrievalQuery,
+    RankedRetrievalQuery,
+    RetrievalEvaluationReport,
+    RetrievalQueryEvaluation,
+    evaluate_retrieval,
+)
 from tarkka.evaluation.verification import (
     EvidenceRelationEvaluationReport,
     GoldEvidenceRelation,
@@ -20,4 +27,9 @@ __all__ = [
     "EvidenceRelationEvaluationReport",
     "GoldEvidenceRelation",
     "evaluate_evidence_relations",
+    "GoldRetrievalQuery",
+    "RankedRetrievalQuery",
+    "RetrievalEvaluationReport",
+    "RetrievalQueryEvaluation",
+    "evaluate_retrieval",
 ]

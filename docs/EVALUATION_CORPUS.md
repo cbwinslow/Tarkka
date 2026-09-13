@@ -52,6 +52,16 @@ are actually configured. Otherwise report those modalities as unavailable with a
 is neither a failed ranking nor evidence that a reranker is needed. The current two-query fixture is
 only a reproducibility slice, not a basis for selecting a retrieval model or reranker.
 
+The first opt-in local embedding run used the locally retained Apache-2.0
+`sentence-transformers/all-MiniLM-L6-v2` revision
+`1110a243fdf4706b3f48f1d95db1a4f5529b4d41`, with 384-dimensional L2-normalized
+vectors and the `sentence-transformers-5.7.0;normalize_embeddings=true` configuration.
+Across 1,542 staged source-backed segments at K=2, lexical scored MRR/precision/recall
+of 1.0/0.75/0.75, vector scored 0.5/0.5/0.5, and reciprocal-rank hybrid scored
+1.0/0.75/0.75. This small slice does not establish a default embedding model and supplies
+no measured benefit for reranking. The model remains an explicit local optional dependency;
+ordinary CI neither installs it nor downloads model bytes.
+
 ## How to debug
 
 If a hash changes, retain the previous recipe entry and investigate the fetched bytes, canonical URL,

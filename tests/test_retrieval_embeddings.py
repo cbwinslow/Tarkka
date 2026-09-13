@@ -9,7 +9,11 @@ from uuid import UUID
 import pytest
 
 from tarkka.domain.retrieval import RetrievalPassageSpan, RetrievalSegment
-from tarkka.domain.retrieval_embeddings import EmbeddingNormalization, SegmentEmbedding
+from tarkka.domain.retrieval_embeddings import (
+    EmbeddingNormalization,
+    QueryEmbedding,
+    SegmentEmbedding,
+)
 from tarkka.ports.embeddings import SegmentEmbedder
 
 
@@ -77,30 +81,39 @@ def test_embedding_identity_keeps_model_and_configuration_derivations_distinct()
         values=(1.0, 2.0),
     )
 
-    assert SegmentEmbedding.for_segment(
-        segment,
-        model_identifier="other-embedder",
-        model_revision="1",
-        configuration_fingerprint="fixture-config-v1",
-        normalization=EmbeddingNormalization.NONE,
-        values=(1.0, 2.0),
-    ).embedding_id != baseline.embedding_id
-    assert SegmentEmbedding.for_segment(
-        segment,
-        model_identifier="fixture-embedder",
-        model_revision="2",
-        configuration_fingerprint="fixture-config-v1",
-        normalization=EmbeddingNormalization.NONE,
-        values=(1.0, 2.0),
-    ).embedding_id != baseline.embedding_id
-    assert SegmentEmbedding.for_segment(
-        segment,
-        model_identifier="fixture-embedder",
-        model_revision="1",
-        configuration_fingerprint="fixture-config-v2",
-        normalization=EmbeddingNormalization.NONE,
-        values=(1.0, 2.0),
-    ).embedding_id != baseline.embedding_id
+    assert (
+        SegmentEmbedding.for_segment(
+            segment,
+            model_identifier="other-embedder",
+            model_revision="1",
+            configuration_fingerprint="fixture-config-v1",
+            normalization=EmbeddingNormalization.NONE,
+            values=(1.0, 2.0),
+        ).embedding_id
+        != baseline.embedding_id
+    )
+    assert (
+        SegmentEmbedding.for_segment(
+            segment,
+            model_identifier="fixture-embedder",
+            model_revision="2",
+            configuration_fingerprint="fixture-config-v1",
+            normalization=EmbeddingNormalization.NONE,
+            values=(1.0, 2.0),
+        ).embedding_id
+        != baseline.embedding_id
+    )
+    assert (
+        SegmentEmbedding.for_segment(
+            segment,
+            model_identifier="fixture-embedder",
+            model_revision="1",
+            configuration_fingerprint="fixture-config-v2",
+            normalization=EmbeddingNormalization.NONE,
+            values=(1.0, 2.0),
+        ).embedding_id
+        != baseline.embedding_id
+    )
 
 
 @pytest.mark.parametrize(
@@ -209,3 +222,69 @@ def test_deterministic_embedding_port_has_no_provider_specific_contract() -> Non
     embedder: SegmentEmbedder = _DeterministicEmbedder()
 
     assert embedder.embed(_segment()) == embedder.embed(_segment())
+
+
+def test_query_embedding_preserves_query_digest_and_model_provenance() -> None:
+    embedding = QueryEmbedding.for_query(
+        UUID(int=80),
+        "independent query",
+        model_identifier="model",
+        model_revision="revision",
+        configuration_fingerprint="configuration",
+        normalization=EmbeddingNormalization.L2,
+        values=(0.6, 0.8),
+    )
+
+    assert embedding.query_id == UUID(int=80)
+    assert (
+        embedding.text_digest == "e7debaaf6810fccbc0342c77bd4788f7a7f4b4f527a84e26f0016bdf9dcbd397"
+    )
+    assert embedding.dimension == 2
+
+
+@pytest.mark.parametrize(
+    ("text", "values", "message"),
+    [("", (0.6, 0.8), "text"), ("query", (0.0, 0.0), "unit")],
+)
+def test_query_embedding_rejects_invalid_provenance_or_values(
+    text: str, values: tuple[float, ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        QueryEmbedding.for_query(
+            UUID(int=81),
+            text,
+            model_identifier="model",
+            model_revision="revision",
+            configuration_fingerprint="configuration",
+            normalization=EmbeddingNormalization.L2,
+            values=values,
+        )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"query_id": "bad"}, "query_id"),
+        ({"text_digest": "short"}, "text_digest"),
+        ({"text_digest": "g" * 64}, "text_digest"),
+        ({"model_identifier": ""}, "model_identifier"),
+        ({"normalization": "l2"}, "EmbeddingNormalization"),
+        ({"values": ()}, "non-empty"),
+        ({"values": (float("inf"),)}, "finite"),
+        ({"dimension": 3}, "dimension"),
+    ],
+)
+def test_query_embedding_rejects_invalid_identity_material(
+    changes: dict[str, object], message: str
+) -> None:
+    valid = QueryEmbedding.for_query(
+        UUID(int=82),
+        "query",
+        model_identifier="model",
+        model_revision="revision",
+        configuration_fingerprint="configuration",
+        normalization=EmbeddingNormalization.L2,
+        values=(0.6, 0.8),
+    )
+    with pytest.raises(ValueError, match=message):
+        replace(valid, **changes)

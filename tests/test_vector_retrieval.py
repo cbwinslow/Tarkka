@@ -16,7 +16,11 @@ from tarkka.application.vector_retrieval import (
     VectorCandidateRetrievalService,
 )
 from tarkka.domain.retrieval import RetrievalPassageSpan, RetrievalSegment
-from tarkka.domain.retrieval_embeddings import EmbeddingNormalization, SegmentEmbedding
+from tarkka.domain.retrieval_embeddings import (
+    EmbeddingNormalization,
+    QueryEmbedding,
+    SegmentEmbedding,
+)
 from tarkka.domain.retrieval_index import RetrievalSegmentIndex
 from tarkka.ports.vector_retrieval import VectorCandidate, VectorCandidateQuery
 
@@ -153,22 +157,48 @@ def test_search_returns_deterministically_ranked_exact_segment_candidates() -> N
     assert retriever.requests[0].query_embedding == query
 
 
+def test_search_accepts_an_explicit_non_source_query_embedding() -> None:
+    projection = _projection()
+    candidate = _embedding(projection.segments[1])
+    query = QueryEmbedding.for_query(
+        UUID(int=999),
+        "independent user query",
+        model_identifier="fixture-model",
+        model_revision="1",
+        configuration_fingerprint="model-fixture-v1",
+        normalization=EmbeddingNormalization.NONE,
+        values=(3.0, 1.0),
+    )
+    retriever = _Retriever(candidates=(VectorCandidate(candidate.embedding_id, 0.5),))
+
+    hits = _service(projection, (candidate,), retriever).search(
+        _DOCUMENT_ID,
+        derivation_version="whole-passage-v1",
+        configuration_fingerprint="fixture-v1",
+        query_embedding=query,
+    )
+
+    assert hits[0].segment == projection.segments[1]
+    assert retriever.requests[0].query_embedding == query
+
+
 @pytest.mark.parametrize(
     ("query", "message"),
     [
-        (object(), "SegmentEmbedding"),
+        (object(), "embedding"),
         (
             lambda embedding: VectorCandidateQuery(
-                embedding, "bad", "v1", "config"  # type: ignore[arg-type]
+                embedding,
+                "bad",
+                "v1",
+                "config",  # type: ignore[arg-type]
             ),
             "document_id",
         ),
         (lambda embedding: VectorCandidateQuery(embedding, _DOCUMENT_ID, "", "config"), "version"),
         (lambda embedding: VectorCandidateQuery(embedding, _DOCUMENT_ID, "v1", ""), "fingerprint"),
         (
-            lambda embedding: VectorCandidateQuery(
-                embedding, _DOCUMENT_ID, "v1", "config", 0
-            ),
+            lambda embedding: VectorCandidateQuery(embedding, _DOCUMENT_ID, "v1", "config", 0),
             "limit",
         ),
     ],
@@ -214,6 +244,12 @@ def test_search_rejects_limits_and_a_missing_exact_projection() -> None:
             derivation_version="different-v1",
             configuration_fingerprint="fixture-v1",
             query_embedding_id=query.embedding_id,
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        service.search(
+            _DOCUMENT_ID,
+            derivation_version="whole-passage-v1",
+            configuration_fingerprint="fixture-v1",
         )
 
 

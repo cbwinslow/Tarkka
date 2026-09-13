@@ -19,6 +19,9 @@ all = ["psycopg[binary]>=3.2,<4", "docling>=2.117,<3", "mcp>=2,<3"]
 mcp = [
     "mcp>=2,<3",
 ]
+embeddings = [
+    "sentence-transformers>=5,<6",
+]
 
 [dependency-groups]
 dev = [

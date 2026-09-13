@@ -79,6 +79,7 @@ def test_mcp_server_registers_only_read_only_initial_operations() -> None:
         "research_operation_schema",
         "research_get",
         "research_expand",
+        "research_compare",
         "claim_lineage",
         "document_manifest",
         "document_sections",
@@ -372,13 +373,13 @@ def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(
     server = create_server(documents=DocumentRetrievalService(documents=documents))
 
     unknown_operation = _call(
-        server, "research_operation_schema", {"operation_id": "research.compare"}
+        server, "research_operation_schema", {"operation_id": "research.missing"}
     )
     assert unknown_operation == {
         "ok": False,
         "error": {
             "code": "unknown_operation",
-            "message": "unknown research operation: research.compare",
+            "message": "unknown research operation: research.missing",
             "next_actions": ["research_capabilities"],
         },
     }
@@ -501,6 +502,99 @@ def test_mcp_research_expand_wallet_does_not_leak_quote(
     assert response["ok"] is False
     assert response["error"]["code"] == "content_too_large"
     assert "alpha" not in str(response)
+
+
+def test_mcp_research_compare_returns_handles_and_rejects_an_exhausted_wallet(
+    tmp_path: Path,
+) -> None:
+    from tests.test_challenge import _challenge_stack
+
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "workspace.yaml"
+    manifest.write_text(
+        "version: 1\nkind: research_workspace\nmetadata:\n  name: mcp-compare\n",
+        encoding="utf-8",
+    )
+    workspace = workspaces.init_from_manifest(manifest)
+    ran = workspaces.run(workspace.workspace.workspace_id, source=source)
+    challenge.challenge(ran.claim_ids[0])
+    telemetry = _TelemetryRecorder()
+    server = create_server(challenge=challenge, telemetry=telemetry)
+
+    response = _call(server, "research_compare", {"claim_id": str(ran.claim_ids[0])})
+    assert response["ok"] is True
+    assert response["claim_id"] == str(ran.claim_ids[0])
+    assert response["entries"]
+    assert "The trial found" not in str(response)
+    assert [(event.operation_id, event.outcome) for event in telemetry.events] == [
+        ("research.compare", "success")
+    ]
+    assert str(ran.claim_ids[0]) not in repr(telemetry.events[0])
+
+    exhausted = _call(
+        server,
+        "research_compare",
+        {"claim_id": str(ran.claim_ids[0]), "max_tokens": 0},
+    )
+    assert exhausted["error"]["code"] == "content_too_large"
+    assert "treatment" not in str(exhausted)
+
+    missing = _call(server, "research_compare", {"claim_id": str(UUID(int=1))})
+    assert missing["error"]["code"] == "not_found"
+    invalid_wallet = _call(
+        server,
+        "research_compare",
+        {"claim_id": str(ran.claim_ids[0]), "max_tokens": -1},
+    )
+    assert invalid_wallet["error"]["code"] == "invalid_argument"
+
+    malformed_claim = _call(server, "research_compare", {"claim_id": "not-a-claim"})
+    assert malformed_claim["error"]["code"] == "invalid_argument"
+
+
+def test_mcp_research_compare_rejects_max_tokens_above_the_advertised_maximum(
+    tmp_path: Path,
+) -> None:
+    from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS
+    from tests.test_challenge import _challenge_stack
+
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "workspace-oversized.yaml"
+    manifest.write_text(
+        "version: 1\nkind: research_workspace\nmetadata:\n  name: mcp-compare-oversized\n",
+        encoding="utf-8",
+    )
+    workspace = workspaces.init_from_manifest(manifest)
+    ran = workspaces.run(workspace.workspace.workspace_id, source=source)
+    server = create_server(challenge=challenge)
+
+    oversized = _call(
+        server,
+        "research_compare",
+        {
+            "claim_id": str(ran.claim_ids[0]),
+            "max_tokens": DEFAULT_GET_MAX_TOKENS + 1,
+        },
+    )
+    assert oversized["error"]["code"] == "invalid_argument"
+
+
+def test_mcp_research_compare_lazily_builds_configured_service_and_reports_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "empty"))
+
+    def missing() -> object:
+        raise FileNotFoundError("challenge backend not found")
+
+    monkeypatch.setattr(mcp, "configured_challenge_service", missing)
+    unavailable = _call(
+        create_server(),
+        "research_compare",
+        {"claim_id": str(UUID(int=8))},
+    )
+    assert unavailable["error"]["code"] == "backend_unavailable"
 
 
 def test_mcp_research_get_reports_backend_failures(

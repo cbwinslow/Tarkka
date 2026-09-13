@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from tarkka.application.context_wallet import ContextWallet, WalletExhaustedError
 from tarkka.application.verification import (
     ClaimNotFoundError,
     EvidenceVerificationRequest,
@@ -102,6 +104,15 @@ class ContradictionEntry:
     verifier_name: str
     verifier_version: str
     reasoning_summary: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ContradictionComparison:
+    """A budgeted, relationship-only comparison for one persisted Claim."""
+
+    claim_id: UUID
+    entries: tuple[ContradictionEntry, ...]
+    estimated_tokens: int
 
 
 class ChallengeService:
@@ -222,6 +233,42 @@ class ChallengeService:
                 )
         return tuple(entries)
 
+    def compare(
+        self,
+        claim_id: UUID,
+        *,
+        max_tokens: int = DEFAULT_CHALLENGE_WALLET_TOKENS,
+    ) -> ContradictionComparison:
+        """Return recorded contrary relationships without expanding source or evidence text."""
+        record = self._extractions.get_extraction(claim_id)
+        if not isinstance(record, Claim):
+            raise ClaimNotFoundError(f"claim not found: {claim_id}")
+        entries = tuple(
+            ContradictionEntry(
+                claim_id=claim_id,
+                relation_id=relation.relation_id,
+                kind=relation.kind.value,
+                evidence_id=relation.evidence_id,
+                verifier_name=relation.verifier_name,
+                verifier_version=relation.verifier_version,
+                reasoning_summary=relation.reasoning_summary,
+            )
+            for relation in self._relations.list_relations(claim_id)
+            if relation.kind in _BOARD_KINDS
+        )
+        estimated_tokens = _stable_comparison_tokens(claim_id, entries)
+        wallet = ContextWallet(max_tokens)
+        if not wallet.admits(estimated_tokens):
+            raise WalletExhaustedError(
+                estimated_tokens=estimated_tokens,
+                max_tokens=wallet.max_tokens,
+            )
+        return ContradictionComparison(
+            claim_id=claim_id,
+            entries=entries,
+            estimated_tokens=estimated_tokens,
+        )
+
     def _candidate_evidence(
         self, claim: Claim, *, workspace_id: UUID | None
     ) -> tuple[Evidence, ...]:
@@ -289,17 +336,62 @@ def contradiction_board_view(entries: tuple[ContradictionEntry, ...]) -> dict[st
     return {
         "count": len(entries),
         "entries": [
-            {
-                "claim_id": str(item.claim_id),
-                "relation_id": str(item.relation_id),
-                "kind": item.kind,
-                "evidence_id": str(item.evidence_id) if item.evidence_id is not None else None,
-                "verifier_name": item.verifier_name,
-                "verifier_version": item.verifier_version,
-                "reasoning_summary": item.reasoning_summary,
-            }
+            _contradiction_entry_view(item)
             for item in entries
         ],
+    }
+
+
+def contradiction_comparison_view(result: ContradictionComparison) -> dict[str, object]:
+    """Return handles and review metadata, never underlying source or evidence text."""
+    return {
+        "claim_id": str(result.claim_id),
+        "count": len(result.entries),
+        "entries": [_contradiction_entry_view(item) for item in result.entries],
+        "estimated_tokens": result.estimated_tokens,
+    }
+
+
+def _stable_comparison_tokens(claim_id: UUID, entries: tuple[ContradictionEntry, ...]) -> int:
+    """Estimate tokens for the exact view returned, including its own embedded count.
+
+    ``estimated_tokens`` is itself serialized inside the view it measures, so a
+    single pass can under-count: widening the placeholder digits (e.g. 0 -> 100)
+    grows the serialized payload after the estimate was taken. Recompute against
+    the candidate value until it stops changing so the returned representation
+    never exceeds what the caller's wallet admitted. This always converges in a
+    handful of steps: the embedded value only ever grows by its own decimal
+    digit count, which grows far slower than the token estimate it feeds.
+    """
+    estimated = 0
+    while True:
+        candidate = estimate_tokens(
+            json.dumps(
+                contradiction_comparison_view(
+                    ContradictionComparison(
+                        claim_id=claim_id,
+                        entries=entries,
+                        estimated_tokens=estimated,
+                    )
+                ),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        if candidate == estimated:
+            return candidate
+        estimated = candidate
+
+
+def _contradiction_entry_view(item: ContradictionEntry) -> dict[str, object]:
+    return {
+        "claim_id": str(item.claim_id),
+        "relation_id": str(item.relation_id),
+        "kind": item.kind,
+        "evidence_id": str(item.evidence_id) if item.evidence_id is not None else None,
+        "verifier_name": item.verifier_name,
+        "verifier_version": item.verifier_version,
+        "reasoning_summary": item.reasoning_summary,
     }
 
 

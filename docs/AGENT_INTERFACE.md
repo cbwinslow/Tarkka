@@ -110,6 +110,14 @@ that surface:
 ```text
 research_capabilities
 research_operation_schema
+research_get
+research_expand
+research_compare
+document_manifest
+document_sections
+document_section
+retrieval_search
+```
 
 ### Local lexical retrieval
 
@@ -119,13 +127,12 @@ projection by Document ID, derivation version, configuration fingerprint, query,
 Each hit retains its segment handle and exact normalized-passage spans. The tool never creates an
 index, exposes a local path, or falls back to another projection; callers must explicitly index the
 matching projection through the CLI first.
-document_manifest
-document_sections
-document_section
-```
 
 `research_capabilities` remains the first call; it advertises transport-neutral operation handles
 without eagerly exposing every argument schema. `research_operation_schema` then loads one schema.
+`research_compare` is the compact, read-only comparison step for one Claim's recorded
+contradiction, qualification, and partial-support relationships. It returns relation handles and
+review metadata only; exact source/evidence expansion remains a separate, walleted request.
 The document tools preserve the same manifest-to-section disclosure ladder as the CLI. They return
 structured `ok`/`error` envelopes, stable error codes, and next-action hints rather than requiring
 clients to parse process stderr. Every initial tool is annotated read-only and idempotent.

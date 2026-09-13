@@ -30,6 +30,7 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.encyclopedia.compile",
         "research.encyclopedia.show",
         "research.encyclopedia.diff",
+        "research.compare",
         "research.challenge",
         "research.contradictions.list",
         "research.verify",
@@ -72,10 +73,20 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
     assert lineage_schema["inputs"][3]["maximum"] == 10_000
     assert lineage_schema["inputs"][4]["maximum"] == 100
 
+    assert main(["capabilities", "show", "research.compare"]) == 0
+
+    compare_schema = json.loads(capsys.readouterr().out)
+    assert compare_schema["operation"]["operation_id"] == "research.compare"
+    assert [field["name"] for field in compare_schema["inputs"]] == [
+        "claim_id",
+        "max_tokens",
+    ]
+    assert compare_schema["inputs"][1]["maximum"] == 8_000
+
 
 def test_capabilities_cli_rejects_unknown_operation_without_advertising_it(capsys) -> None:
-    assert main(["capabilities", "show", "research.compare"]) == 2
+    assert main(["capabilities", "show", "research.missing"]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == "error: unknown research operation: research.compare\n"
+    assert captured.err == "error: unknown research operation: research.missing\n"

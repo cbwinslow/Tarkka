@@ -59,6 +59,16 @@ payloads return `content_too_large` and never truncate source text.
 
 HTTP may later expose the same application service; this slice ships MCP first.
 
+## Compare
+
+The compact `research.compare` operation is implemented by `ChallengeService.compare` and exposed
+as the read-only MCP `research_compare` tool. It accepts one Claim UUID (or `claim:UUID` handle)
+and an optional `max_tokens` wallet. It returns only recorded contradiction, qualification, and
+partial-support relation handles plus review metadata; source/evidence text is never expanded.
+An unknown Claim returns `not_found`; an invalid wallet returns `invalid_argument`; an oversized
+comparison returns `content_too_large` with `research.get` as the next action. HTTP parity remains
+the explicit successor under #279.
+
 ## Claim lineage
 
 The semantic operation:

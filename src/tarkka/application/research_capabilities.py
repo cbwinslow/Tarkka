@@ -636,6 +636,28 @@ _OPERATION_REGISTRATIONS = (
     ),
     _OperationRegistration(
         ResearchOperation(
+            "research.compare",
+            "compare",
+            "Compare one Claim's recorded contradiction relationships.",
+            12,
+        ),
+        ChallengeService,
+        "compare",
+        (
+            ResearchField("claim_id", "uuid", True, "Stable Claim identifier."),
+            ResearchField(
+                "max_tokens",
+                "integer",
+                False,
+                "Per-request estimated-token wallet.",
+                minimum=0,
+                maximum=DEFAULT_GET_MAX_TOKENS,
+            ),
+        ),
+        "Walleted contradiction/qualification relation handles without source text.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
             "research.challenge",
             "verify",
             "Search local evidence for contrary spans without choosing a winner.",

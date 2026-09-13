@@ -20,6 +20,10 @@ from uuid import UUID
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
+from tarkka.application.challenge import (
+    ChallengeService,
+    contradiction_comparison_view,
+)
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.claim_lineage_protocol import (
     MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS as DEFAULT_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
@@ -29,6 +33,7 @@ from tarkka.application.claim_lineage_protocol import (
     claim_lineage_response,
 )
 from tarkka.application.claim_receipts import ClaimReceiptService
+from tarkka.application.context_wallet import WalletExhaustedError
 from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 from tarkka.application.document_replay import DocumentReplayer
 from tarkka.application.document_replay_protocol import (
@@ -53,12 +58,16 @@ from tarkka.application.research_capability_view import (
     research_capabilities_view,
     research_operation_schema_view,
 )
-from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
+from tarkka.application.research_get import (
+    DEFAULT_GET_MAX_TOKENS,
+    ResearchGetService,
+)
 from tarkka.application.research_get_protocol import research_expand_response, research_get_response
 from tarkka.domain.manifest import estimate_tokens
 from tarkka.domain.models import Section
 from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorder
+from tarkka.interfaces.challenge_cli import configured_challenge_service
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service as configured_claim_lineage_service,
 )
@@ -90,6 +99,7 @@ def create_server(
     lineage: ClaimLineageService | None = None,
     receipts: ClaimReceiptService | None = None,
     getter: ResearchGetService | None = None,
+    challenge: ChallengeService | None = None,
     replay: DocumentReplayer | None = None,
     telemetry: AgentUsageRecorder | None = None,
 ) -> MCPServer:
@@ -103,6 +113,7 @@ def create_server(
     lineage_reader = lineage
     receipt_reader = receipts
     get_reader = getter
+    challenge_reader = challenge
     replay_reader = replay
 
     def retrieval_service() -> DocumentRetrievalService:
@@ -150,6 +161,13 @@ def create_server(
                 lineage=lineage_service(),
             )
         return get_reader
+
+    def challenge_service() -> ChallengeService:
+        """Create the configured contradiction service only when comparison is requested."""
+        nonlocal challenge_reader
+        if challenge_reader is None:
+            challenge_reader = configured_challenge_service()
+        return challenge_reader
 
     def instrument(
         operation_id: str,
@@ -259,6 +277,49 @@ def create_server(
             max_tokens=max_tokens,
             send_to_model=send_to_model,
         )
+
+    @server.tool(
+        name="research_compare",
+        description=(
+            "Compare one Claim's recorded contradiction relationships under a token wallet."
+        ),
+        annotations=_READ_ONLY,
+    )
+    @instrument("research.compare")
+    def research_compare(
+        claim_id: object,
+        max_tokens: int = DEFAULT_GET_MAX_TOKENS,
+    ) -> dict[str, object]:
+        """Return bounded relation handles; evidence and source text stay unexpanded."""
+        parsed = _uuid_or_error(claim_id, kind="claim")
+        if isinstance(parsed, dict):
+            return parsed
+        if (
+            not isinstance(max_tokens, int)
+            or isinstance(max_tokens, bool)
+            or max_tokens > DEFAULT_GET_MAX_TOKENS
+        ):
+            return _invalid_argument_error(
+                ValueError(
+                    "max_tokens must be an integer no greater than "
+                    f"{DEFAULT_GET_MAX_TOKENS}"
+                )
+            )
+        try:
+            result = challenge_service().compare(parsed, max_tokens=max_tokens)
+        except WalletExhaustedError as exc:
+            return _error(
+                "content_too_large",
+                str(exc),
+                next_actions=("research.get",),
+            )
+        except LookupError as exc:
+            return _not_found_error(exc, "research.get")
+        except ValueError as exc:
+            return _invalid_argument_error(exc)
+        except (OSError, RuntimeError) as exc:
+            return _unavailable_error(exc)
+        return {"ok": True, **contradiction_comparison_view(result)}
 
     @server.tool(
         name="claim_lineage",

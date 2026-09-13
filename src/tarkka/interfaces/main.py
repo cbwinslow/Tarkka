@@ -154,6 +154,7 @@ from tarkka.ports.context_packages import DocumentContextPackageStore
 from tarkka.ports.extraction import StructuredExtractor
 from tarkka.ports.repositories import ResearchRepository
 from tarkka.ports.retrieval import LexicalRetrievalQuery
+from tarkka.runtime.settings import TarkkaSettings, resolve_document_backend
 
 _MAX_CITATION_PAGE_SIZE = 100
 _MAX_CITATION_OFFSET = 10_000
@@ -165,7 +166,7 @@ _MAX_VERIFICATION_OFFSET = 10_000
 
 
 def _home() -> Path:
-    return Path(os.environ.get("TARKKA_HOME", "~/.tarkka")).expanduser().resolve()
+    return TarkkaSettings.from_environment().home
 
 
 def _parse_snapshot_id(raw: str) -> UUID:
@@ -276,14 +277,7 @@ def _document_repository() -> JsonResearchRepository:
 
 
 def _document_backend() -> str:
-    raw_backend = os.environ.get("TARKKA_DOCUMENT_BACKEND", "")
-    backend = raw_backend.strip().lower() or "json"
-    if backend in {"json", "postgres"}:
-        return backend
-    raise ValueError(
-        "unsupported TARKKA_DOCUMENT_BACKEND "
-        f"{raw_backend!r}; supported values are 'json' and 'postgres'"
-    )
+    return resolve_document_backend()
 
 
 def _document_retrieval_repository() -> ResearchRepository:

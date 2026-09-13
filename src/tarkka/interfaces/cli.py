@@ -50,6 +50,7 @@ from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.ports.discovery import DiscoveryProvider
 from tarkka.ports.parsing import DocumentParser
 from tarkka.ports.works import WorkRepository
+from tarkka.runtime.settings import TarkkaSettings, resolve_work_backend
 
 _PROVIDER_NAMES = (
     OpenAlexProvider.name,
@@ -60,7 +61,7 @@ _PROVIDER_NAMES = (
 
 
 def _home() -> Path:
-    return Path(os.environ.get("TARKKA_HOME", "~/.tarkka")).expanduser().resolve()
+    return TarkkaSettings.from_environment().home
 
 
 def _runtime() -> tuple[LocalArtifactStore, JsonResearchRepository, JsonlAcquisitionLog]:
@@ -73,16 +74,9 @@ def _runtime() -> tuple[LocalArtifactStore, JsonResearchRepository, JsonlAcquisi
 
 
 def _work_repository() -> WorkRepository:
-    raw_backend = os.environ.get("TARKKA_WORK_BACKEND", "")
-    backend = raw_backend.strip().lower() or "json"
-    if backend == "json":
+    if resolve_work_backend() == "json":
         return JsonWorkRepository(_home() / "works.json")
-    if backend == "postgres":
-        return PostgresWorkRepository(PostgresSettings.from_environment())
-    raise ValueError(
-        "unsupported TARKKA_WORK_BACKEND "
-        f"{raw_backend!r}; supported values are 'json' and 'postgres'"
-    )
+    return PostgresWorkRepository(PostgresSettings.from_environment())
 
 
 def _citation_repository() -> JsonCitationRepository:

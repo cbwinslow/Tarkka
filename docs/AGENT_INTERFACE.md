@@ -4,6 +4,10 @@
 
 Make the platform equally usable by Claude, Codex, ChatGPT, IDE agents, local agents, and custom automation without encoding vendor-specific behavior in the research core.
 
+To connect a specific client (Claude Code, Codex CLI, Claude Desktop) to the running MCP server,
+see [`MCP_CLIENT_SETUP.md`](MCP_CLIENT_SETUP.md). This document covers interface design, not client
+wiring.
+
 ## Interface principle
 
 Agents consume **stable research services**, not raw database tables.

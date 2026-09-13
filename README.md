@@ -236,6 +236,9 @@ capabilities
 Agents should retrieve the smallest representation that can answer the current question, then expand
 only when necessary. See `AGENTS.md`, `CLAUDE.md`, and `docs/CONTEXT_EFFICIENCY.md`.
 
+To connect Claude Code, Codex CLI, or Claude Desktop to a running `tarkka-mcp` server, see
+[`docs/MCP_CLIENT_SETUP.md`](docs/MCP_CLIENT_SETUP.md).
+
 `AGENTS.md` is the shared repository instruction file for Codex, Claude, and other coding agents.
 `CLAUDE.md` contains only Claude-specific context-loading guidance so architectural rules are not
 duplicated.
@@ -316,6 +319,7 @@ For users, start with:
 
 1. `docs/QUICKSTART_PROOF_REPLAY.md`
 2. `docs/PROOF_BUNDLES.md`
+3. `docs/MCP_CLIENT_SETUP.md`
 
 For contributors and coding agents, start with:
 

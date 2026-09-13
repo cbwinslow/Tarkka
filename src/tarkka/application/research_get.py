@@ -12,6 +12,7 @@ from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.application.claim_receipt_view import claim_receipt_view, document_brief_view
 from tarkka.application.claim_receipts import ClaimReceiptService
+from tarkka.application.context_wallet import ContextWallet, WalletExhaustedError
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.encyclopedia import EncyclopediaNotFoundError, EncyclopediaService
 from tarkka.domain.manifest import estimate_tokens
@@ -31,18 +32,6 @@ class ResourceKind(StrEnum):
     CLAIM = "claim"
     DOCUMENT = "document"
     ARTICLE = "article"
-
-
-class WalletExhaustedError(ValueError):
-    """Raised when a representation would exceed the caller token wallet."""
-
-    def __init__(self, *, estimated_tokens: int, max_tokens: int) -> None:
-        super().__init__(
-            "representation exceeds the configured estimated-token maximum: "
-            f"estimated_tokens={estimated_tokens}, max_tokens={max_tokens}"
-        )
-        self.estimated_tokens = estimated_tokens
-        self.max_tokens = max_tokens
 
 
 class ModelDispatchDeniedError(PermissionError):
@@ -83,22 +72,6 @@ class AllowAllModelDispatch:
     def may_send_to_model(self, resource_id: str) -> bool:
         del resource_id
         return True
-
-
-@dataclass(frozen=True, slots=True)
-class ContextWallet:
-    """Per-request estimated-token ceiling. Clients keep session remaining tokens."""
-
-    max_tokens: int
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.max_tokens, int) or isinstance(self.max_tokens, bool):
-            raise ValueError("wallet max_tokens must be an integer")
-        if self.max_tokens < 0:
-            raise ValueError("wallet max_tokens must be non-negative")
-
-    def admits(self, estimated_tokens: int) -> bool:
-        return estimated_tokens <= self.max_tokens
 
 
 @dataclass(frozen=True, slots=True)

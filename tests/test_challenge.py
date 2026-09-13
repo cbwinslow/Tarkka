@@ -203,6 +203,33 @@ def test_challenge_unknown_claim_and_workspace(tmp_path: Path) -> None:
         bare.list_contradictions(UUID(int=1))
 
 
+def test_compare_returns_only_recorded_relationship_handles_and_respects_wallet(
+    tmp_path: Path,
+) -> None:
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "ws.yaml"
+    manifest.write_text(
+        "version: 1\nkind: research_workspace\nmetadata:\n  name: compare-demo\n",
+        encoding="utf-8",
+    )
+    workspace = workspaces.init_from_manifest(manifest)
+    ran = workspaces.run(workspace.workspace.workspace_id, source=source)
+    claim_id = ran.claim_ids[0]
+    challenge.challenge(claim_id)
+
+    comparison = challenge.compare(claim_id)
+    assert comparison.claim_id == claim_id
+    assert comparison.entries
+    assert all(item.kind == "contradicts" for item in comparison.entries)
+    assert all(_CONFLICT_TEXT not in str(item) for item in comparison.entries)
+    from tarkka.application.context_wallet import WalletExhaustedError
+
+    with pytest.raises(WalletExhaustedError):
+        challenge.compare(claim_id, max_tokens=0)
+    with pytest.raises(ClaimNotFoundError):
+        challenge.compare(UUID(int=1))
+
+
 
 def test_challenge_cli(
     tmp_path: Path,

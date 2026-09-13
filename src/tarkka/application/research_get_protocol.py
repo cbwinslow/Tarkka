@@ -14,6 +14,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineagePaginationError,
 )
 from tarkka.application.claim_lineage_protocol import agent_error
+from tarkka.application.context_wallet import WalletExhaustedError
 from tarkka.application.document_retrieval import DocumentNotFoundError
 from tarkka.application.encyclopedia import EncyclopediaNotFoundError
 from tarkka.application.research_get import (
@@ -22,7 +23,6 @@ from tarkka.application.research_get import (
     ResearchGetService,
     UnknownExpandIncludeError,
     UnknownRepresentationError,
-    WalletExhaustedError,
 )
 from tarkka.application.research_get_view import research_get_view
 

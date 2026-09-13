@@ -49,6 +49,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.encyclopedia.compile",
         "research.encyclopedia.show",
         "research.encyclopedia.diff",
+        "research.compare",
         "research.challenge",
         "research.contradictions.list",
         "research.verify",
@@ -84,6 +85,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (EncyclopediaService, "compile"),
         (EncyclopediaService, "show_article"),
         (EncyclopediaService, "diff"),
+        (ChallengeService, "compare"),
         (ChallengeService, "challenge"),
         (ChallengeService, "list_contradictions"),
         (EvidenceVerificationService, "record"),
@@ -107,6 +109,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     brief = research_operation_schema("research.documents.brief")
     getter = research_operation_schema("research.get")
     expand = research_operation_schema("research.expand")
+    compare = research_operation_schema("research.compare")
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
     context = research_operation_schema("research.verify.context")
@@ -207,6 +210,12 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
         "send_to_model",
     ]
     assert expand.inputs[1].allowed_values == ("evidence", "full")
+    assert [field.name for field in compare.inputs] == ["claim_id", "max_tokens"]
+    assert compare.inputs[1].minimum == 0
+    assert compare.inputs[1].maximum == 8_000
+    assert compare.result_summary == (
+        "Walleted contradiction/qualification relation handles without source text."
+    )
 
     assert [field.name for field in verify.inputs] == [
         "claim_id",
@@ -262,9 +271,9 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     assert resource.result_summary == (
         "One exact resource link with preserved native metadata; target resolution is separate."
     )
-    with pytest.raises(UnknownResearchOperationError, match="research.compare") as error:
-        research_operation_schema("research.compare")
-    assert error.value.operation_id == "research.compare"
+    with pytest.raises(UnknownResearchOperationError, match="research.missing") as error:
+        research_operation_schema("research.missing")
+    assert error.value.operation_id == "research.missing"
 
 
 def test_research_field_rejects_invalid_schema_metadata() -> None:

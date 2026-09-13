@@ -8,6 +8,33 @@
 
 Build a free, open-source, domain-agnostic research infrastructure platform that turns heterogeneous research sources into structured, evidence-linked, reproducible, agent-friendly knowledge.
 
+## Positioning
+
+Tarkka does not compete primarily as another "chat with papers" or generic RAG interface. The
+differentiated product is the **trusted, inspectable research state underneath humans and agents**.
+
+> **North star:** a third party can inspect, replay, and challenge a research result without
+> trusting the original agent, model, or machine that produced it.
+
+The domain-agnostic platform described in the Mission above is the long-run ambition; the initial
+wedge — and the thing that should be true before any domain pack or breadth work is prioritized — is
+narrower and concrete:
+
+1. a deterministic, LLM-optional core whose output a third party can verify without re-running any
+   model (`tarkka why`, `tarkka bundle verify`, `tarkka replay`, `tarkka diff`);
+2. claims, evidence, citations, and inference kept as distinct, separately provenanced layers, so
+   nothing generated is mistaken for something a source actually said;
+3. a contradiction/challenge board that surfaces disagreement between sources instead of collapsing
+   it into one opaque confidence score;
+4. an agent-facing interface (MCP/CLI) that treats context as a budget — capability discovery,
+   progressive disclosure, and an explicit per-request token wallet are load-bearing contracts, not
+   optional polish.
+
+Full rationale and the execution checklist live in issue #198; keep this document's positioning in
+sync with that issue rather than letting them drift apart. Domain packs (Phase 7+ in
+`docs/ROADMAP.md`) exist to prove the core is genuinely domain-agnostic once the wedge above is
+solid — they are validation, not the initial pitch.
+
 ## Problem
 
 Research is fragmented across papers, websites, reports, books, datasets, code repositories, institutional publications, spreadsheets, presentations, and private collections. Existing tools usually solve only one layer:

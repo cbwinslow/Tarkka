@@ -30,6 +30,25 @@ staging outcome, artifact/document handles, terminal pipeline stage, and bounded
 MISSING and HASH_MISMATCH artifacts never invoke ingestion. Do not treat this runner as a benchmark
 or invoke network fetches from ordinary CI.
 
+### `tarkka eval`
+
+`tarkka eval` wires the staged-artifact runner above to the real local ingest, proof-bundle,
+verification, and replay services (not a test double) and prints a deterministic JSON report:
+
+```bash
+tarkka eval --recipe tests/fixtures/evaluation/real_world_sources.json \
+  --staged-root .tarkka/real-world-corpus
+```
+
+It never fetches the network. A source recipe entry with no staged bytes at `--staged-root` is
+reported with `staged_status: "missing"` and `stage: "not_staged"` — an expected outcome, not a
+failure, and carries `error: null`. Each recipe entry's terminal `stage` is one of `not_staged`,
+`ingest`, `proof`, `verify`, `replay`, or `complete`; a failed `ingest`/`proof`/`verify`/`replay`
+stage carries a bounded (512-character) `error` string describing the failure. Exit status is `0`
+only when every recipe entry reaches `complete`, so it composes with CI gating. See
+[`EVALUATION_RESULTS.md`](EVALUATION_RESULTS.md) for what this reports in an environment with no
+downloaded corpus, and for what publishing real measured results requires.
+
 Hybrid retrieval can be evaluated offline before any staged source is available: provide versioned
 query IDs, explicit relevant RetrievalSegment handles, and the ordered candidate handles to
 `tarkka.evaluation.evaluate_retrieval`. The report exposes per-query precision/recall at K and

@@ -320,6 +320,7 @@ For users, start with:
 1. `docs/QUICKSTART_PROOF_REPLAY.md`
 2. `docs/PROOF_BUNDLES.md`
 3. `docs/MCP_CLIENT_SETUP.md`
+4. `docs/EVALUATION_CORPUS.md` and `docs/EVALUATION_RESULTS.md`
 
 For contributors and coding agents, start with:
 

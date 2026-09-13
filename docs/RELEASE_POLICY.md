@@ -31,8 +31,8 @@ Before `1.0.0`, Tarkka follows these rules:
   affected versions.
 - `1.0.0` requires an explicit architecture decision and a stronger long-term compatibility
   commitment; it is not created by routine feature work.
-- Prereleases use standard PEP 440 identifiers in package metadata and a matching Git tag such as
-  `v0.2.0rc1`. They are not the supported channel.
+- Prereleases use PEP 440 alpha, beta, or release-candidate identifiers in package metadata and a
+  matching Git tag such as `v0.2.0rc1`. They are not the supported channel.
 
 The existing proof-bundle schemas and conformance API have their own compatibility rules. See
 [`PROOF_BUNDLES.md`](PROOF_BUNDLES.md), [`CONFORMANCE.md`](CONFORMANCE.md), and
@@ -53,6 +53,10 @@ Each GitHub Release contains:
 Users may download the wheel from a GitHub Release and install it locally with
 `python -m pip install ./tarkka-<version>-py3-none-any.whl`. This is an installation option, not a
 claim that `pip install tarkka` works from PyPI.
+
+Release notes are committed before tagging at `docs/releases/v<version>.md`. The tag-driven
+workflow refuses to publish a GitHub Release without that exact file, so reviewable notes exist
+alongside the source they describe.
 
 ## Release checklist
 

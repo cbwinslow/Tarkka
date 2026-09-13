@@ -1,0 +1,112 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: github-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  PACKAGE_PYTHON: "3.13"
+
+jobs:
+  build-and-publish:
+    name: Build and publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: ${{ env.PACKAGE_PYTHON }}
+          enable-cache: false
+
+      - name: Verify tag, version, and release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
+            echo "Release tag must be vMAJOR.MINOR.PATCH or a supported prerelease tag."
+            exit 1
+          fi
+          package_version="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          print(project["project"]["version"])
+          PY
+          )"
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "Tag version $tag_version does not match package version $package_version."
+            exit 1
+          fi
+          release_notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [[ ! -f "$release_notes" ]]; then
+            echo "Missing required release notes: $release_notes"
+            exit 1
+          fi
+          printf 'RELEASE_NOTES_PATH=%s\n' "$release_notes" >> "$GITHUB_ENV"
+
+      - name: Verify lockfile
+        run: uv lock --check
+
+      - name: Build wheel and source distribution
+        run: uv build --out-dir dist
+
+      - name: Verify build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          test "${#wheels[@]}" -eq 1
+          test "${#sdists[@]}" -eq 1
+          python -m zipfile -l "${wheels[0]}" | grep 'tarkka/'
+
+      - name: Install wheel into clean environment
+        run: |
+          uv venv --python "$PACKAGE_PYTHON" .release-wheel-venv
+          uv pip install --python .release-wheel-venv/bin/python dist/*.whl
+          .release-wheel-venv/bin/python -c "import tarkka"
+          .release-wheel-venv/bin/tarkka --help
+
+      - name: Install source distribution into clean environment
+        run: |
+          uv venv --python "$PACKAGE_PYTHON" .release-sdist-venv
+          uv pip install --python .release-sdist-venv/bin/python dist/*.tar.gz
+          .release-sdist-venv/bin/python -c "import tarkka"
+          .release-sdist-venv/bin/tarkka --help
+
+      - name: Create artifact checksums
+        shell: bash
+        run: sha256sum dist/*.whl dist/*.tar.gz > dist/SHA256SUMS
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME"; then
+            echo "A release already exists for $GITHUB_REF_NAME; refusing to overwrite it."
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.whl dist/*.tar.gz dist/SHA256SUMS \
+            --verify-tag \
+            --title "Tarkka $GITHUB_REF_NAME" \
+            --notes-file "$RELEASE_NOTES_PATH"

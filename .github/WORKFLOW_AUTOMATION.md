@@ -97,9 +97,10 @@ Keep path-filtered workflows such as package and Docling validation out of the g
 3. Release automation
    - public release policy is defined in `docs/RELEASE_POLICY.md` (issue #392): GitHub Releases
      first, with PyPI deliberately deferred
-   - then add tag-driven builds, GitHub Release artifacts, and optional PyPI trusted publishing
-   - not yet started: the package is not published anywhere, and automation must not bypass the
-     release-policy checklist
+   - tag-driven build and GitHub Release artifacts are defined in `.github/workflows/release.yml`
+     (issue #394); a release remains blocked unless its tag, package metadata, and committed notes
+     agree
+   - optional PyPI trusted publishing remains a separately approved future decision
 
 4. Reviewer operations
    - Codex automatic GitHub code review is prohibited for this repository; do not enable it or

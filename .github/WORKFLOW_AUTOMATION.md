@@ -95,10 +95,11 @@ Keep path-filtered workflows such as package and Docling validation out of the g
      documented owner bypass below when a stale/non-required review state is the only blocker
 
 3. Release automation
-   - finalize the project license and public package/release policy first
+   - public release policy is defined in `docs/RELEASE_POLICY.md` (issue #392): GitHub Releases
+     first, with PyPI deliberately deferred
    - then add tag-driven builds, GitHub Release artifacts, and optional PyPI trusted publishing
-   - not yet started: the license is finalized (Apache-2.0), but no public package/release policy
-     has been decided, and the package is not yet published anywhere
+   - not yet started: the package is not published anywhere, and automation must not bypass the
+     release-policy checklist
 
 4. Reviewer operations
    - Codex automatic GitHub code review is prohibited for this repository; do not enable it or

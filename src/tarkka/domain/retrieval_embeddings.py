@@ -57,9 +57,7 @@ class SegmentEmbedding:
             raise ValueError("embedding normalization must be an EmbeddingNormalization")
         if not isinstance(self.values, tuple) or not self.values:
             raise ValueError("embedding values must be a non-empty tuple")
-        if any(
-            not isinstance(value, float) or not math.isfinite(value) for value in self.values
-        ):
+        if any(not isinstance(value, float) or not math.isfinite(value) for value in self.values):
             raise ValueError("embedding values must be finite floats")
         if (
             not isinstance(self.dimension, int)
@@ -133,3 +131,72 @@ def _embedding_id(embedding: SegmentEmbedding) -> UUID:
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return uuid5(NAMESPACE_URL, f"tarkka:retrieval-embedding:{digest}")
+
+
+@dataclass(frozen=True, slots=True)
+class QueryEmbedding:
+    """One immutable embedding for an external query, separate from source segments."""
+
+    query_id: UUID
+    text_digest: str
+    model_identifier: str
+    model_revision: str
+    configuration_fingerprint: str
+    normalization: EmbeddingNormalization
+    values: tuple[float, ...]
+    dimension: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.query_id, UUID):
+            raise ValueError("query embedding query_id must be a UUID")
+        if not isinstance(self.text_digest, str) or len(self.text_digest) != 64:
+            raise ValueError("query embedding text_digest must be a SHA-256 digest")
+        try:
+            int(self.text_digest, 16)
+        except ValueError as exc:
+            raise ValueError("query embedding text_digest must be a SHA-256 digest") from exc
+        for name, value in (
+            ("model_identifier", self.model_identifier),
+            ("model_revision", self.model_revision),
+            ("configuration_fingerprint", self.configuration_fingerprint),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"query embedding {name} must not be blank")
+        if not isinstance(self.normalization, EmbeddingNormalization):
+            raise ValueError("query embedding normalization must be an EmbeddingNormalization")
+        if not isinstance(self.values, tuple) or not self.values:
+            raise ValueError("query embedding values must be a non-empty tuple")
+        if any(not isinstance(value, float) or not math.isfinite(value) for value in self.values):
+            raise ValueError("query embedding values must be finite floats")
+        if self.dimension != len(self.values):
+            raise ValueError("query embedding dimension must match vector length")
+        if self.normalization is EmbeddingNormalization.L2 and not math.isclose(
+            math.fsum(value * value for value in self.values), 1.0, rel_tol=1e-9, abs_tol=1e-9
+        ):
+            raise ValueError("L2-normalized query embedding values must have unit length")
+
+    @classmethod
+    def for_query(
+        cls,
+        query_id: UUID,
+        text: str,
+        *,
+        model_identifier: str,
+        model_revision: str,
+        configuration_fingerprint: str,
+        normalization: EmbeddingNormalization,
+        values: tuple[float, ...],
+    ) -> QueryEmbedding:
+        """Derive a stable query embedding without representing it as source content."""
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("query embedding text must be non-blank")
+        return cls(
+            query_id=query_id,
+            text_digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            model_identifier=model_identifier,
+            model_revision=model_revision,
+            configuration_fingerprint=configuration_fingerprint,
+            normalization=normalization,
+            values=values,
+            dimension=len(values),
+        )

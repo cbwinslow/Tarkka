@@ -7,22 +7,22 @@ from math import isfinite
 from typing import Protocol
 from uuid import UUID
 
-from tarkka.domain.retrieval_embeddings import SegmentEmbedding
+from tarkka.domain.retrieval_embeddings import QueryEmbedding, SegmentEmbedding
 
 
 @dataclass(frozen=True, slots=True)
 class VectorCandidateQuery:
     """One bounded vector lookup scoped to an exact retrieval projection."""
 
-    query_embedding: SegmentEmbedding
+    query_embedding: SegmentEmbedding | QueryEmbedding
     document_id: UUID
     segment_derivation_version: str
     segment_configuration_fingerprint: str
     limit: int = 10
 
     def __post_init__(self) -> None:
-        if not isinstance(self.query_embedding, SegmentEmbedding):
-            raise ValueError("vector candidate query requires a SegmentEmbedding")
+        if not isinstance(self.query_embedding, (SegmentEmbedding, QueryEmbedding)):
+            raise ValueError("vector candidate query requires an embedding")
         if not isinstance(self.document_id, UUID):
             raise ValueError("vector candidate query document_id must be a UUID")
         for name, value in (

@@ -7,7 +7,7 @@ from uuid import UUID
 
 from tarkka.application.lexical_retrieval import RetrievalIndexNotFoundError
 from tarkka.domain.retrieval import RetrievalSegment
-from tarkka.domain.retrieval_embeddings import SegmentEmbedding
+from tarkka.domain.retrieval_embeddings import QueryEmbedding, SegmentEmbedding
 from tarkka.ports.embedding_stores import EmbeddingStore
 from tarkka.ports.retrieval_indexes import RetrievalSegmentStore
 from tarkka.ports.vector_retrieval import (
@@ -57,7 +57,8 @@ class VectorCandidateRetrievalService:
         *,
         derivation_version: str,
         configuration_fingerprint: str,
-        query_embedding_id: UUID,
+        query_embedding_id: UUID | None = None,
+        query_embedding: QueryEmbedding | None = None,
         limit: int = 10,
     ) -> tuple[VectorRetrievalHit, ...]:
         """Return candidates without mixing projection or model derivations."""
@@ -76,19 +77,26 @@ class VectorCandidateRetrievalService:
                 derivation_version=derivation_version,
                 configuration_fingerprint=configuration_fingerprint,
             )
-        query_embedding = self._embeddings.get(query_embedding_id)
-        if query_embedding is None:
-            raise VectorCandidateRetrievalError(
-                f"embedding derivation not found: {query_embedding_id}"
-            )
+        if (query_embedding_id is None) == (query_embedding is None):
+            raise ValueError("provide exactly one vector query embedding")
         segments = {segment.segment_id: segment for segment in projection.segments}
-        query_segment = segments.get(query_embedding.segment_id)
-        if query_segment is None or not _matches_segment(query_embedding, query_segment):
-            raise VectorCandidateProvenanceError(
-                f"query embedding does not belong to requested projection: {query_embedding_id}"
-            )
+        if query_embedding is None:
+            assert query_embedding_id is not None
+            stored_query = self._embeddings.get(query_embedding_id)
+            if stored_query is None:
+                raise VectorCandidateRetrievalError(
+                    f"embedding derivation not found: {query_embedding_id}"
+                )
+            query_segment = segments.get(stored_query.segment_id)
+            if query_segment is None or not _matches_segment(stored_query, query_segment):
+                raise VectorCandidateProvenanceError(
+                    f"query embedding does not belong to requested projection: {query_embedding_id}"
+                )
+            resolved_query: SegmentEmbedding | QueryEmbedding = stored_query
+        else:
+            resolved_query = query_embedding
         request = VectorCandidateQuery(
-            query_embedding=query_embedding,
+            query_embedding=resolved_query,
             document_id=document_id,
             segment_derivation_version=derivation_version,
             segment_configuration_fingerprint=configuration_fingerprint,
@@ -100,13 +108,13 @@ class VectorCandidateRetrievalService:
             raise VectorCandidateRetrievalError(
                 f"vector candidate retrieval failed for embedding {query_embedding_id}"
             ) from exc
-        return self._hits(candidates, segments, query_embedding, limit)
+        return self._hits(candidates, segments, resolved_query, limit)
 
     def _hits(
         self,
         candidates: tuple[VectorCandidate, ...],
         segments: dict[UUID, RetrievalSegment],
-        query_embedding: SegmentEmbedding,
+        query_embedding: SegmentEmbedding | QueryEmbedding,
         limit: int,
     ) -> tuple[VectorRetrievalHit, ...]:
         if len(candidates) > limit:
@@ -125,8 +133,10 @@ class VectorCandidateRetrievalService:
                     f"vector retriever returned an unknown embedding: {candidate.embedding_id}"
                 )
             segment = segments.get(embedding.segment_id)
-            if segment is None or not _matches_segment(embedding, segment) or not _matches_model(
-                embedding, query_embedding
+            if (
+                segment is None
+                or not _matches_segment(embedding, segment)
+                or not _matches_model(embedding, query_embedding)
             ):
                 raise VectorCandidateProvenanceError(
                     f"vector retriever returned incompatible embedding: {candidate.embedding_id}"
@@ -159,7 +169,7 @@ def _matches_segment(embedding: SegmentEmbedding, segment: RetrievalSegment) -> 
     )
 
 
-def _matches_model(candidate: SegmentEmbedding, query: SegmentEmbedding) -> bool:
+def _matches_model(candidate: SegmentEmbedding, query: SegmentEmbedding | QueryEmbedding) -> bool:
     """Return whether candidate and query use the same vector derivation contract."""
     return (
         candidate.model_identifier == query.model_identifier

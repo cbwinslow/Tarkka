@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,17 @@ from tarkka.infrastructure.proof_bundles import ProofBundleVerificationError
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
 _RECIPE_SCHEMA = {"schema_version": 1, "items": []}
+
+
+@contextmanager
+def _forbid_network(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Fail fast if the real-pipeline path ever reaches outbound network access."""
+
+    def _blocked(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("tarkka eval must never open a network socket")
+
+    monkeypatch.setattr(socket.socket, "connect", _blocked)
+    yield
 
 
 def _recipe_item(
@@ -78,6 +92,7 @@ def test_eval_cli_reports_missing_sources_without_touching_network(
 
 def test_eval_cli_runs_the_real_pipeline_end_to_end_for_a_ready_source(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     staged_root = tmp_path / "staged"
@@ -85,9 +100,10 @@ def test_eval_cli_runs_the_real_pipeline_end_to_end_for_a_ready_source(
     recipe = tmp_path / "recipe.json"
     _write_recipe(recipe, [_recipe_item(sha256=digest)])
 
-    exit_code = eval_cli.main(
-        ["--recipe", str(recipe), "--staged-root", str(staged_root)]
-    )
+    with _forbid_network(monkeypatch):
+        exit_code = eval_cli.main(
+            ["--recipe", str(recipe), "--staged-root", str(staged_root)]
+        )
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
@@ -177,6 +193,29 @@ def test_eval_cli_reports_a_failed_verification_as_a_verify_stage_error(
     assert "fixture-forced verification failure" in run["error"]
 
 
+def test_eval_cli_bounds_an_oversized_error_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    staged_root = tmp_path / "staged"
+    digest = _stage(staged_root, "smoke.txt", b"content whose verification error will be huge\n")
+    recipe = tmp_path / "recipe.json"
+    _write_recipe(recipe, [_recipe_item(sha256=digest)])
+
+    def _raise(data: bytes) -> None:
+        raise ProofBundleVerificationError("x" * 10_000)
+
+    monkeypatch.setattr(eval_cli, "verify_proof_bundle_bytes", _raise)
+
+    eval_cli.main(["--recipe", str(recipe), "--staged-root", str(staged_root)])
+    payload = json.loads(capsys.readouterr().out)
+
+    error = payload["runs"][0]["error"]
+    assert len(error) == 512
+    assert error.endswith("...")
+
+
 def test_eval_cli_writes_the_same_report_to_an_output_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -198,6 +237,36 @@ def test_eval_cli_writes_the_same_report_to_an_output_file(
     stdout = capsys.readouterr().out
 
     assert output.read_text(encoding="utf-8") == stdout
+
+
+def test_eval_cli_reports_an_unwritable_output_path_without_losing_the_report(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    recipe = tmp_path / "recipe.json"
+    _write_recipe(recipe, [_recipe_item(sha256="0" * 64)])
+    # A directory can never be opened for writing as a file.
+    unwritable_output = tmp_path
+
+    exit_code = eval_cli.main(
+        [
+            "--recipe",
+            str(recipe),
+            "--staged-root",
+            str(tmp_path / "staged"),
+            "--output",
+            str(unwritable_output),
+        ]
+    )
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    problem = json.loads(captured.err)
+
+    assert exit_code == 2
+    assert report["ok"] is True
+    assert report["total"] == 1
+    assert problem["ok"] is False
+    assert problem["code"] == "invalid_output_path"
 
 
 def test_eval_cli_reports_a_missing_recipe_path_as_invalid_recipe(

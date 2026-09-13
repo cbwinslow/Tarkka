@@ -109,10 +109,13 @@ class _RealStagedCorpusPipeline:
             raise RuntimeError(str(exc)) from exc
 
     def replay(self, proof: bytes) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".tarkka.zip") as handle:
-            handle.write(proof)
-            handle.flush()
-            result = replay_proof_bundle(Path(handle.name), default_replay_registry())
+        # A NamedTemporaryFile kept open while replay_proof_bundle() reopens it by path is not
+        # portable: Windows can block or fail that second open while the first handle is live.
+        # A plain file inside a TemporaryDirectory has no such restriction on any platform.
+        with tempfile.TemporaryDirectory(prefix="tarkka-eval-replay-") as directory:
+            path = Path(directory) / "bundle.tarkka.zip"
+            path.write_bytes(proof)
+            result = replay_proof_bundle(path, default_replay_registry())
         if not result.matched:
             raise ReplayMismatchError(
                 f"replay produced {len(result.mismatches)} content mismatch(es)"
@@ -133,6 +136,15 @@ def _run_recipe(recipe_path: Path, staged_root: Path) -> StagedCorpusReport:
             return run_staged_corpus(sources, staged_root, pipeline)
 
 
+_MAX_ERROR_DETAIL_CHARS = 512
+
+
+def _bounded_error(error: str | None) -> str | None:
+    if error is None or len(error) <= _MAX_ERROR_DETAIL_CHARS:
+        return error
+    return error[: _MAX_ERROR_DETAIL_CHARS - 3] + "..."
+
+
 def _run_view(run: StagedCorpusRun) -> dict[str, object]:
     return {
         "source_id": run.source.source_id,
@@ -140,7 +152,7 @@ def _run_view(run: StagedCorpusRun) -> dict[str, object]:
         "stage": run.stage.value,
         "artifact_id": str(run.artifact_id) if run.artifact_id is not None else None,
         "document_id": str(run.document_id) if run.document_id is not None else None,
-        "error": run.error,
+        "error": _bounded_error(run.error),
     }
 
 
@@ -166,9 +178,14 @@ def _cmd_eval(args: argparse.Namespace) -> int:
 
     view = _report_view(report)
     output = json.dumps({"ok": True, **view}, indent=2, sort_keys=True)
-    if args.output:
-        Path(args.output).expanduser().write_text(output + "\n", encoding="utf-8")
     print(output)
+    if args.output:
+        try:
+            Path(args.output).expanduser().write_text(output + "\n", encoding="utf-8")
+        except OSError as exc:
+            problem = {"ok": False, "code": "invalid_output_path", "detail": str(exc)}
+            print(json.dumps(problem), file=sys.stderr)
+            return 2
     return 0 if view["total"] == view["complete"] else 1
 
 

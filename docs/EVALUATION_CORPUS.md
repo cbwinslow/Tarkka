@@ -42,9 +42,10 @@ tarkka eval --recipe tests/fixtures/evaluation/real_world_sources.json \
 
 It never fetches the network. A source recipe entry with no staged bytes at `--staged-root` is
 reported with `staged_status: "missing"` and `stage: "not_staged"` — an expected outcome, not a
-failure. Each recipe entry's terminal `stage` is one of `not_staged`, `ingest`, `proof`, `verify`,
-`replay`, or `complete`; a non-`complete` terminal stage carries a bounded `error` string. Exit
-status is `0` only when every recipe entry reaches `complete`, so it composes with CI gating. See
+failure, and carries `error: null`. Each recipe entry's terminal `stage` is one of `not_staged`,
+`ingest`, `proof`, `verify`, `replay`, or `complete`; a failed `ingest`/`proof`/`verify`/`replay`
+stage carries a bounded (512-character) `error` string describing the failure. Exit status is `0`
+only when every recipe entry reaches `complete`, so it composes with CI gating. See
 [`EVALUATION_RESULTS.md`](EVALUATION_RESULTS.md) for what this reports in an environment with no
 downloaded corpus, and for what publishing real measured results requires.
 

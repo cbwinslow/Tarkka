@@ -5,11 +5,19 @@ from uuid import UUID
 import pytest
 
 from tarkka.application.challenge import ChallengeService
-from tarkka.application.context_wallet import ContextWalletService
+from tarkka.application.context_wallet import (
+    ContextWalletPersistenceError,
+    ContextWalletRecord,
+    ContextWalletService,
+    InvalidContextWalletHandleError,
+    UnknownContextWalletError,
+    parse_context_wallet_handle,
+)
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_get import ModelDispatchDeniedError, ResearchGetService
 from tarkka.application.research_get_protocol import research_get_response
 from tarkka.application.verification import EvidenceVerificationService
+from tarkka.domain.models import utc_now
 from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -151,3 +159,49 @@ def test_wallet_denials_do_not_spend_and_json_store_excludes_research_data(tmp_p
     assert "alpha" not in payload
     assert str(UUID(int=8)) not in payload
     assert "resource_id" not in payload
+
+
+class _BrokenStore:
+    def create(self, record):
+        del record
+        raise OSError("nope")
+
+    def get(self, wallet_id):
+        del wallet_id
+        raise OSError("nope")
+
+    def commit_success(self, wallet_id, operation_key, estimated_tokens, completed_at):
+        del wallet_id, operation_key, estimated_tokens, completed_at
+        raise OSError("nope")
+
+
+def test_wallet_validation_unknown_and_backend_errors(tmp_path) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    with pytest.raises(InvalidContextWalletHandleError):
+        parse_context_wallet_handle("bad")
+    with pytest.raises(InvalidContextWalletHandleError):
+        parse_context_wallet_handle("context_wallet:bad")
+    with pytest.raises(UnknownContextWalletError):
+        wallets.get("context_wallet:" + str(UUID(int=1)))
+    record = ContextWalletRecord(UUID(int=1), 1, 0, utc_now(), utc_now(), {})
+    with pytest.raises(ValueError):
+        ContextWalletRecord(UUID(int=1), 1, True, utc_now(), utc_now(), {})
+    with pytest.raises(ValueError):
+        ContextWalletRecord(UUID(int=1), 1, 2, utc_now(), utc_now(), {})
+    broken = ContextWalletService(_BrokenStore())
+    with pytest.raises(ContextWalletPersistenceError):
+        broken.create(1)
+    with pytest.raises(ContextWalletPersistenceError):
+        broken.get(record.handle)
+    with pytest.raises(ContextWalletPersistenceError):
+        broken.spend_success(record.handle, operation_key="x", estimated_tokens=1)
+    for key, tokens in ((None, 1), ("x" * 257, 1), ("x", True), ("x", -1)):
+        with pytest.raises(ValueError):
+            wallets.spend_success(record.handle, operation_key=key, estimated_tokens=tokens)
+
+
+def test_json_wallet_store_rejects_invalid_persistence(tmp_path) -> None:
+    path = tmp_path / "wallets.json"
+    path.write_text("not json", encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        JsonContextWalletStore(path).get(UUID(int=1))

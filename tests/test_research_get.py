@@ -274,3 +274,15 @@ def test_wallet_protocol_maps_invalid_unknown_and_persistence_errors(tmp_path) -
         operation_key="x",
     )
     assert unconfigured["error"]["code"] == "backend_unavailable"
+    with pytest.raises(ValueError, match="operation_key"):
+        live.get(claim, representation="receipt", operation_key="x")
+    with pytest.raises(RuntimeError, match="persistence"):
+        live.get(
+            claim,
+            representation="receipt",
+            wallet_handle="context_wallet:" + str(UUID(int=1)),
+            operation_key="x",
+        )
+    with pytest.raises(RuntimeError, match="persistence"):
+        live._wallet_remaining("context_wallet:" + str(UUID(int=1)))
+    assert "wallet" not in research_get_view(live.get(claim, representation="receipt"))

@@ -277,9 +277,3 @@ Avoid large speculative frameworks. Implement the current roadmap milestone and 
 If documentation and code disagree, treat the conflict as a design issue: update the relevant architecture/status document in the same change or explain why it is intentionally superseded.
 
 Do not reopen decisions listed as resolved merely because an older planning document or automated review comment suggests a different direction. Verify against the current code, current docs, and current upstream documentation.
-
-## Progress reporting
-
-For substantial work, maintain the canonical GitHub issue/PR task record. Keep durable repository docs about architecture, contracts, policy, and reproducible developer workflows—not transient execution status.
-
-Do not create additional permanent project-management or handoff files for temporary work unless the repository explicitly adopts a new durable convention.

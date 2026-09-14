@@ -220,6 +220,23 @@ The HTTP route accepts a UUID or `doc:<uuid>` handle and no query parameters. Bl
 
 Neither agent transport accepts an arbitrary local bundle path, follows preserved source URIs/resource links, or performs discovery, provider, model, or network calls during deterministic replay. To replay an independently supplied archive by path, use the local CLI `tarkka replay <bundle.tarkka>` instead.
 
+## Retained bundles through MCP
+
+MCP can publish a replay-ready v3 archive from one persisted Document and verify the retained archive
+without accepting a server path:
+
+```text
+proof_bundle_export(document_id="doc:<uuid>")
+proof_bundle_verify(bundle_handle="bundle:sha256:<digest>")
+```
+
+The matching progressively discoverable capability IDs are `research.proof_bundles.export` and
+`research.proof_bundles.verify`. Export returns a compact receipt—stable content-addressed handle,
+schema version, byte count, and verification metadata—not archive bytes or a storage path. Repeating
+an unchanged export returns the same handle. The handle supports server-side integrity verification;
+it is not a download grant. Use the local CLI to verify an independently supplied archive, while a
+capability-gated agent transfer/download protocol remains a future extension.
+
 ## Verify a bundle offline
 
 ```bash

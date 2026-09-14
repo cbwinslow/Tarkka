@@ -23,8 +23,10 @@ from tarkka.application.claim_lineage import (
 from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
+from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.research_get import ResearchGetService
 from tarkka.domain.telemetry import AgentUsageEvent
+from tarkka.infrastructure.json_retrieval_index_store import JsonRetrievalSegmentStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
@@ -365,6 +367,37 @@ def test_mcp_server_emits_opt_in_aggregate_usage_without_source_text(
     )
     assert all("Evidence first." not in repr(event) for event in telemetry.events)
     assert all(fixture.claim.text not in repr(event) for event in telemetry.events)
+
+
+def test_mcp_retrieval_search_alias_records_the_canonical_operation_id(tmp_path: Path) -> None:
+    result, documents = _ingest_document(tmp_path)
+    document_id = result.document.document_id
+    lexical = LexicalRetrievalService(
+        documents=documents,
+        indexes=JsonRetrievalSegmentStore(tmp_path / "retrieval_indexes.json"),
+    )
+    lexical.index(
+        document_id,
+        derivation_version="v1",
+        configuration_fingerprint="whole-passage-v1",
+    )
+    telemetry = _TelemetryRecorder()
+    server = create_server(lexical=lexical, telemetry=telemetry)
+
+    _call(
+        server,
+        "retrieval_search",
+        {
+            "document_id": str(document_id),
+            "query": "Evidence",
+            "derivation_version": "v1",
+            "configuration_fingerprint": "whole-passage-v1",
+        },
+    )
+
+    assert [(event.operation_id, event.outcome) for event in telemetry.events] == [
+        ("research.search", "success")
+    ]
 
 
 def test_mcp_server_returns_actionable_errors_without_expanding_unknown_content(

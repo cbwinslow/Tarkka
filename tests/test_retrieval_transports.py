@@ -242,6 +242,12 @@ def test_mcp_search_is_read_only_discoverable_and_preserves_source_spans(tmp_pat
         server, "research_operation_schema", {"operation_id": "research.search"}
     )
     assert schema["operation"]["operation_id"] == "research.search"
+    legacy_schema = _call(
+        server,
+        "research_operation_schema",
+        {"operation_id": "research.retrieval.search"},
+    )
+    assert legacy_schema == schema
 
     response = _call(
         server,

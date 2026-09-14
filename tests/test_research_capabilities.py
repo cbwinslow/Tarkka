@@ -117,6 +117,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     resources = research_operation_schema("research.resources.list")
     resource = research_operation_schema("research.resources.show")
     retrieval = research_operation_schema("research.search")
+    legacy_retrieval = research_operation_schema("research.retrieval.search")
 
     assert [field.name for field in discover.inputs] == [
         "text",
@@ -169,6 +170,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     ]
     assert retrieval.inputs[-1].minimum == 1
     assert retrieval.inputs[-1].maximum == 100
+    assert legacy_retrieval == retrieval
 
     assert [field.name for field in lineage.inputs] == [
         "claim_id",

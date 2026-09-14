@@ -18,6 +18,7 @@ from tarkka.application.research_get import ModelDispatchDeniedError, ResearchGe
 from tarkka.application.research_get_protocol import research_get_response
 from tarkka.application.verification import EvidenceVerificationService
 from tarkka.domain.models import utc_now
+from tarkka.infrastructure.storage import json_context_wallet_store
 from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -205,3 +206,34 @@ def test_json_wallet_store_rejects_invalid_persistence(tmp_path) -> None:
     path.write_text("not json", encoding="utf-8")
     with pytest.raises(RuntimeError):
         JsonContextWalletStore(path).get(UUID(int=1))
+
+
+def test_json_wallet_store_failure_and_commit_branches(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "wallets.json"
+    store = JsonContextWalletStore(path)
+    record = ContextWalletRecord(UUID(int=2), 2, 0, utc_now(), utc_now(), {})
+    store.create(record)
+    with pytest.raises(RuntimeError, match="collision"):
+        store.create(record)
+    with pytest.raises(KeyError):
+        store.commit_success(UUID(int=3), "x", 1, utc_now())
+    with pytest.raises(Exception, match="estimated_tokens"):
+        store.commit_success(record.wallet_id, "x", 3, utc_now())
+    path.write_text('{"schema_version": 2, "wallets": {}}', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="unsupported"):
+        store.get(record.wallet_id)
+    path.write_text('{"schema_version": 1, "wallets": []}', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="wallets"):
+        store.get(record.wallet_id)
+    path.write_text(
+        '{"schema_version": 1, "wallets": {"00000000-0000-0000-0000-000000000000": {}}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="invalid context wallet"):
+        store.get(UUID("00000000-0000-0000-0000-000000000000"))
+    def fail_replace(*_args) -> None:
+        raise OSError("replace")
+
+    monkeypatch.setattr(json_context_wallet_store.os, "replace", fail_replace)
+    with pytest.raises(OSError):
+        store._write({"schema_version": 1, "wallets": {}})

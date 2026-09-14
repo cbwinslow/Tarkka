@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from tarkka.application.claim_receipt_view import claim_receipt_view
+from tarkka.application.context_wallet import ContextWalletService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_get import (
     AllowAllModelDispatch,
@@ -19,6 +20,7 @@ from tarkka.application.research_get import (
 )
 from tarkka.application.research_get_protocol import research_expand_response, research_get_response
 from tarkka.application.research_get_view import research_get_view
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service,
@@ -240,3 +242,35 @@ def test_send_to_model_must_be_boolean(tmp_path) -> None:
             representation="receipt",
             send_to_model="yes",  # type: ignore[arg-type]
         )
+
+
+def test_wallet_protocol_maps_invalid_unknown_and_persistence_errors(tmp_path) -> None:
+    live = _service(tmp_path)
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    service = ResearchGetService(
+        receipts=live._receipts,
+        documents=live._documents,
+        lineage=live._lineage,
+        wallets=wallets,
+    )
+    claim = "claim:" + str(UUID(int=8))
+    invalid = research_get_response(
+        service, claim, representation="receipt", wallet_handle="bad", operation_key="x"
+    )
+    assert invalid["error"]["code"] == "invalid_argument"
+    unknown = research_expand_response(
+        service,
+        claim,
+        include="evidence",
+        wallet_handle="context_wallet:" + str(UUID(int=1)),
+        operation_key="x",
+    )
+    assert unknown["error"]["code"] == "not_found"
+    unconfigured = research_get_response(
+        live,
+        claim,
+        representation="receipt",
+        wallet_handle="context_wallet:" + str(UUID(int=1)),
+        operation_key="x",
+    )
+    assert unconfigured["error"]["code"] == "backend_unavailable"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 import pytest
@@ -16,6 +17,7 @@ from tarkka.application.context_wallet import (
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_get import ModelDispatchDeniedError, ResearchGetService
 from tarkka.application.research_get_protocol import research_get_response
+from tarkka.application.research_get_view import research_get_view
 from tarkka.application.verification import EvidenceVerificationService
 from tarkka.domain.models import utc_now
 from tarkka.infrastructure.storage import json_context_wallet_store
@@ -93,6 +95,8 @@ def test_shared_wallet_spends_get_expand_compare_and_retries_once(tmp_path) -> N
     )
     assert retried.wallet == received.wallet
     assert wallets.get(wallet.wallet_handle).consumed_tokens == compared.wallet.consumed_tokens
+    response_wallet = research_get_view(received)["wallet"]
+    assert response_wallet["remaining_tokens"] == received.wallet.remaining_tokens
 
 
 def test_wallet_rejects_over_budget_without_spending_or_source_text(tmp_path) -> None:
@@ -231,6 +235,21 @@ def test_json_wallet_store_failure_and_commit_branches(tmp_path, monkeypatch) ->
     )
     with pytest.raises(RuntimeError, match="invalid context wallet"):
         store.get(UUID("00000000-0000-0000-0000-000000000000"))
+    valid = {
+        "wallet_id": str(record.wallet_id),
+        "max_tokens": 2,
+        "consumed_tokens": 0,
+        "created_at": record.created_at.isoformat(),
+        "updated_at": record.updated_at.isoformat(),
+    }
+    wallets_payload = {str(record.wallet_id): {**valid, "operations": []}}
+    path.write_text(json.dumps({"schema_version": 1, "wallets": wallets_payload}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="invalid context wallet"):
+        store.get(record.wallet_id)
+    wallets_payload = {str(record.wallet_id): {**valid, "operations": {"x": "bad"}}}
+    path.write_text(json.dumps({"schema_version": 1, "wallets": wallets_payload}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="invalid context wallet"):
+        store.get(record.wallet_id)
     def fail_replace(*_args) -> None:
         raise OSError("replace")
 

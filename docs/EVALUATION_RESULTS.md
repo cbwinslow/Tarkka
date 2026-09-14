@@ -3,6 +3,37 @@
 Issue #198 (Priority H) asks Tarkka to "publish results rather than only claiming reliability."
 This document is where those results belong. It intentionally contains no fabricated numbers.
 
+## 2026-09-14 — v0.1.0 release-adoption and exported-claim lineage scorecard
+
+The published `v0.1.0` wheel was downloaded from the GitHub Release, checked against its published
+SHA-256 manifest, and installed into a clean CPython 3.12.13 virtual environment. The measurement
+then ran the complete offline walkthrough in
+[`QUICKSTART_PROOF_REPLAY.md`](QUICKSTART_PROOF_REPLAY.md) against the project-authored
+[`proof-replay-demo.txt`](../examples/proof-replay-demo.txt) fixture: ingest, deterministic rule
+claim extraction, `why`, claim receipt, document brief, two schema-v3 bundle exports, byte-for-byte
+bundle comparison, offline verification, and replay.
+
+- **Release/tag:** `v0.1.0` / commit `1f93c5a`
+- **OS:** Linux 6.8.0-138-generic x86_64
+- **Python:** CPython 3.12.13
+- **Wheel integrity:** both released wheel and source distribution matched `SHA256SUMS`
+- **Time to first useful proof bundle:** **3.718 seconds**
+- **Time through independent verify and deterministic replay:** **5.574 seconds**
+- **Bundle result:** two exports of the same frozen state were byte-identical; schema-v3 verify
+  passed with 4 members and replay returned `matched: true` / `determinism: deterministic`.
+
+The resulting bundle's `research/claim-lineage.json` contained two exported Claims. A direct audit
+of every entry found **2/2** with a non-empty exact-passage Evidence record, character offsets,
+normalized Document identity, and preserved source Artifact identity (SHA-256, media type, size,
+and source URI). No claim was unsupported. Both Claims were intentionally still `unreviewed` and
+had no verification assessments; lineage proves what source passage supports a Claim, not that a
+human or independent verifier has endorsed its truth.
+
+This is a release-adoption and provenance-contract result for the tiny deterministic offline
+fixture, not a generalized performance, extraction-quality, or verification-quality benchmark.
+It closes the two remaining Issue #198 success-metric evidence gaps at their stated scope while
+leaving broader corpus quality measurement to future profiles.
+
 ## 2026-09-13 — first multi-format reproducibility profile
 
 `tarkka eval` ran the schema-v2

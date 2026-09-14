@@ -73,7 +73,7 @@ class _RaisingLineageService:
         raise self.error
 
 
-def test_mcp_server_registers_only_read_only_initial_operations() -> None:
+def test_mcp_server_registers_explicit_bundle_writes_alongside_read_only_operations() -> None:
     tools = asyncio.run(create_server().list_tools())
 
     assert [tool.name for tool in tools] == [
@@ -87,10 +87,16 @@ def test_mcp_server_registers_only_read_only_initial_operations() -> None:
         "document_sections",
         "document_section",
         "document_replay",
+        "proof_bundle_export",
+        "proof_bundle_verify",
         "research_search",
         "retrieval_search",
     ]
-    assert all(tool.annotations is not None and tool.annotations.read_only_hint for tool in tools)
+    write_names = {"proof_bundle_export", "proof_bundle_verify"}
+    assert all(tool.annotations is not None for tool in tools)
+    assert all(
+        tool.annotations.read_only_hint is (tool.name not in write_names) for tool in tools
+    )
     assert all(tool.annotations is not None and tool.annotations.idempotent_hint for tool in tools)
     assert all(
         tool.annotations is not None and not tool.annotations.open_world_hint for tool in tools

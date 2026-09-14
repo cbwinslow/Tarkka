@@ -50,6 +50,14 @@ from tarkka.application.lexical_retrieval import (
     RetrievalIndexNotFoundError,
 )
 from tarkka.application.lexical_retrieval_view import lexical_search_view
+from tarkka.application.proof_bundle_exports import (
+    ProofBundleExportConfigurationError,
+    ProofBundleExportService,
+    ProofBundleHandleError,
+    RetainedProofBundleNotFoundError,
+    RetainedProofBundleVerificationError,
+)
+from tarkka.application.proof_bundles import ProofBundleDocumentNotFoundError
 from tarkka.application.research_capabilities import (
     UnknownResearchOperationError,
     research_operation_schema,
@@ -78,12 +86,19 @@ from tarkka.interfaces.document_replay_runtime import (
     document_replay_service as configured_document_replay_service,
 )
 from tarkka.interfaces.main import _document_retrieval_service, _lexical_retrieval_service
+from tarkka.interfaces.proof_bundle_export_runtime import proof_bundle_export_service
 from tarkka.ports.retrieval import LexicalRetrievalQuery
 from tarkka.ports.telemetry import AgentUsageRecorder
 
 _LOGGER = logging.getLogger(__name__)
 _READ_ONLY = ToolAnnotations(
     read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=False,
+)
+_EXPLICIT_WRITE = ToolAnnotations(
+    read_only_hint=False,
     destructive_hint=False,
     idempotent_hint=True,
     open_world_hint=False,
@@ -101,6 +116,7 @@ def create_server(
     getter: ResearchGetService | None = None,
     challenge: ChallengeService | None = None,
     replay: DocumentReplayer | None = None,
+    proof_bundles: ProofBundleExportService | None = None,
     telemetry: AgentUsageRecorder | None = None,
 ) -> MCPServer:
     """Build the stdio MCP server with lazily constructed configured services.
@@ -115,6 +131,7 @@ def create_server(
     get_reader = getter
     challenge_reader = challenge
     replay_reader = replay
+    proof_bundle_writer = proof_bundles
 
     def retrieval_service() -> DocumentRetrievalService:
         """Create the configured document backend only when a document tool needs it."""
@@ -143,6 +160,13 @@ def create_server(
         if replay_reader is None:
             replay_reader = configured_document_replay_service()
         return replay_reader
+
+    def proof_bundle_service() -> ProofBundleExportService:
+        """Create the configured export backend only when an explicit write is requested."""
+        nonlocal proof_bundle_writer
+        if proof_bundle_writer is None:
+            proof_bundle_writer = proof_bundle_export_service()
+        return proof_bundle_writer
 
     def receipt_service() -> ClaimReceiptService:
         """Create the configured receipt backend only when get/expand needs it."""
@@ -472,6 +496,58 @@ def create_server(
             return document_replay_backend_unavailable_response()
         return document_replay_response(service, parsed)
 
+    @server.tool(
+        name="proof_bundle_export",
+        description=(
+            "Publish a retained replay-ready proof bundle for one persisted Document and "
+            "return only its stable handle and compact verification receipt."
+        ),
+        annotations=_EXPLICIT_WRITE,
+    )
+    @instrument("research.proof_bundles.export")
+    def export_proof_bundle(document_id: object) -> dict[str, object]:
+        """Create an explicit derived archive without exposing a server-local path."""
+        parsed = _uuid_or_error(document_id, kind="document")
+        if isinstance(parsed, dict):
+            return parsed
+        try:
+            return {"ok": True, "bundle": proof_bundle_service().export(parsed).to_dict()}
+        except ProofBundleDocumentNotFoundError as exc:
+            return _not_found_error(exc, "research.documents.manifest")
+        except ProofBundleExportConfigurationError:
+            return _proof_bundle_backend_unavailable()
+        except RetainedProofBundleVerificationError as exc:
+            return _error("verification_failed", str(exc))
+        except (OSError, RuntimeError, ValueError):
+            return _proof_bundle_backend_unavailable()
+
+    @server.tool(
+        name="proof_bundle_verify",
+        description=(
+            "Verify retained proof-bundle bytes by a stable handle without accepting a "
+            "server-local path or returning archive bytes."
+        ),
+        annotations=_EXPLICIT_WRITE,
+    )
+    @instrument("research.proof_bundles.verify")
+    def verify_proof_bundle(bundle_handle: object) -> dict[str, object]:
+        """Verify an existing immutable derived archive without rebuilding it."""
+        try:
+            verification = proof_bundle_service().verify(bundle_handle)
+        except ProofBundleHandleError as exc:
+            return _invalid_argument_error(exc)
+        except RetainedProofBundleNotFoundError as exc:
+            return _not_found_error(exc, "research.proof_bundles.export")
+        except RetainedProofBundleVerificationError as exc:
+            return _error("verification_failed", str(exc))
+        except (OSError, RuntimeError, ValueError):
+            return _proof_bundle_backend_unavailable()
+        return {
+            "ok": True,
+            "bundle_handle": bundle_handle,
+            "verification": verification.to_dict(),
+        }
+
     def lexical_search_response(
         document_id: object,
         query: object,
@@ -639,6 +715,11 @@ def _not_found_error(exc: LookupError, next_action: str) -> dict[str, object]:
 
 def _unavailable_error(exc: OSError | RuntimeError) -> dict[str, object]:
     return _error("backend_unavailable", str(exc))
+
+
+def _proof_bundle_backend_unavailable() -> dict[str, object]:
+    """Hide local storage/configuration details at the explicit bundle boundary."""
+    return _error("backend_unavailable", "proof-bundle export backend is unavailable")
 
 
 def _record_response(

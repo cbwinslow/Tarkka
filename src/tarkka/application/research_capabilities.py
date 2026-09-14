@@ -25,6 +25,7 @@ from tarkka.application.library import (
     MAX_LIBRARY_PAGE_SIZE,
     LibraryService,
 )
+from tarkka.application.proof_bundle_exports import ProofBundleExportService
 from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
 from tarkka.application.research_packages import ResearchPackageService
 from tarkka.application.verification import EvidenceVerificationService
@@ -138,6 +139,7 @@ class _OperationRegistration:
         type[DiscoveryService]
         | type[DocumentRetrievalService]
         | type[DocumentReplayService]
+        | type[ProofBundleExportService]
         | type[LexicalRetrievalService]
         | type[ClaimLineageService]
         | type[ClaimReceiptService]
@@ -263,6 +265,37 @@ _OPERATION_REGISTRATIONS = (
         "replay",
         (ResearchField("document_id", "uuid", True, "Stable persisted Document identifier."),),
         "Replay status, canonical digests, implementation identity, and bounded mismatches.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.proof_bundles.export",
+            "export",
+            "Publish a retained replay-ready proof bundle for one persisted Document.",
+            4,
+        ),
+        ProofBundleExportService,
+        "export",
+        (ResearchField("document_id", "uuid", True, "Stable persisted Document identifier."),),
+        "A compact content-addressed bundle handle and verification receipt; never archive bytes.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.proof_bundles.verify",
+            "verify",
+            "Verify one retained proof bundle by its stable content-addressed handle.",
+            4,
+        ),
+        ProofBundleExportService,
+        "verify",
+        (
+            ResearchField(
+                "bundle_handle",
+                "string",
+                True,
+                "Stable bundle:sha256:<64-lowercase-hex> handle.",
+            ),
+        ),
+        "A compact integrity verification receipt for retained bytes; never archive bytes.",
     ),
     _OperationRegistration(
         ResearchOperation(

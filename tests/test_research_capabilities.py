@@ -10,6 +10,7 @@ from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.encyclopedia import EncyclopediaService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.library import LibraryService
+from tarkka.application.proof_bundle_exports import ProofBundleExportService
 from tarkka.application.research_capabilities import (
     _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD,
     _OPERATION_REGISTRATIONS,
@@ -34,6 +35,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.documents.sections",
         "research.documents.section",
         "research.documents.replay",
+        "research.proof_bundles.export",
+        "research.proof_bundles.verify",
         "research.claims.lineage",
         "research.claims.receipt",
         "research.documents.brief",
@@ -70,6 +73,8 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (DocumentRetrievalService, "sections"),
         (DocumentRetrievalService, "section"),
         (DocumentReplayService, "replay"),
+        (ProofBundleExportService, "export"),
+        (ProofBundleExportService, "verify"),
         (ClaimLineageService, "inspect"),
         (ClaimReceiptService, "receipt"),
         (ClaimReceiptService, "document_brief"),
@@ -104,6 +109,8 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     document_sections = research_operation_schema("research.documents.sections")
     document_section = research_operation_schema("research.documents.section")
     document_replay = research_operation_schema("research.documents.replay")
+    bundle_export = research_operation_schema("research.proof_bundles.export")
+    bundle_verify = research_operation_schema("research.proof_bundles.verify")
     lineage = research_operation_schema("research.claims.lineage")
     receipt = research_operation_schema("research.claims.receipt")
     brief = research_operation_schema("research.documents.brief")
@@ -160,6 +167,10 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
         "Replay status, canonical digests, implementation identity, and bounded mismatches."
     )
     assert document_replay.estimated_tokens < 50
+    assert [field.name for field in bundle_export.inputs] == ["document_id"]
+    assert bundle_export.operation.family == "export"
+    assert [field.name for field in bundle_verify.inputs] == ["bundle_handle"]
+    assert bundle_verify.operation.family == "verify"
 
     assert [field.name for field in retrieval.inputs] == [
         "document_id",

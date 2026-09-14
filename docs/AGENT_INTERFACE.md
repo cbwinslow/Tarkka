@@ -117,6 +117,9 @@ research_search
 document_manifest
 document_sections
 document_section
+document_replay
+proof_bundle_export
+proof_bundle_verify
 retrieval_search (compatibility alias)
 ```
 
@@ -137,15 +140,17 @@ contradiction, qualification, and partial-support relationships. It returns rela
 review metadata only; exact source/evidence expansion remains a separate, walleted request.
 The document tools preserve the same manifest-to-section disclosure ladder as the CLI. They return
 structured `ok`/`error` envelopes, stable error codes, and next-action hints rather than requiring
-clients to parse process stderr. Every initial tool is annotated read-only and idempotent.
+clients to parse process stderr. Read operations are annotated read-only and idempotent.
 Exact section expansion is capped at the existing 8,000 estimated-token context budget; an
 oversized section returns `content_too_large` and directs the caller back to its compact section
 listing rather than silently truncating source text.
 
 The server is an optional `mcp` extra and uses stdio. It shares the document runtime selection with
 the CLI: `TARKKA_DOCUMENT_BACKEND=json` remains the dependency-free default, while an explicitly
-configured PostgreSQL backend reads the same persisted document records. No MCP operation currently
-writes state, runs schema migrations, calls a provider, or bypasses application services.
+configured PostgreSQL backend reads the same persisted document records. `proof_bundle_export` and
+`proof_bundle_verify` are the explicit, idempotent non-read-only exceptions: they publish or inspect
+an immutable derived archive through a stable handle, without exposing its local storage path or
+bytes. No MCP operation runs schema migrations, calls a provider, or bypasses application services.
 
 `TARKKA_MCP_TELEMETRY_PATH` is an explicit opt-in JSONL destination for aggregate MCP usage events.
 Each event contains only operation ID, outcome/error code, elapsed milliseconds, response bytes, and

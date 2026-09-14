@@ -21,12 +21,14 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.claim_lineage_view import claim_lineage_view
+from tarkka.application.context_wallet import ContextWalletService
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.research_get import ResearchGetService
 from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.json_retrieval_index_store import JsonRetrievalSegmentStore
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
@@ -101,6 +103,23 @@ def test_mcp_server_registers_explicit_bundle_writes_alongside_read_only_operati
     assert all(tool.annotations is not None and tool.annotations.idempotent_hint for tool in tools)
     assert all(
         tool.annotations is not None and not tool.annotations.open_world_hint for tool in tools
+    )
+
+
+def test_mcp_context_wallet_lifecycle(tmp_path: Path) -> None:
+    server = create_server(
+        wallets=ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    )
+    created = _call(server, "research_wallet", {"action": "create", "max_tokens": 9})
+    assert created["remaining_tokens"] == 9
+    loaded = _call(
+        server,
+        "research_wallet",
+        {"action": "get", "wallet_handle": created["wallet_handle"]},
+    )
+    assert loaded == created
+    assert _call(server, "research_wallet", {"action": "nope"})["error"]["code"] == (
+        "invalid_argument"
     )
 
 

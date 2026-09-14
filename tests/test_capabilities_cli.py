@@ -15,6 +15,8 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.documents.sections",
         "research.documents.section",
         "research.documents.replay",
+        "research.proof_bundles.export",
+        "research.proof_bundles.verify",
         "research.claims.lineage",
         "research.claims.receipt",
         "research.documents.brief",

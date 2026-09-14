@@ -20,7 +20,9 @@ def test_research_capability_views_are_transport_neutral_and_deterministic() -> 
     assert payload["version"] == "1"
     assert payload["estimated_tokens"] == capabilities.estimated_tokens
     assert payload["operations"][4]["operation_id"] == "research.documents.replay"
-    assert payload["operations"][5]["operation_id"] == "research.claims.lineage"
+    assert payload["operations"][5]["operation_id"] == "research.proof_bundles.export"
+    assert payload["operations"][6]["operation_id"] == "research.proof_bundles.verify"
+    assert payload["operations"][7]["operation_id"] == "research.claims.lineage"
 
     replay_schema = research_operation_schema("research.documents.replay")
     replay_payload = research_operation_schema_view(replay_schema)

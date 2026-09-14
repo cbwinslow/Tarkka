@@ -22,6 +22,7 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.documents.brief",
         "research.get",
         "research.expand",
+        "research.wallet.create",
         "research.workspace.init",
         "research.workspace.show",
         "research.workspace.run",
@@ -82,6 +83,8 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
     assert [field["name"] for field in compare_schema["inputs"]] == [
         "claim_id",
         "max_tokens",
+        "wallet_handle",
+        "operation_key",
     ]
     assert compare_schema["inputs"][1]["maximum"] == 8_000
 

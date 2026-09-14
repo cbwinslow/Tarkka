@@ -79,9 +79,10 @@ def test_mcp_server_registers_explicit_bundle_writes_alongside_read_only_operati
     assert [tool.name for tool in tools] == [
         "research_capabilities",
         "research_operation_schema",
-        "research_get",
-        "research_expand",
-        "research_compare",
+            "research_get",
+            "research_expand",
+            "research_wallet",
+            "research_compare",
         "claim_lineage",
         "document_manifest",
         "document_sections",

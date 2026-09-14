@@ -157,6 +157,13 @@ Each event contains only operation ID, outcome/error code, elapsed milliseconds,
 estimated response tokens. Request arguments, document IDs, source text, and raw artifacts are never
 written to telemetry. A telemetry write failure cannot alter a research-tool response.
 
+`research_wallet` keeps cumulative budget lifecycle discovery compact: `action=create` returns a
+`context_wallet:UUID` handle and immutable limit, while `action=get` returns its current counters.
+Walleted `research.get`, `research.expand`, and `research.compare` require an `operation_key` for
+retry safety. They spend only after the complete response passes validation and rights checks, and
+return `content_too_large` with estimated and remaining tokens when the cumulative remainder is
+insufficient. Existing calls without a wallet retain the per-request-only response shape.
+
 Provider-specific details should be selected through typed arguments/resources where possible.
 
 ## MCP resources

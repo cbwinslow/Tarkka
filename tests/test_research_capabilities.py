@@ -4,6 +4,7 @@ from tarkka.application.challenge import ChallengeService
 from tarkka.application.citation_traversal import CitationTraversalService
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.claim_receipts import ClaimReceiptService
+from tarkka.application.context_wallet import ContextWalletService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
@@ -42,6 +43,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.documents.brief",
         "research.get",
         "research.expand",
+        "research.wallet.create",
         "research.workspace.init",
         "research.workspace.show",
         "research.workspace.run",
@@ -80,6 +82,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         (ClaimReceiptService, "document_brief"),
         (ResearchGetService, "get"),
         (ResearchGetService, "expand"),
+        (ContextWalletService, "create"),
         (WorkspaceService, "init_from_manifest"),
         (WorkspaceService, "show"),
         (WorkspaceService, "run"),
@@ -116,6 +119,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     brief = research_operation_schema("research.documents.brief")
     getter = research_operation_schema("research.get")
     expand = research_operation_schema("research.expand")
+    wallet = research_operation_schema("research.wallet.create")
     compare = research_operation_schema("research.compare")
     verify = research_operation_schema("research.verify")
     candidates = research_operation_schema("research.verify.candidates")
@@ -214,6 +218,8 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
         "representation",
         "max_tokens",
         "send_to_model",
+        "wallet_handle",
+        "operation_key",
     ]
     assert getter.inputs[1].allowed_values == ("manifest", "receipt", "evidence", "full")
     assert [field.name for field in expand.inputs] == [
@@ -221,9 +227,17 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
         "include",
         "max_tokens",
         "send_to_model",
+        "wallet_handle",
+        "operation_key",
     ]
     assert expand.inputs[1].allowed_values == ("evidence", "full")
-    assert [field.name for field in compare.inputs] == ["claim_id", "max_tokens"]
+    assert [field.name for field in wallet.inputs] == ["max_tokens"]
+    assert [field.name for field in compare.inputs] == [
+        "claim_id",
+        "max_tokens",
+        "wallet_handle",
+        "operation_key",
+    ]
     assert compare.inputs[1].minimum == 0
     assert compare.inputs[1].maximum == 8_000
     assert compare.result_summary == (

@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from tarkka.application.context_wallet import ContextWallet, WalletExhaustedError
+from tarkka.application.context_wallet import (
+    ContextWallet,
+    ContextWalletBalance,
+    ContextWalletService,
+    WalletExhaustedError,
+)
 from tarkka.application.verification import (
     ClaimNotFoundError,
     EvidenceVerificationRequest,
@@ -113,6 +118,7 @@ class ContradictionComparison:
     claim_id: UUID
     entries: tuple[ContradictionEntry, ...]
     estimated_tokens: int
+    wallet: ContextWalletBalance | None = None
 
 
 class ChallengeService:
@@ -125,11 +131,13 @@ class ChallengeService:
         verification: EvidenceVerificationService,
         relations: EvidenceRelationRepository,
         workspaces: WorkspaceStore | None = None,
+        wallets: ContextWalletService | None = None,
     ) -> None:
         self._extractions = extractions
         self._verification = verification
         self._relations = relations
         self._workspaces = workspaces
+        self._wallets = wallets
 
     def challenge(
         self,
@@ -238,6 +246,8 @@ class ChallengeService:
         claim_id: UUID,
         *,
         max_tokens: int = DEFAULT_CHALLENGE_WALLET_TOKENS,
+        wallet_handle: str | None = None,
+        operation_key: str | None = None,
     ) -> ContradictionComparison:
         """Return recorded contrary relationships without expanding source or evidence text."""
         record = self._extractions.get_extraction(claim_id)
@@ -259,14 +269,32 @@ class ChallengeService:
         estimated_tokens = _stable_comparison_tokens(claim_id, entries)
         wallet = ContextWallet(max_tokens)
         if not wallet.admits(estimated_tokens):
+            remaining_tokens: int | None = None
+            if wallet_handle is not None:
+                if self._wallets is None:
+                    raise RuntimeError("context wallet persistence is not configured")
+                remaining_tokens = self._wallets.get(wallet_handle).remaining_tokens
             raise WalletExhaustedError(
                 estimated_tokens=estimated_tokens,
                 max_tokens=wallet.max_tokens,
+                remaining_tokens=remaining_tokens,
             )
+        balance: ContextWalletBalance | None = None
+        if wallet_handle is not None:
+            if self._wallets is None:
+                raise RuntimeError("context wallet persistence is not configured")
+            balance = self._wallets.spend_success(
+                wallet_handle,
+                operation_key=operation_key,
+                estimated_tokens=estimated_tokens,
+            )
+        elif operation_key is not None:
+            raise ValueError("operation_key requires wallet_handle")
         return ContradictionComparison(
             claim_id=claim_id,
             entries=entries,
             estimated_tokens=estimated_tokens,
+            wallet=balance,
         )
 
     def _candidate_evidence(
@@ -344,12 +372,20 @@ def contradiction_board_view(entries: tuple[ContradictionEntry, ...]) -> dict[st
 
 def contradiction_comparison_view(result: ContradictionComparison) -> dict[str, object]:
     """Return handles and review metadata, never underlying source or evidence text."""
-    return {
+    view: dict[str, object] = {
         "claim_id": str(result.claim_id),
         "count": len(result.entries),
         "entries": [_contradiction_entry_view(item) for item in result.entries],
         "estimated_tokens": result.estimated_tokens,
     }
+    if result.wallet is not None:
+        view["wallet"] = {
+            "wallet_handle": result.wallet.wallet_handle,
+            "max_tokens": result.wallet.max_tokens,
+            "consumed_tokens": result.wallet.consumed_tokens,
+            "remaining_tokens": result.wallet.remaining_tokens,
+        }
+    return view
 
 
 def _stable_comparison_tokens(claim_id: UUID, entries: tuple[ContradictionEntry, ...]) -> int:

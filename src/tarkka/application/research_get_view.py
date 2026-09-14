@@ -7,7 +7,7 @@ from tarkka.application.research_get import ResearchGetResult
 
 def research_get_view(result: ResearchGetResult) -> dict[str, object]:
     """Serialize one walleted representation without extra source text."""
-    return {
+    view: dict[str, object] = {
         "resource_id": result.resource_id,
         "kind": result.kind,
         "representation": result.representation,
@@ -15,3 +15,11 @@ def research_get_view(result: ResearchGetResult) -> dict[str, object]:
         "may_send_to_model": result.may_send_to_model,
         "payload": result.payload,
     }
+    if result.wallet is not None:
+        view["wallet"] = {
+            "wallet_handle": result.wallet.wallet_handle,
+            "max_tokens": result.wallet.max_tokens,
+            "consumed_tokens": result.wallet.consumed_tokens,
+            "remaining_tokens": result.wallet.remaining_tokens,
+        }
+    return view

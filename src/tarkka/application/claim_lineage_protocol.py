@@ -29,15 +29,19 @@ def agent_error(
     message: str,
     *,
     next_actions: tuple[str, ...] = (),
+    details: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Return the stable machine-readable error envelope shared by agent transports."""
+    error: dict[str, object] = {
+        "code": code,
+        "message": message,
+        "next_actions": list(next_actions),
+    }
+    if details:
+        error.update(details)
     return {
         "ok": False,
-        "error": {
-            "code": code,
-            "message": message,
-            "next_actions": list(next_actions),
-        },
+        "error": error,
     }
 
 

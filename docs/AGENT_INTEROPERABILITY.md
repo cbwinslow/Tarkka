@@ -50,12 +50,20 @@ are thin adapters. Existing tools such as `document_manifest` and `claim_lineage
 as aliases; they are not removed.
 
 `research.get` requires `resource_id` (`claim:UUID` or `doc:UUID`), `representation`
-(`manifest`, `receipt`, `evidence`, or `full`), and an optional `max_tokens` wallet
-(default 8000). `send_to_model=true` on `evidence` or `full` fails with `rights_denied`
+(`manifest`, `receipt`, `evidence`, or `full`), and an optional per-request `max_tokens`
+ceiling (default 8000). `send_to_model=true` on `evidence` or `full` fails with `rights_denied`
 when the model-dispatch policy forbids it.
 
-`research.expand` is the same walleted path for `include=evidence|full`. Oversized
+`research.expand` is the same budgeted path for `include=evidence|full`. Oversized
 payloads return `content_too_large` and never truncate source text.
+
+For a bounded research question, `research_wallet(action=create, max_tokens=...)` returns an
+opaque `context_wallet:UUID` handle. Supplying that handle and a caller-chosen `operation_key`
+to `research.get`, `research.expand`, or `research.compare` enforces one immutable cumulative
+limit across calls. Each success reports consumed and remaining tokens. A retry with the same
+operation key returns its original wallet outcome without a second spend; rejected validation,
+rights, construction, and persistence failures do not spend. The local store contains only the
+handle, counters, timestamps, and retry metadata—never research IDs, request arguments, or text.
 
 HTTP may later expose the same application service; this slice ships MCP first.
 

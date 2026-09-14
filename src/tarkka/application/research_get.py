@@ -12,7 +12,12 @@ from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.claim_lineage_view import claim_lineage_view
 from tarkka.application.claim_receipt_view import claim_receipt_view, document_brief_view
 from tarkka.application.claim_receipts import ClaimReceiptService
-from tarkka.application.context_wallet import ContextWallet, WalletExhaustedError
+from tarkka.application.context_wallet import (
+    ContextWallet,
+    ContextWalletBalance,
+    ContextWalletService,
+    WalletExhaustedError,
+)
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.encyclopedia import EncyclopediaNotFoundError, EncyclopediaService
 from tarkka.domain.manifest import estimate_tokens
@@ -84,6 +89,7 @@ class ResearchGetResult:
     estimated_tokens: int
     may_send_to_model: bool
     payload: dict[str, object]
+    wallet: ContextWalletBalance | None = None
 
 
 def parse_resource_id(raw: str) -> tuple[ResourceKind, UUID]:
@@ -126,6 +132,7 @@ class ResearchGetService:
         lineage: ClaimLineageService,
         model_dispatch: ModelDispatchPolicy | None = None,
         encyclopedia: EncyclopediaService | None = None,
+        wallets: ContextWalletService | None = None,
     ) -> None:
         self._receipts = receipts
         self._documents = documents
@@ -134,6 +141,7 @@ class ResearchGetService:
         self._model_dispatch = (
             model_dispatch if model_dispatch is not None else AllowAllModelDispatch()
         )
+        self._wallets = wallets
 
     def get(
         self,
@@ -142,6 +150,8 @@ class ResearchGetService:
         representation: str,
         max_tokens: int = DEFAULT_GET_MAX_TOKENS,
         send_to_model: bool = False,
+        wallet_handle: str | None = None,
+        operation_key: str | None = None,
     ) -> ResearchGetResult:
         """Return one explicit representation if it fits the wallet."""
         if not isinstance(send_to_model, bool):
@@ -156,7 +166,16 @@ class ResearchGetService:
         payload = self._payload(kind, identifier, selected)
         estimated = _payload_tokens(payload)
         if not wallet.admits(estimated):
-            raise WalletExhaustedError(estimated_tokens=estimated, max_tokens=wallet.max_tokens)
+            raise WalletExhaustedError(
+                estimated_tokens=estimated,
+                max_tokens=wallet.max_tokens,
+                remaining_tokens=self._wallet_remaining(wallet_handle),
+            )
+        balance = self._spend_wallet(
+            wallet_handle,
+            operation_key=operation_key,
+            estimated_tokens=estimated,
+        )
         return ResearchGetResult(
             resource_id=canonical,
             kind=kind.value,
@@ -164,6 +183,7 @@ class ResearchGetService:
             estimated_tokens=estimated,
             may_send_to_model=allowed,
             payload=payload,
+            wallet=balance,
         )
 
     def expand(
@@ -173,6 +193,8 @@ class ResearchGetService:
         include: str,
         max_tokens: int = DEFAULT_GET_MAX_TOKENS,
         send_to_model: bool = False,
+        wallet_handle: str | None = None,
+        operation_key: str | None = None,
     ) -> ResearchGetResult:
         """Expand to evidence or full source through the same walleted get path."""
         mapping = {"evidence": Representation.EVIDENCE.value, "full": Representation.FULL.value}
@@ -185,7 +207,35 @@ class ResearchGetService:
             representation=representation,
             max_tokens=max_tokens,
             send_to_model=send_to_model,
+            wallet_handle=wallet_handle,
+            operation_key=operation_key,
         )
+
+    def _spend_wallet(
+        self,
+        wallet_handle: str | None,
+        *,
+        operation_key: str | None,
+        estimated_tokens: int,
+    ) -> ContextWalletBalance | None:
+        if wallet_handle is None:
+            if operation_key is not None:
+                raise ValueError("operation_key requires wallet_handle")
+            return None
+        if self._wallets is None:
+            raise RuntimeError("context wallet persistence is not configured")
+        return self._wallets.spend_success(
+            wallet_handle,
+            operation_key=operation_key,
+            estimated_tokens=estimated_tokens,
+        )
+
+    def _wallet_remaining(self, wallet_handle: str | None) -> int | None:
+        if wallet_handle is None:
+            return None
+        if self._wallets is None:
+            raise RuntimeError("context wallet persistence is not configured")
+        return self._wallets.get(wallet_handle).remaining_tokens
 
     def _payload(
         self,

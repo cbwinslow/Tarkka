@@ -472,13 +472,7 @@ def create_server(
             return document_replay_backend_unavailable_response()
         return document_replay_response(service, parsed)
 
-    @server.tool(
-        name="retrieval_search",
-        description="Search one exact local lexical projection with retained source passage spans.",
-        annotations=_READ_ONLY,
-    )
-    @instrument("research.retrieval.search")
-    def retrieval_search(
+    def lexical_search_response(
         document_id: object,
         query: object,
         derivation_version: object,
@@ -526,6 +520,50 @@ def create_server(
                 hits=hits,
             ),
         }
+
+    @server.tool(
+        name="research_search",
+        description="Search one exact local lexical projection with retained source passage spans.",
+        annotations=_READ_ONLY,
+    )
+    @instrument("research.search")
+    def research_search(
+        document_id: object,
+        query: object,
+        derivation_version: object,
+        configuration_fingerprint: object,
+        limit: int = 10,
+    ) -> dict[str, object]:
+        """Run the compact search verb against one explicit lexical projection."""
+        return lexical_search_response(
+            document_id,
+            query,
+            derivation_version,
+            configuration_fingerprint,
+            limit,
+        )
+
+    @server.tool(
+        name="retrieval_search",
+        description="Compatibility alias for research_search.",
+        annotations=_READ_ONLY,
+    )
+    @instrument("research.retrieval.search")
+    def retrieval_search(
+        document_id: object,
+        query: object,
+        derivation_version: object,
+        configuration_fingerprint: object,
+        limit: int = 10,
+    ) -> dict[str, object]:
+        """Keep the original MCP tool available while clients move to research_search."""
+        return lexical_search_response(
+            document_id,
+            query,
+            derivation_version,
+            configuration_fingerprint,
+            limit,
+        )
 
     return server
 

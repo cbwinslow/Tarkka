@@ -23,7 +23,9 @@ to load only that operation's compact input descriptor, allowed enum values,
 result summary, and estimate. It raises a typed unknown-operation error rather
 than silently advertising a future operation. This is the second staged
 discovery step, still shared application behavior for future MCP, CLI, API, and
-SDK layers.
+SDK layers. `research.search` is the canonical operation for bounded lexical projection search.
+The existing `retrieval_search` MCP tool remains a compatibility alias while clients migrate; both
+require the same exact projection inputs and produce the same stable source-span result shape.
 
 The dependency-free CLI exposes the same staged contract for people, scripts, and
 agent runtimes that have not yet adopted an MCP transport:

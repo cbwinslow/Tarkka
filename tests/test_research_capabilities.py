@@ -58,7 +58,7 @@ def test_research_capabilities_are_stable_and_compact() -> None:
         "research.citations.traverse",
         "research.resources.list",
         "research.resources.show",
-        "research.retrieval.search",
+        "research.search",
     ]
     assert capabilities.estimated_tokens == _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD + sum(
         item.estimated_tokens for item in capabilities.operations
@@ -116,7 +116,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     traverse = research_operation_schema("research.citations.traverse")
     resources = research_operation_schema("research.resources.list")
     resource = research_operation_schema("research.resources.show")
-    retrieval = research_operation_schema("research.retrieval.search")
+    retrieval = research_operation_schema("research.search")
 
     assert [field.name for field in discover.inputs] == [
         "text",

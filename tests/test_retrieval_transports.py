@@ -235,17 +235,17 @@ def test_mcp_search_is_read_only_discoverable_and_preserves_source_spans(tmp_pat
     server = create_server(lexical=lexical)
 
     capabilities = _call(server, "research_capabilities", {})
-    assert "research.retrieval.search" in {
+    assert "research.search" in {
         operation["operation_id"] for operation in capabilities["operations"]
     }
     schema = _call(
-        server, "research_operation_schema", {"operation_id": "research.retrieval.search"}
+        server, "research_operation_schema", {"operation_id": "research.search"}
     )
-    assert schema["operation"]["operation_id"] == "research.retrieval.search"
+    assert schema["operation"]["operation_id"] == "research.search"
 
     response = _call(
         server,
-        "retrieval_search",
+        "research_search",
         {
             "document_id": document_id,
             "query": "retrieval",
@@ -258,10 +258,18 @@ def test_mcp_search_is_read_only_discoverable_and_preserves_source_spans(tmp_pat
     assert response["hits"][0]["text"] == "Evidence first for retrieval."
     assert response["hits"][0]["source_spans"][0]["char_start"] == 0
 
-    tool = next(
-        item for item in asyncio.run(server.list_tools()) if item.name == "retrieval_search"
-    )
-    assert tool.annotations is not None and tool.annotations.read_only_hint is True
+    tools = {item.name: item for item in asyncio.run(server.list_tools())}
+    assert tools["research_search"].annotations is not None
+    assert tools["research_search"].annotations.read_only_hint is True
+
+    compatibility = _call(server, "retrieval_search", {
+        "document_id": document_id,
+        "query": "retrieval",
+        "derivation_version": "v1",
+        "configuration_fingerprint": "whole-passage-v1",
+        "limit": 1,
+    })
+    assert compatibility["hits"] == response["hits"]
 
 
 def test_mcp_search_rejects_invalid_or_missing_exact_projection(tmp_path: Path) -> None:

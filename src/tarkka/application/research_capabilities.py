@@ -34,6 +34,7 @@ from tarkka.application.workspace import WorkspaceService
 # alongside every capability response. Keeping it separate from per-operation
 # estimates makes the deliberately approximate number auditable.
 _CAPABILITY_ENVELOPE_TOKEN_OVERHEAD = 80
+_OPERATION_ALIASES = {"research.retrieval.search": "research.search"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -907,8 +908,9 @@ def research_capabilities() -> ResearchCapabilities:
 
 def research_operation_schema(operation_id: str) -> ResearchOperationSchema:
     """Load one compact descriptor after the caller selects an advertised operation."""
+    canonical_operation_id = _OPERATION_ALIASES.get(operation_id, operation_id)
     for registration in _OPERATION_REGISTRATIONS:
-        if registration.operation.operation_id == operation_id:
+        if registration.operation.operation_id == canonical_operation_id:
             return ResearchOperationSchema(
                 operation=registration.operation,
                 inputs=registration.inputs,

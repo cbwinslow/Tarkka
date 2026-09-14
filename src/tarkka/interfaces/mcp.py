@@ -548,7 +548,7 @@ def create_server(
         description="Compatibility alias for research_search.",
         annotations=_READ_ONLY,
     )
-    @instrument("research.retrieval.search")
+    @instrument("research.search")
     def retrieval_search(
         document_id: object,
         query: object,

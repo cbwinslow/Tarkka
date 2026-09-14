@@ -113,16 +113,18 @@ research_operation_schema
 research_get
 research_expand
 research_compare
+research_search
 document_manifest
 document_sections
 document_section
-retrieval_search
+retrieval_search (compatibility alias)
 ```
 
 ### Local lexical retrieval
 
-`research.retrieval.search` is discoverable through the compact capability index and expands to a
-single read-only `retrieval_search` MCP tool. It searches one caller-selected persisted lexical
+`research.search` is discoverable through the compact capability index and expands to a
+single read-only `research_search` MCP tool. `retrieval_search` remains a compatibility alias for
+existing clients. It searches one caller-selected persisted lexical
 projection by Document ID, derivation version, configuration fingerprint, query, and bounded limit.
 Each hit retains its segment handle and exact normalized-passage spans. The tool never creates an
 index, exposes a local path, or falls back to another projection; callers must explicitly index the

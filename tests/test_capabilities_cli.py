@@ -39,7 +39,7 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.citations.traverse",
         "research.resources.list",
         "research.resources.show",
-        "research.retrieval.search",
+        "research.search",
     ]
     assert "inputs" not in listing
 

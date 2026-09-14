@@ -872,7 +872,7 @@ _OPERATION_REGISTRATIONS = (
     ),
     _OperationRegistration(
         ResearchOperation(
-            "research.retrieval.search",
+            "research.search",
             "search",
             "Search one exact local lexical projection.",
             24,

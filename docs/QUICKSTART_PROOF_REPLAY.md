@@ -11,6 +11,11 @@ with Python 3.11 or newer, `PYTHONPATH=src python -m tarkka` exercises the same 
 dispatcher as the installed `tarkka` console command, so this demo does not require an install step
 or network access.
 
+For a wheel installation, activate its virtual environment and replace the `tarkka_demo` function
+below with `tarkka_demo() { tarkka "$@"; }`. Keep the repository fixture available at the shown
+path. Released v0.1.0 uses `--schema-version 3`; the equivalent `--replay-ready` shortcut shown here
+is available in the current checkout for the next release.
+
 ## Run the walkthrough
 
 The commands below assume a POSIX-compatible shell from the repository root. The walkthrough pins
@@ -35,9 +40,9 @@ tarkka_demo why "$CLAIM_ID"
 tarkka_demo claims receipt "$CLAIM_ID"
 tarkka_demo documents brief "$DOCUMENT_ID"
 
-tarkka_demo bundle create "$DOCUMENT_ID" --schema-version 3 \
+tarkka_demo bundle create "$DOCUMENT_ID" --replay-ready \
   --output "$TARKKA_HOME/demo-a.tarkka"
-tarkka_demo bundle create "$DOCUMENT_ID" --schema-version 3 \
+tarkka_demo bundle create "$DOCUMENT_ID" --replay-ready \
   --output "$TARKKA_HOME/demo-b.tarkka"
 
 cmp "$TARKKA_HOME/demo-a.tarkka" "$TARKKA_HOME/demo-b.tarkka"
@@ -76,7 +81,8 @@ The walkthrough uses production paths, not precomputed output:
 3. `why` walks the Claim back through its extraction run, Evidence, normalized Document, and source
    Artifact. No verification relation is invented; the demo correctly shows zero assessments until
    a human or verifier records one.
-4. `bundle create --schema-version 3` freezes the Artifact, complete research state, and canonical
+4. `bundle create --replay-ready` (equivalent to `--schema-version 3`) freezes the Artifact,
+   complete research state, and canonical
    normalized Document into the portable proof bundle.
 5. `bundle verify` checks the archive, canonical manifest, member identities, hashes, sizes, and
    document/research-state consistency completely offline.

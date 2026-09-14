@@ -28,15 +28,17 @@ def test_bundle_cli_v3_create_verify_and_bytes_are_deterministic(
     first = tmp_path / "first-v3.tarkka"
     second = tmp_path / "second-v3.tarkka"
 
-    for output in (first, second):
+    for output, schema_args in (
+        (first, ["--schema-version", "3"]),
+        (second, ["--replay-ready"]),
+    ):
         assert (
             main(
                 [
                     "bundle",
                     "create",
                     str(result.document.document_id),
-                    "--schema-version",
-                    "3",
+                    *schema_args,
                     "--output",
                     str(output),
                 ]
@@ -71,6 +73,56 @@ def test_bundle_cli_v3_create_verify_and_bytes_are_deterministic(
     verified = json.loads(capsys.readouterr().out)
     assert verified["valid"] is True
     assert verified["member_count"] == 4
+
+
+@pytest.mark.parametrize("schema_version", ["1", "2", "3"])
+@pytest.mark.parametrize("shortcut_first", [True, False])
+def test_replay_ready_rejects_conflicting_schema_without_publication(
+    schema_version: str,
+    shortcut_first: bool,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output = tmp_path / "existing.tarkka"
+    output.write_bytes(b"retained export")
+    flags = ["--schema-version", schema_version]
+    flags = ["--replay-ready", *flags] if shortcut_first else [*flags, "--replay-ready"]
+    try:
+        exit_code = main(["bundle", "create", str(uuid4()), "--output", str(output), *flags])
+    except SystemExit as exc:
+        assert exc.code == 2
+        exit_code = 2
+    assert exit_code == 2
+    assert output.read_bytes() == b"retained export"
+
+
+def test_replay_ready_plain_text_workflow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("TARKKA_DOCUMENT_BACKEND", "json")
+    source = tmp_path / "study.txt"
+    source.write_text("The study found that plants grew faster in sunlight.", encoding="utf-8")
+    assert main(["ingest", str(source)]) == 0
+    document_id = next(
+        line.split()[1] for line in capsys.readouterr().out.splitlines() if line.startswith("id:")
+    )
+    assert main(["extract", "claims", document_id, "--extractor", "rule"]) == 0
+    extracted = json.loads(capsys.readouterr().out)
+    bundle = tmp_path / "study.tarkka"
+    assert main(["bundle", "create", document_id, "--replay-ready", "--output", str(bundle)]) == 0
+    capsys.readouterr()
+    with zipfile.ZipFile(bundle) as archive:
+        state = json.loads(archive.read(PROOF_BUNDLE_RESEARCH_STATE_PATH))
+    assert [item["claim"]["claim_id"] for item in state["claims"]] == extracted["claim_ids"]
+    assert state["claims"][0]["claim_evidence"][0]["text"] == source.read_text()
+    monkeypatch.setenv("TARKKA_HOME", str(tmp_path / "independent-home"))
+    assert main(["bundle", "verify", str(bundle)]) == 0
+    assert json.loads(capsys.readouterr().out)["valid"] is True
+    assert main(["replay", str(bundle)]) == 0
+    assert json.loads(capsys.readouterr().out)["matched"] is True
 
 
 def test_bundle_cli_v3_factory_does_not_create_optional_research_catalogs(

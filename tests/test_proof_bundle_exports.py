@@ -161,6 +161,26 @@ class _InconsistentStore(LocalArtifactStore):
         )
 
 
+class _StaleSizeStore(LocalArtifactStore):
+    def put_bytes(
+        self,
+        data: bytes,
+        *,
+        original_name: str | None = None,
+        source_uri: str | None = None,
+        media_type: str = "application/octet-stream",
+    ) -> Artifact:
+        return replace(
+            super().put_bytes(
+                data,
+                original_name=original_name,
+                source_uri=source_uri,
+                media_type=media_type,
+            ),
+            size_bytes=len(data) + 1,
+        )
+
+
 class _ReadOverrideStore(LocalArtifactStore):
     def __init__(self, root: Path, returned: bytes) -> None:
         super().__init__(root)
@@ -174,6 +194,16 @@ def test_export_rejects_inconsistent_retained_metadata(tmp_path: Path) -> None:
     payload = _v3_payload()
     service = ProofBundleExportService(
         bundles=_Builder(payload), archives=_InconsistentStore(tmp_path / "artifacts")
+    )
+
+    with pytest.raises(ProofBundleExportConfigurationError, match="inconsistent"):
+        service.export(payload.manifest.document.document_id)
+
+
+def test_export_rejects_a_retained_artifact_with_a_stale_byte_count(tmp_path: Path) -> None:
+    payload = _v3_payload()
+    service = ProofBundleExportService(
+        bundles=_Builder(payload), archives=_StaleSizeStore(tmp_path / "artifacts")
     )
 
     with pytest.raises(ProofBundleExportConfigurationError, match="inconsistent"):

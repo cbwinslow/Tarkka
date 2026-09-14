@@ -104,8 +104,8 @@ research_export
 
 ### Initial delivered stdio transport
 
-The initial `tarkka-mcp` server intentionally implements the smallest useful read-only subset of
-that surface:
+The initial `tarkka-mcp` server intentionally implements a small read-only core plus explicit,
+idempotent proof-bundle write operations:
 
 ```text
 research_capabilities

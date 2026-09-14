@@ -106,7 +106,11 @@ class ProofBundleExportService:
             original_name=f"{document_id}.tarkka",
             media_type=_BUNDLE_MEDIA_TYPE,
         )
-        self._validate_retained_artifact(retained, verification)
+        self._validate_retained_artifact(
+            retained,
+            verification,
+            byte_count=len(archive),
+        )
         retained_verification = self._verify_digest(verification.bundle_sha256)
         return self._receipt(retained_verification, byte_count=len(archive))
 
@@ -135,11 +139,14 @@ class ProofBundleExportService:
 
     @staticmethod
     def _validate_retained_artifact(
-        retained: Artifact, verification: ProofBundleVerification
+        retained: Artifact,
+        verification: ProofBundleVerification,
+        *,
+        byte_count: int,
     ) -> None:
         if (
             retained.sha256 != verification.bundle_sha256
-            or retained.size_bytes <= 0
+            or retained.size_bytes != byte_count
             or retained.media_type != _BUNDLE_MEDIA_TYPE
         ):
             raise ProofBundleExportConfigurationError(

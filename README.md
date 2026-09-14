@@ -16,6 +16,25 @@ The core is intentionally usable without an LLM, hosted service, or mandatory ex
 research providers, document parsers, databases, and future model providers live behind replaceable
 contracts.
 
+## Install a release
+
+Download the wheel and `SHA256SUMS` from the
+[v0.1.0 release](https://github.com/cbwinslow/Tarkka/releases/tag/v0.1.0). After checking the wheel's
+SHA-256 against its entry in the manifest, install it in a virtual environment. From the download
+directory, with Python 3.11 or newer and a POSIX shell:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install ./tarkka-0.1.0-py3-none-any.whl
+tarkka --help
+```
+
+The expanded help and `--replay-ready` shortcut below are available in the current source checkout
+and will ship in the next release. With v0.1.0, use `--schema-version 3` instead. The
+[offline walkthrough](docs/QUICKSTART_PROOF_REPLAY.md) includes the source fixture and checkout
+commands; a wheel installation does not include the `examples/` directory.
+
 ## Prove a research result in five minutes
 
 Tarkka is designed to make research state inspectable and replayable rather than hide evidence
@@ -73,6 +92,7 @@ tarkka claims receipt <claim-id>
 tarkka claims receipt <claim-id> --format json
 tarkka documents brief <document-id>
 tarkka documents brief <document-id> --format html
+```
 
 Receipts and briefs need the same local JSON or PostgreSQL document backend as `tarkka why`.
 Markdown is the default human view; `json` is the agent view; `html` is the same fields as a page.
@@ -81,8 +101,9 @@ and do not invent support. Re-running against unchanged persisted state is deter
 (`receipt-v1` / `brief-v1`). Agents discover the same operations as `research.claims.receipt` and
 `research.documents.brief`. See [`docs/QUICKSTART_PROOF_REPLAY.md`](docs/QUICKSTART_PROOF_REPLAY.md).
 
+```bash
 # Export, independently verify, and replay portable research state.
-tarkka bundle create <document-id> --schema-version 3 --output research.tarkka
+tarkka bundle create <document-id> --replay-ready --output research.tarkka
 tarkka bundle verify research.tarkka
 tarkka replay research.tarkka
 

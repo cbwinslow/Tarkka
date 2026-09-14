@@ -44,7 +44,18 @@ tarkka bundle create <document-id> \
   --output research.tarkka
 ```
 
-Create a v3 replay-ready bundle:
+Create a v3 replay-ready bundle from the current checkout (shortcut available in the next release):
+
+```bash
+tarkka bundle create <document-id> --replay-ready --output research.tarkka
+```
+
+`--replay-ready` is exactly equivalent to `--schema-version 3`; the options are mutually exclusive.
+It includes the preserved source, Claim/Evidence state, and normalized Document. Execution still
+requires a supported deterministic parser matching the recorded name and version; this option does
+not make an unsupported parser replayable. The compatibility default remains v1.
+
+The explicit schema option also works in released v0.1.0:
 
 ```bash
 tarkka bundle create <document-id> \

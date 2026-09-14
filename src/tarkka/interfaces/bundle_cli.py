@@ -16,6 +16,7 @@ from tarkka.application.proof_bundles import (
     ProofBundleV2Service,
     ProofBundleV3Service,
 )
+from tarkka.domain.proof_bundle_v3 import PROOF_BUNDLE_SCHEMA_VERSION_V3
 from tarkka.domain.proof_bundles import PROOF_BUNDLE_SCHEMA_VERSION
 from tarkka.infrastructure.proof_bundles import (
     ProofBundleVerificationError,
@@ -129,16 +130,24 @@ def build_parser() -> argparse.ArgumentParser:
     create = sub.add_parser("create", help="export one normalized document as a proof bundle")
     create.add_argument("document_id", type=_parse_document_id)
     create.add_argument("--output", required=True, help="destination .tarkka archive path")
-    create.add_argument(
+    schema = create.add_mutually_exclusive_group()
+    schema.add_argument(
         "--schema-version",
         type=int,
         choices=_SUPPORTED_SCHEMA_VERSIONS,
-        default=PROOF_BUNDLE_SCHEMA_VERSION,
+        help=(f"proof-bundle schema version to create (default: {PROOF_BUNDLE_SCHEMA_VERSION})"),
+    )
+    schema.add_argument(
+        "--replay-ready",
+        dest="schema_version",
+        action="store_const",
+        const=PROOF_BUNDLE_SCHEMA_VERSION_V3,
         help=(
-            "proof-bundle schema version to create "
-            f"(default: {PROOF_BUNDLE_SCHEMA_VERSION})"
+            "include claims, evidence, and normalized content for replay (schema v3); "
+            "replay requires a supported, matching deterministic parser"
         ),
     )
+    create.set_defaults(schema_version=PROOF_BUNDLE_SCHEMA_VERSION)
     create.set_defaults(func=_cmd_create)
 
     verify = sub.add_parser("verify", help="verify a proof bundle completely offline")

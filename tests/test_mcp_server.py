@@ -95,12 +95,14 @@ def test_mcp_server_registers_explicit_bundle_writes_alongside_read_only_operati
         "research_search",
         "retrieval_search",
     ]
-    write_names = {"proof_bundle_export", "proof_bundle_verify"}
+    write_names = {"proof_bundle_export", "proof_bundle_verify", "research_wallet"}
     assert all(tool.annotations is not None for tool in tools)
     assert all(
         tool.annotations.read_only_hint is (tool.name not in write_names) for tool in tools
     )
-    assert all(tool.annotations is not None and tool.annotations.idempotent_hint for tool in tools)
+    assert all(
+        tool.annotations.idempotent_hint is (tool.name != "research_wallet") for tool in tools
+    )
     assert all(
         tool.annotations is not None and not tool.annotations.open_world_hint for tool in tools
     )

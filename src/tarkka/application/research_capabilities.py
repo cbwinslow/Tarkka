@@ -498,7 +498,7 @@ _OPERATION_REGISTRATIONS = (
             "research.wallet.create",
             "get",
             "Create or inspect an opaque cumulative context wallet.",
-            1,
+            0,
         ),
         ContextWalletService,
         "create",
@@ -512,6 +512,18 @@ _OPERATION_REGISTRATIONS = (
             ),
         ),
         "Opaque wallet handle and cumulative consumed/remaining token metadata.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.wallet.get",
+            "get",
+            "Inspect one opaque cumulative context wallet.",
+            1,
+        ),
+        ContextWalletService,
+        "get",
+        (ResearchField("wallet_handle", "string", True, "Opaque context_wallet:UUID handle."),),
+        "Configured wallet limit and current consumed/remaining token metadata.",
     ),
     _OperationRegistration(
         ResearchOperation(

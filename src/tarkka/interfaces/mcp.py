@@ -111,6 +111,12 @@ _EXPLICIT_WRITE = ToolAnnotations(
     idempotent_hint=True,
     open_world_hint=False,
 )
+_WALLET_LIFECYCLE = ToolAnnotations(
+    read_only_hint=False,
+    destructive_hint=False,
+    idempotent_hint=False,
+    open_world_hint=False,
+)
 _MAX_SECTION_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 _MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS = DEFAULT_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS
 
@@ -209,7 +215,10 @@ def create_server(
         """Create the configured contradiction service only when comparison is requested."""
         nonlocal challenge_reader
         if challenge_reader is None:
-            challenge_reader = configured_challenge_service()
+            if wallet_service is None:
+                challenge_reader = configured_challenge_service()
+            else:
+                challenge_reader = configured_challenge_service(wallets=context_wallet_service())
         return challenge_reader
 
     def instrument(
@@ -332,7 +341,7 @@ def create_server(
     @server.tool(
         name="research_wallet",
         description="Create or inspect an opaque cumulative context wallet.",
-        annotations=_READ_ONLY,
+        annotations=_WALLET_LIFECYCLE,
     )
     @instrument("research.wallet")
     def research_wallet(

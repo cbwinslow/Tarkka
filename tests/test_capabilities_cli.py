@@ -23,6 +23,7 @@ def test_capabilities_cli_stages_compact_discovery(capsys) -> None:
         "research.get",
         "research.expand",
         "research.wallet.create",
+        "research.wallet.get",
         "research.workspace.init",
         "research.workspace.show",
         "research.workspace.run",

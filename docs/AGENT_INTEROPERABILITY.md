@@ -71,7 +71,8 @@ HTTP may later expose the same application service; this slice ships MCP first.
 
 The compact `research.compare` operation is implemented by `ChallengeService.compare` and exposed
 as the read-only MCP `research_compare` tool. It accepts one Claim UUID (or `claim:UUID` handle)
-and an optional `max_tokens` wallet. It returns only recorded contradiction, qualification, and
+and an optional per-request `max_tokens` ceiling. As described above, callers may additionally pass
+`wallet_handle` and `operation_key` to charge the same cumulative wallet. It returns only recorded contradiction, qualification, and
 partial-support relation handles plus review metadata; source/evidence text is never expanded.
 An unknown Claim returns `not_found`; an invalid wallet returns `invalid_argument`; an oversized
 comparison returns `content_too_large` with `research.get` as the next action. HTTP parity remains

@@ -15,6 +15,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.claim_receipts import ClaimReceiptService
+from tarkka.application.context_wallet import ContextWalletService
 from tarkka.application.discover import DiscoveryService
 from tarkka.application.document_replay import DocumentReplayService
 from tarkka.application.document_retrieval import DocumentRetrievalService
@@ -144,6 +145,7 @@ class _OperationRegistration:
         | type[ClaimLineageService]
         | type[ClaimReceiptService]
         | type[ResearchGetService]
+        | type[ContextWalletService]
         | type[WorkspaceService]
         | type[ChallengeService]
         | type[EncyclopediaService]
@@ -422,6 +424,19 @@ _OPERATION_REGISTRATIONS = (
                 False,
                 "Whether the caller intends to send source text to a model.",
             ),
+            ResearchField(
+                "wallet_handle",
+                "string",
+                False,
+                "Opaque cumulative context_wallet:UUID handle.",
+            ),
+            ResearchField(
+                "operation_key",
+                "string",
+                False,
+                "Caller retry key; required when wallet_handle is supplied.",
+                required_when="wallet_handle is supplied",
+            ),
         ),
         "Walleted representation payload, estimated tokens, and may_send_to_model.",
     ),
@@ -462,8 +477,53 @@ _OPERATION_REGISTRATIONS = (
                 False,
                 "Whether the caller intends to send source text to a model.",
             ),
+            ResearchField(
+                "wallet_handle",
+                "string",
+                False,
+                "Opaque cumulative context_wallet:UUID handle.",
+            ),
+            ResearchField(
+                "operation_key",
+                "string",
+                False,
+                "Caller retry key; required when wallet_handle is supplied.",
+                required_when="wallet_handle is supplied",
+            ),
         ),
         "Walleted evidence or full payload; fails closed instead of truncating.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.wallet.create",
+            "get",
+            "Create or inspect an opaque cumulative context wallet.",
+            0,
+        ),
+        ContextWalletService,
+        "create",
+        (
+            ResearchField(
+                "max_tokens",
+                "integer",
+                False,
+                "Immutable cumulative estimated-token limit for a new wallet.",
+                minimum=0,
+            ),
+        ),
+        "Opaque wallet handle and cumulative consumed/remaining token metadata.",
+    ),
+    _OperationRegistration(
+        ResearchOperation(
+            "research.wallet.get",
+            "get",
+            "Inspect one opaque cumulative context wallet.",
+            1,
+        ),
+        ContextWalletService,
+        "get",
+        (ResearchField("wallet_handle", "string", True, "Opaque context_wallet:UUID handle."),),
+        "Configured wallet limit and current consumed/remaining token metadata.",
     ),
     _OperationRegistration(
         ResearchOperation(
@@ -686,6 +746,19 @@ _OPERATION_REGISTRATIONS = (
                 "Per-request estimated-token wallet.",
                 minimum=0,
                 maximum=DEFAULT_GET_MAX_TOKENS,
+            ),
+            ResearchField(
+                "wallet_handle",
+                "string",
+                False,
+                "Opaque cumulative context_wallet:UUID handle.",
+            ),
+            ResearchField(
+                "operation_key",
+                "string",
+                False,
+                "Caller retry key; required when wallet_handle is supplied.",
+                required_when="wallet_handle is supplied",
             ),
         ),
         "Walleted contradiction/qualification relation handles without source text.",

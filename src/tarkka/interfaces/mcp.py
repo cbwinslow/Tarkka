@@ -33,7 +33,13 @@ from tarkka.application.claim_lineage_protocol import (
     claim_lineage_response,
 )
 from tarkka.application.claim_receipts import ClaimReceiptService
-from tarkka.application.context_wallet import WalletExhaustedError
+from tarkka.application.context_wallet import (
+    ContextWalletPersistenceError,
+    ContextWalletService,
+    InvalidContextWalletHandleError,
+    UnknownContextWalletError,
+    WalletExhaustedError,
+)
 from tarkka.application.document_context_packages import MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 from tarkka.application.document_replay import DocumentReplayer
 from tarkka.application.document_replay_protocol import (
@@ -74,6 +80,7 @@ from tarkka.application.research_get_protocol import research_expand_response, r
 from tarkka.domain.manifest import estimate_tokens
 from tarkka.domain.models import Section
 from tarkka.domain.telemetry import AgentUsageEvent
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.jsonl_telemetry import JsonlAgentUsageRecorder
 from tarkka.interfaces.challenge_cli import configured_challenge_service
 from tarkka.interfaces.claim_lineage_runtime import (
@@ -82,6 +89,7 @@ from tarkka.interfaces.claim_lineage_runtime import (
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_receipt_service as configured_claim_receipt_service,
 )
+from tarkka.interfaces.cli import _home
 from tarkka.interfaces.document_replay_runtime import (
     document_replay_service as configured_document_replay_service,
 )
@@ -103,6 +111,12 @@ _EXPLICIT_WRITE = ToolAnnotations(
     idempotent_hint=True,
     open_world_hint=False,
 )
+_WALLET_LIFECYCLE = ToolAnnotations(
+    read_only_hint=False,
+    destructive_hint=False,
+    idempotent_hint=False,
+    open_world_hint=False,
+)
 _MAX_SECTION_ESTIMATED_TOKENS = MAX_CONTEXT_PACKAGE_ESTIMATED_TOKENS
 _MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS = DEFAULT_MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS
 
@@ -117,6 +131,7 @@ def create_server(
     challenge: ChallengeService | None = None,
     replay: DocumentReplayer | None = None,
     proof_bundles: ProofBundleExportService | None = None,
+    wallets: ContextWalletService | None = None,
     telemetry: AgentUsageRecorder | None = None,
 ) -> MCPServer:
     """Build the stdio MCP server with lazily constructed configured services.
@@ -132,6 +147,15 @@ def create_server(
     challenge_reader = challenge
     replay_reader = replay
     proof_bundle_writer = proof_bundles
+    wallet_service = wallets
+
+    def context_wallet_service() -> ContextWalletService:
+        """Create the local wallet adapter only when a walleted operation is requested."""
+        nonlocal wallet_service
+        if wallet_service is None:
+            store = JsonContextWalletStore(_home() / "context_wallets.json")
+            wallet_service = ContextWalletService(store)
+        return wallet_service
 
     def retrieval_service() -> DocumentRetrievalService:
         """Create the configured document backend only when a document tool needs it."""
@@ -183,6 +207,7 @@ def create_server(
                 receipts=receipt_service(),
                 documents=retrieval_service(),
                 lineage=lineage_service(),
+                wallets=context_wallet_service(),
             )
         return get_reader
 
@@ -190,7 +215,10 @@ def create_server(
         """Create the configured contradiction service only when comparison is requested."""
         nonlocal challenge_reader
         if challenge_reader is None:
-            challenge_reader = configured_challenge_service()
+            if wallet_service is None:
+                challenge_reader = configured_challenge_service()
+            else:
+                challenge_reader = configured_challenge_service(wallets=context_wallet_service())
         return challenge_reader
 
     def instrument(
@@ -257,6 +285,8 @@ def create_server(
         representation: object,
         max_tokens: int = DEFAULT_GET_MAX_TOKENS,
         send_to_model: bool = False,
+        wallet_handle: str | None = None,
+        operation_key: str | None = None,
     ) -> dict[str, object]:
         """Return a budgeted representation without truncating source text."""
         try:
@@ -271,6 +301,8 @@ def create_server(
             representation=representation,
             max_tokens=max_tokens,
             send_to_model=send_to_model,
+            wallet_handle=wallet_handle,
+            operation_key=operation_key,
         )
 
     @server.tool(
@@ -286,6 +318,8 @@ def create_server(
         include: object,
         max_tokens: int = DEFAULT_GET_MAX_TOKENS,
         send_to_model: bool = False,
+        wallet_handle: str | None = None,
+        operation_key: str | None = None,
     ) -> dict[str, object]:
         """Expand source only when it fits the wallet and model-dispatch policy."""
         try:
@@ -300,7 +334,46 @@ def create_server(
             include=include,
             max_tokens=max_tokens,
             send_to_model=send_to_model,
+            wallet_handle=wallet_handle,
+            operation_key=operation_key,
         )
+
+    @server.tool(
+        name="research_wallet",
+        description="Create or inspect an opaque cumulative context wallet.",
+        annotations=_WALLET_LIFECYCLE,
+    )
+    @instrument("research.wallet")
+    def research_wallet(
+        action: str,
+        max_tokens: int = 4_000,
+        wallet_handle: str | None = None,
+    ) -> dict[str, object]:
+        """Use one compact lifecycle tool rather than a tool per wallet action."""
+        try:
+            if action == "create":
+                balance = context_wallet_service().create(max_tokens)
+            elif action == "get" and wallet_handle is not None:
+                balance = context_wallet_service().get(wallet_handle)
+            elif action == "get":
+                raise ValueError("wallet_handle is required when action is get")
+            else:
+                raise ValueError("action must be create or get")
+        except InvalidContextWalletHandleError as exc:
+            return _invalid_argument_error(exc)
+        except UnknownContextWalletError as exc:
+            return _not_found_error(exc, "research.wallet.create")
+        except ContextWalletPersistenceError as exc:
+            return _unavailable_error(exc)
+        except ValueError as exc:
+            return _invalid_argument_error(exc)
+        return {
+            "ok": True,
+            "wallet_handle": balance.wallet_handle,
+            "max_tokens": balance.max_tokens,
+            "consumed_tokens": balance.consumed_tokens,
+            "remaining_tokens": balance.remaining_tokens,
+        }
 
     @server.tool(
         name="research_compare",
@@ -313,6 +386,8 @@ def create_server(
     def research_compare(
         claim_id: object,
         max_tokens: int = DEFAULT_GET_MAX_TOKENS,
+        wallet_handle: str | None = None,
+        operation_key: str | None = None,
     ) -> dict[str, object]:
         """Return bounded relation handles; evidence and source text stay unexpanded."""
         parsed = _uuid_or_error(claim_id, kind="claim")
@@ -330,13 +405,25 @@ def create_server(
                 )
             )
         try:
-            result = challenge_service().compare(parsed, max_tokens=max_tokens)
+            result = challenge_service().compare(
+                parsed,
+                max_tokens=max_tokens,
+                wallet_handle=wallet_handle,
+                operation_key=operation_key,
+            )
         except WalletExhaustedError as exc:
             return _error(
                 "content_too_large",
                 str(exc),
                 next_actions=("research.get",),
+                details=_wallet_exhausted_details(exc),
             )
+        except InvalidContextWalletHandleError as exc:
+            return _invalid_argument_error(exc)
+        except UnknownContextWalletError as exc:
+            return _not_found_error(exc, "research.wallet.create")
+        except ContextWalletPersistenceError as exc:
+            return _unavailable_error(exc)
         except LookupError as exc:
             return _not_found_error(exc, "research.get")
         except ValueError as exc:
@@ -700,9 +787,13 @@ def _section_estimated_tokens(section: Section) -> int:
 
 
 def _error(
-    code: str, message: str, *, next_actions: tuple[str, ...] = ()
+    code: str,
+    message: str,
+    *,
+    next_actions: tuple[str, ...] = (),
+    details: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    return agent_error(code, message, next_actions=next_actions)
+    return agent_error(code, message, next_actions=next_actions, details=details)
 
 
 def _invalid_argument_error(exc: ValueError) -> dict[str, object]:
@@ -715,6 +806,13 @@ def _not_found_error(exc: LookupError, next_action: str) -> dict[str, object]:
 
 def _unavailable_error(exc: OSError | RuntimeError) -> dict[str, object]:
     return _error("backend_unavailable", str(exc))
+
+
+def _wallet_exhausted_details(exc: WalletExhaustedError) -> dict[str, object]:
+    details: dict[str, object] = {"estimated_tokens": exc.estimated_tokens}
+    if exc.remaining_tokens is not None:
+        details["remaining_tokens"] = exc.remaining_tokens
+    return details
 
 
 def _proof_bundle_backend_unavailable() -> dict[str, object]:

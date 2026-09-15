@@ -11,12 +11,14 @@ from tarkka.application.challenge import (
     ChallengeService,
     is_contrary,
 )
+from tarkka.application.context_wallet import ContextWalletService
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.ingest import IngestService
 from tarkka.application.verification import ClaimNotFoundError, EvidenceVerificationService
 from tarkka.application.workspace import WorkspaceNotFoundError, WorkspaceService
 from tarkka.domain.extraction import Claim
 from tarkka.infrastructure.extraction.rule_claims import RuleBasedClaimExtractor
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
@@ -92,6 +94,8 @@ def test_challenge_records_contradicts_and_is_idempotent(tmp_path: Path) -> None
     assert [item.relation_id for item in again.relations] == [
         item.relation_id for item in result.relations
     ]
+
+
     board = challenge.list_contradictions(workspace.workspace.workspace_id)
     assert {item.kind for item in board} == {"contradicts"}
     assert not any("score" in item.kind for item in board)
@@ -125,6 +129,32 @@ def test_challenge_records_contradicts_and_is_idempotent(tmp_path: Path) -> None
     assert empty.outcome in {"recorded", "no_new_evidence"}
     with pytest.raises(WorkspaceNotFoundError):
         challenge.challenge(first, workspace_id=UUID(int=8))
+
+
+def test_compare_wallet_guards(tmp_path: Path) -> None:
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "ws.yaml"
+    manifest.write_text("version: 1\nkind: research_workspace\nmetadata:\n  name: wallet\n")
+    workspace = workspaces.init_from_manifest(manifest)
+    claim_id = workspaces.run(workspace.workspace.workspace_id, source=source).claim_ids[0]
+    with pytest.raises(ValueError, match="operation_key"):
+        challenge.compare(claim_id, operation_key="x")
+    with pytest.raises(RuntimeError, match="persistence"):
+        challenge.compare(
+            claim_id,
+            wallet_handle="context_wallet:" + str(UUID(int=1)),
+            operation_key="x",
+        )
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    walleted = ChallengeService(
+        extractions=challenge._extractions,
+        verification=challenge._verification,
+        relations=challenge._relations,
+        wallets=wallets,
+    )
+    wallet = wallets.create(1)
+    with pytest.raises(Exception, match="estimated_tokens"):
+        walleted.compare(claim_id, max_tokens=0, wallet_handle=wallet.wallet_handle)
 
 
 def test_challenge_singleton_is_no_new_evidence(tmp_path: Path) -> None:

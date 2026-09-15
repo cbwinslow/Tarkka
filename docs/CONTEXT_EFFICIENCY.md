@@ -267,6 +267,17 @@ Prefer cheap structural reduction first:
 
 Only then use LLM summarization.
 
+## Cumulative context wallets
+
+Per-request ceilings prevent one accidental bulk response; a `context_wallet:UUID` handle prevents
+a bounded research session from resetting that ceiling on every call. Create one through the compact
+`research_wallet` lifecycle tool, then pass its handle plus a caller-supplied retry key to
+`research.get`, `research.expand`, or `research.compare`. Tarkka computes the complete deterministic
+response before spending. It refuses oversize content rather than truncating it, and failed policy,
+validation, or persistence work does not consume budget. The local record has only opaque wallet
+identity, limit/counter/timestamps, and retry outcome metadata; it never stores source text, resource
+IDs, request arguments, or prompts.
+
 ## Cost telemetry
 
 Track:

@@ -37,7 +37,7 @@ class _DenyModelDispatch:
         return False
 
 
-def _service(tmp_path, *, model_dispatch=None) -> ResearchGetService:
+def _service(tmp_path, *, model_dispatch=None, wallets=None) -> ResearchGetService:
     persist_local_claim_lineage(tmp_path)
     documents = JsonResearchRepository.open_existing(tmp_path / "catalog.json")
     assert documents is not None
@@ -46,6 +46,7 @@ def _service(tmp_path, *, model_dispatch=None) -> ResearchGetService:
         documents=DocumentRetrievalService(documents=documents),
         lineage=claim_lineage_service(home=tmp_path),
         model_dispatch=model_dispatch,
+        wallets=wallets,
     )
 
 
@@ -245,14 +246,9 @@ def test_send_to_model_must_be_boolean(tmp_path) -> None:
 
 
 def test_wallet_protocol_maps_invalid_unknown_and_persistence_errors(tmp_path) -> None:
-    live = _service(tmp_path)
     wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
-    service = ResearchGetService(
-        receipts=live._receipts,
-        documents=live._documents,
-        lineage=live._lineage,
-        wallets=wallets,
-    )
+    service = _service(tmp_path, wallets=wallets)
+    live = _service(tmp_path)
     claim = "claim:" + str(UUID(int=8))
     invalid = research_get_response(
         service, claim, representation="receipt", wallet_handle="bad", operation_key="x"

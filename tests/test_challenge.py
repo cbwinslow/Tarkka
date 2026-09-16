@@ -11,7 +11,7 @@ from tarkka.application.challenge import (
     ChallengeService,
     is_contrary,
 )
-from tarkka.application.context_wallet import ContextWalletService
+from tarkka.application.context_wallet import ContextWalletService, WalletExhaustedError
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.ingest import IngestService
 from tarkka.application.verification import ClaimNotFoundError, EvidenceVerificationService
@@ -153,8 +153,9 @@ def test_compare_wallet_guards(tmp_path: Path) -> None:
         wallets=wallets,
     )
     wallet = wallets.create(1)
-    with pytest.raises(Exception, match="estimated_tokens"):
+    with pytest.raises(WalletExhaustedError, match="estimated_tokens"):
         walleted.compare(claim_id, max_tokens=0, wallet_handle=wallet.wallet_handle)
+    assert wallets.get(wallet.wallet_handle).consumed_tokens == 0
 
 
 def test_challenge_singleton_is_no_new_evidence(tmp_path: Path) -> None:

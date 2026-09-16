@@ -63,7 +63,7 @@ class JsonContextWalletStore:
             if estimated_tokens > current.remaining_tokens:
                 raise WalletExhaustedError(
                     estimated_tokens=estimated_tokens,
-                    max_tokens=current.remaining_tokens,
+                    max_tokens=current.max_tokens,
                     remaining_tokens=current.remaining_tokens,
                 )
             updated = ContextWalletRecord(

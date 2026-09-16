@@ -12,6 +12,7 @@ from tarkka.application.context_wallet import (
     ContextWalletService,
     InvalidContextWalletHandleError,
     UnknownContextWalletError,
+    WalletExhaustedError,
     parse_context_wallet_handle,
 )
 from tarkka.application.document_retrieval import DocumentRetrievalService
@@ -221,8 +222,10 @@ def test_json_wallet_store_failure_and_commit_branches(tmp_path, monkeypatch) ->
         store.create(record)
     with pytest.raises(KeyError):
         store.commit_success(UUID(int=3), "x", 1, utc_now())
-    with pytest.raises(Exception, match="estimated_tokens"):
+    with pytest.raises(WalletExhaustedError, match="estimated_tokens") as exhausted:
         store.commit_success(record.wallet_id, "x", 3, utc_now())
+    assert exhausted.value.max_tokens == 2
+    assert exhausted.value.remaining_tokens == 2
     path.write_text('{"schema_version": 2, "wallets": {}}', encoding="utf-8")
     with pytest.raises(RuntimeError, match="unsupported"):
         store.get(record.wallet_id)

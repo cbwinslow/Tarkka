@@ -175,6 +175,22 @@ class ContextWalletService:
             remaining_tokens=record.max_tokens - operation.consumed_tokens,
         )
 
+    def preview_success(self, wallet_handle: str, estimated_tokens: int) -> ContextWalletBalance:
+        """Return the post-spend balance without mutating durable wallet state."""
+        record = self._record(wallet_handle)
+        if estimated_tokens > record.remaining_tokens:
+            raise WalletExhaustedError(
+                estimated_tokens=estimated_tokens,
+                max_tokens=record.max_tokens,
+                remaining_tokens=record.remaining_tokens,
+            )
+        return ContextWalletBalance(
+            wallet_handle=record.handle,
+            max_tokens=record.max_tokens,
+            consumed_tokens=record.consumed_tokens + estimated_tokens,
+            remaining_tokens=record.remaining_tokens - estimated_tokens,
+        )
+
     def _record(self, wallet_handle: str) -> ContextWalletRecord:
         identifier = parse_context_wallet_handle(wallet_handle)
         try:

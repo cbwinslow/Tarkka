@@ -267,6 +267,13 @@ class ChallengeService:
             if relation.kind in _BOARD_KINDS
         )
         estimated_tokens = _stable_comparison_tokens(claim_id, entries)
+        if wallet_handle is not None:
+            estimated_tokens = self._walleted_comparison_tokens(
+                claim_id,
+                entries,
+                wallet_handle=wallet_handle,
+                initial_estimate=estimated_tokens,
+            )
         wallet = ContextWallet(max_tokens)
         if not wallet.admits(estimated_tokens):
             remaining_tokens: int | None = None
@@ -296,6 +303,38 @@ class ChallengeService:
             estimated_tokens=estimated_tokens,
             wallet=balance,
         )
+
+    def _walleted_comparison_tokens(
+        self,
+        claim_id: UUID,
+        entries: tuple[ContradictionEntry, ...],
+        *,
+        wallet_handle: str,
+        initial_estimate: int,
+    ) -> int:
+        """Converge on the token estimate for the final walleted comparison view."""
+        if self._wallets is None:
+            raise RuntimeError("context wallet persistence is not configured")
+        estimate = initial_estimate
+        for _ in range(10):
+            balance = self._wallets.preview_success(wallet_handle, estimate)
+            candidate = ContradictionComparison(
+                claim_id=claim_id,
+                entries=entries,
+                estimated_tokens=estimate,
+                wallet=balance,
+            )
+            actual = estimate_tokens(
+                json.dumps(
+                    contradiction_comparison_view(candidate),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+            if actual == estimate:
+                return actual
+            estimate = actual
+        raise RuntimeError("walleted comparison token estimate did not converge")
 
     def _candidate_evidence(
         self, claim: Claim, *, workspace_id: UUID | None

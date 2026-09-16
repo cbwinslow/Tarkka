@@ -165,6 +165,16 @@ class ResearchGetService:
             raise ModelDispatchDeniedError(canonical)
         payload = self._payload(kind, identifier, selected)
         estimated = _payload_tokens(payload)
+        if wallet_handle is not None:
+            estimated = self._walleted_result_tokens(
+                resource_id=canonical,
+                kind=kind.value,
+                representation=selected.value,
+                may_send_to_model=allowed,
+                payload=payload,
+                wallet_handle=wallet_handle,
+                initial_estimate=estimated,
+            )
         if not wallet.admits(estimated):
             raise WalletExhaustedError(
                 estimated_tokens=estimated,
@@ -236,6 +246,40 @@ class ResearchGetService:
         if self._wallets is None:
             raise RuntimeError("context wallet persistence is not configured")
         return self._wallets.get(wallet_handle).remaining_tokens
+
+    def _walleted_result_tokens(
+        self,
+        *,
+        resource_id: str,
+        kind: str,
+        representation: str,
+        may_send_to_model: bool,
+        payload: dict[str, object],
+        wallet_handle: str,
+        initial_estimate: int,
+    ) -> int:
+        """Converge on the deterministic token cost of the final walleted envelope."""
+        if self._wallets is None:
+            raise RuntimeError("context wallet persistence is not configured")
+        estimate = initial_estimate
+        for _ in range(10):
+            balance = self._wallets.preview_success(wallet_handle, estimate)
+            candidate = ResearchGetResult(
+                resource_id=resource_id,
+                kind=kind,
+                representation=representation,
+                estimated_tokens=estimate,
+                may_send_to_model=may_send_to_model,
+                payload=payload,
+                wallet=balance,
+            )
+            from tarkka.application.research_get_view import research_get_view
+
+            actual = _payload_tokens(research_get_view(candidate))
+            if actual == estimate:
+                return actual
+            estimate = actual
+        raise RuntimeError("walleted response token estimate did not converge")
 
     def _payload(
         self,

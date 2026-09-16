@@ -189,6 +189,10 @@ def test_wallet_validation_unknown_and_backend_errors(tmp_path) -> None:
         parse_context_wallet_handle("context_wallet:bad")
     with pytest.raises(UnknownContextWalletError):
         wallets.get("context_wallet:" + str(UUID(int=1)))
+    with pytest.raises(UnknownContextWalletError):
+        wallets.spend_success(
+            "context_wallet:" + str(UUID(int=1)), operation_key="missing", estimated_tokens=1
+        )
     record = ContextWalletRecord(UUID(int=1), 1, 0, utc_now(), utc_now(), {})
     with pytest.raises(ValueError):
         ContextWalletRecord(UUID(int=1), 1, True, utc_now(), utc_now(), {})
@@ -204,6 +208,9 @@ def test_wallet_validation_unknown_and_backend_errors(tmp_path) -> None:
     for key, tokens in ((None, 1), ("x" * 257, 1), ("x", True), ("x", -1)):
         with pytest.raises(ValueError):
             wallets.spend_success(record.handle, operation_key=key, estimated_tokens=tokens)
+    limited = wallets.create(1)
+    with pytest.raises(WalletExhaustedError):
+        wallets.spend_success(limited.wallet_handle, operation_key="large", estimated_tokens=2)
 
 
 def test_json_wallet_store_rejects_invalid_persistence(tmp_path) -> None:

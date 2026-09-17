@@ -156,6 +156,10 @@ def test_compare_wallet_guards(tmp_path: Path) -> None:
     with pytest.raises(WalletExhaustedError, match="estimated_tokens"):
         walleted.compare(claim_id, max_tokens=0, wallet_handle=wallet.wallet_handle)
     assert wallets.get(wallet.wallet_handle).consumed_tokens == 0
+    roomy = wallets.create(1_000)
+    with pytest.raises(WalletExhaustedError):
+        walleted.compare(claim_id, max_tokens=0, wallet_handle=roomy.wallet_handle)
+    assert wallets.get(roomy.wallet_handle).consumed_tokens == 0
 
 
 def test_challenge_singleton_is_no_new_evidence(tmp_path: Path) -> None:

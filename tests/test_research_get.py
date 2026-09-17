@@ -282,3 +282,23 @@ def test_wallet_protocol_maps_invalid_unknown_and_persistence_errors(tmp_path) -
     with pytest.raises(RuntimeError, match="persistence"):
         live._wallet_remaining("context_wallet:" + str(UUID(int=1)))
     assert "wallet" not in research_get_view(live.get(claim, representation="receipt"))
+
+
+def test_walleted_estimate_refuses_nonconvergent_view(tmp_path, monkeypatch) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    service = _service(tmp_path, wallets=wallets)
+    wallet = wallets.create(1_000)
+    import tarkka.application.research_get as research_get_module
+
+    calls = iter(range(1, 20))
+    monkeypatch.setattr(research_get_module, "_payload_tokens", lambda _payload: next(calls))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        service._walleted_result_tokens(
+            resource_id="claim:" + str(UUID(int=8)),
+            kind="claim",
+            representation="receipt",
+            may_send_to_model=True,
+            payload={},
+            wallet_handle=wallet.wallet_handle,
+            initial_estimate=0,
+        )

@@ -15,11 +15,17 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.claim_lineage_protocol import claim_lineage_response
-from tarkka.application.document_retrieval import DocumentRetrievalService
+from tarkka.application.document_retrieval import DocumentNotFoundError, DocumentRetrievalService
+from tarkka.application.ingest import IngestService
+from tarkka.application.lexical_retrieval import LexicalRetrievalService
+from tarkka.application.lexical_retrieval_view import lexical_search_view
 from tarkka.application.research_capabilities import ResearchField, research_operation_schema
 from tarkka.application.research_get import ResearchGetService
 from tarkka.application.research_get_protocol import research_expand_response, research_get_response
+from tarkka.infrastructure.json_retrieval_index_store import JsonRetrievalSegmentStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
+from tarkka.infrastructure.storage.text_parser import PlainTextParser
 from tarkka.interfaces import claim_lineage_runtime, http_api
 from tarkka.interfaces.claim_lineage_runtime import claim_lineage_service, claim_receipt_service
 from tarkka.interfaces.http_api import (
@@ -32,10 +38,12 @@ from tarkka.interfaces.http_api import (
     _research_expand_query,
     _research_get_handle_from_path,
     _research_get_query,
+    _research_search_query,
     _status_for_agent_response,
     create_app,
     openapi_document,
 )
+from tarkka.ports.retrieval import LexicalRetrievalQuery
 from tests.support.claim_lineage import persist_local_claim_lineage
 
 
@@ -53,6 +61,14 @@ class _RaisingGetService:
 
     def expand(self, *_args: object, **_kwargs: object) -> object:
         raise RuntimeError("unavailable")
+
+
+class _RaisingLexicalService:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def search(self, *_args: object, **_kwargs: object) -> object:
+        raise self._error
 
 
 def _http_request(
@@ -87,6 +103,27 @@ def _http_request(
     headers = dict(cast(list[tuple[bytes, bytes]], start["headers"]))
     body = json.loads(cast(bytes, body_message["body"]).decode("utf-8"))
     return status, headers, cast(dict[str, Any], body)
+
+
+def _lexical_service_with_index(tmp_path: Path) -> tuple[str, LexicalRetrievalService]:
+    source = tmp_path / "paper.md"
+    source.write_text("# Abstract\nEvidence first for retrieval.\n", encoding="utf-8")
+    documents = JsonResearchRepository(tmp_path / "catalog.json")
+    result = IngestService(
+        artifact_store=LocalArtifactStore(tmp_path / "artifacts"),
+        repository=documents,
+        parsers=(PlainTextParser(),),
+    ).ingest(source)
+    service = LexicalRetrievalService(
+        documents=documents,
+        indexes=JsonRetrievalSegmentStore(tmp_path / "retrieval_indexes.json"),
+    )
+    service.index(
+        result.document.document_id,
+        derivation_version="v1",
+        configuration_fingerprint="whole-passage-v1",
+    )
+    return str(result.document.document_id), service
 
 
 def test_http_capabilities_and_operation_schema_are_staged_and_deterministic() -> None:
@@ -198,6 +235,118 @@ def test_http_research_expand_matches_the_shared_agent_contract(tmp_path: Path) 
         include="evidence",
         max_tokens=8_000,
     )
+
+
+def test_http_research_search_matches_the_shared_lexical_view(tmp_path: Path) -> None:
+    document_id, service = _lexical_service_with_index(tmp_path)
+    query = (
+        f"document_id={document_id}&query=retrieval&derivation_version=v1&"
+        "configuration_fingerprint=whole-passage-v1&limit=1"
+    ).encode()
+
+    status, _, response = _http_request(
+        create_app(lexical=service), "/v1/research/search", query_string=query
+    )
+    expected_hits = service.search(
+        UUID(document_id),
+        derivation_version="v1",
+        configuration_fingerprint="whole-passage-v1",
+        query=LexicalRetrievalQuery("retrieval", limit=1),
+    )
+
+    assert status == 200
+    assert response == {
+        "ok": True,
+        **lexical_search_view(
+            document_id=document_id,
+            derivation_version="v1",
+            configuration_fingerprint="whole-passage-v1",
+            hits=expected_hits,
+        ),
+    }
+
+
+def test_http_research_search_requires_the_selected_exact_projection(tmp_path: Path) -> None:
+    document_id, service = _lexical_service_with_index(tmp_path)
+    query = (
+        f"document_id={document_id}&query=retrieval&derivation_version=v1&"
+        "configuration_fingerprint=other-projection"
+    ).encode()
+
+    status, _, response = _http_request(
+        create_app(lexical=service), "/v1/research/search", query_string=query
+    )
+
+    assert status == 404
+    assert response["error"]["code"] == "not_found"
+
+
+def test_http_research_search_rejects_closed_world_malformed_and_bounded_queries() -> None:
+    app = create_app(
+        lexical=cast(LexicalRetrievalService, _RaisingLexicalService(AssertionError()))
+    )
+    required = (
+        f"document_id={UUID(int=1)}&query=retrieval&derivation_version=v1&"
+        "configuration_fingerprint=whole-passage-v1"
+    )
+    for query in (
+        b"",
+        f"{required}&unknown=1".encode(),
+        f"{required}&query=again".encode(),
+        f"{required}&limit=0".encode(),
+        f"{required}&limit=101".encode(),
+        f"{required}&limit=one".encode(),
+        required.replace(f"document_id={UUID(int=1)}", "document_id=not-a-uuid").encode(),
+    ):
+        status, _, response = _http_request(app, "/v1/research/search", query_string=query)
+        assert status == 400
+        assert response["error"]["code"] == "invalid_argument"
+    with pytest.raises(ValueError, match="malformed"):
+        _research_search_query({"query_string": b"document_id"})
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    (
+        (DocumentNotFoundError("missing"), 404, "document_not_found"),
+        (ValueError("invalid"), 400, "invalid_argument"),
+    ),
+)
+def test_http_research_search_maps_shared_service_errors(
+    error: Exception, status: int, code: str
+) -> None:
+    query = (
+        f"document_id={UUID(int=1)}&query=retrieval&derivation_version=v1&"
+        "configuration_fingerprint=whole-passage-v1"
+    ).encode()
+
+    actual_status, _, response = _http_request(
+        create_app(lexical=cast(LexicalRetrievalService, _RaisingLexicalService(error))),
+        "/v1/research/search",
+        query_string=query,
+    )
+
+    assert actual_status == status
+    assert response["error"]["code"] == code
+
+
+def test_http_research_search_lazily_translates_an_unavailable_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        http_api,
+        "_lexical_retrieval_service",
+        lambda: (_ for _ in ()).throw(RuntimeError("unavailable")),
+    )
+    query = (
+        f"document_id={UUID(int=1)}&query=retrieval&derivation_version=v1&"
+        "configuration_fingerprint=whole-passage-v1"
+    ).encode()
+
+    status, _, response = _http_request(create_app(), "/v1/research/search", query_string=query)
+
+    assert status == 503
+    assert response["error"]["code"] == "backend_unavailable"
 
 
 def test_http_research_get_rejects_noncanonical_queries_and_exact_route_misses() -> None:
@@ -498,6 +647,15 @@ def test_openapi_is_deterministic_and_derived_from_lineage_capability_bounds() -
         "max_tokens"
     ].maximum
     assert set(expand_get["responses"]) == {"200", "400", "403", "404", "413", "503"}
+    search_get = document["paths"]["/v1/research/search"]["get"]
+    assert search_get["operationId"] == "research.search"
+    search_parameters = {item["name"]: item for item in search_get["parameters"]}
+    search_schema = research_operation_schema("research.search")
+    search_canonical = {field.name: field for field in search_schema.inputs}
+    assert set(search_parameters) == set(search_canonical)
+    assert search_parameters["limit"]["schema"]["minimum"] == search_canonical["limit"].minimum
+    assert search_parameters["limit"]["schema"]["maximum"] == search_canonical["limit"].maximum
+    assert set(search_get["responses"]) == {"200", "400", "404", "503"}
     assert document["components"]["schemas"]["ErrorEnvelope"]["additionalProperties"] is False
 
     status, _, served = _http_request(create_app(), "/openapi.json")

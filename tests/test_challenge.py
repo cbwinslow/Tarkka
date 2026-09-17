@@ -173,6 +173,20 @@ def test_compare_wallet_guards(tmp_path: Path) -> None:
     assert wallets.get(roomy.wallet_handle).consumed_tokens == 0
 
 
+def test_compare_rejects_wallet_when_persistence_is_not_configured(tmp_path: Path) -> None:
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "unconfigured.yaml"
+    manifest.write_text("version: 1\nkind: research_workspace\nmetadata:\n  name: unconfigured\n")
+    workspace = workspaces.init_from_manifest(manifest)
+    claim_id = workspaces.run(workspace.workspace.workspace_id, source=source).claim_ids[0]
+    with pytest.raises(RuntimeError, match="persistence"):
+        challenge.compare(
+            claim_id,
+            wallet_handle="context_wallet:" + str(UUID(int=1)),
+            operation_key="x",
+        )
+
+
 def test_walleted_comparison_estimate_refuses_nonconvergence(tmp_path: Path, monkeypatch) -> None:
     wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
     challenge, workspaces, source = _challenge_stack(tmp_path, wallets=wallets)

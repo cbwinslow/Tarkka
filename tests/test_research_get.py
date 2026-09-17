@@ -342,5 +342,6 @@ def test_walleted_estimate_refuses_nonconvergent_view(tmp_path, monkeypatch) -> 
             may_send_to_model=True,
             payload={},
             wallet_handle=wallet.wallet_handle,
+            operation_key="nonconvergent",
             initial_estimate=0,
         )

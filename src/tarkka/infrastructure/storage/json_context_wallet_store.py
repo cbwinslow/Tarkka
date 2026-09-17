@@ -15,6 +15,7 @@ from tarkka.application.context_wallet import (
     ContextWalletRecord,
     WalletExhaustedError,
 )
+from tarkka.infrastructure.storage.filesystem import fsync_directory
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
 
@@ -105,6 +106,7 @@ class JsonContextWalletStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, self.path)
+            fsync_directory(self.path.parent)
         except Exception:
             temp_path.unlink(missing_ok=True)
             raise

@@ -496,8 +496,8 @@ _OPERATION_REGISTRATIONS = (
     _OperationRegistration(
         ResearchOperation(
             "research.wallet.create",
-            "get",
-            "Create or inspect an opaque cumulative context wallet.",
+            "create",
+            "Create an opaque cumulative context wallet.",
             0,
         ),
         ContextWalletService,

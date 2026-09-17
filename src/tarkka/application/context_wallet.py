@@ -175,9 +175,28 @@ class ContextWalletService:
             remaining_tokens=record.max_tokens - operation.consumed_tokens,
         )
 
-    def preview_success(self, wallet_handle: str, estimated_tokens: int) -> ContextWalletBalance:
+    def preview_success(
+        self,
+        wallet_handle: str,
+        *,
+        operation_key: str | None,
+        estimated_tokens: int,
+    ) -> ContextWalletBalance:
         """Return the post-spend balance without mutating durable wallet state."""
+        key = _operation_key(operation_key)
+        if not isinstance(estimated_tokens, int) or isinstance(estimated_tokens, bool):
+            raise ValueError("estimated_tokens must be an integer")
+        if estimated_tokens < 0:
+            raise ValueError("estimated_tokens must be non-negative")
         record = self._record(wallet_handle)
+        prior = record.operations.get(key)
+        if prior is not None:
+            return ContextWalletBalance(
+                wallet_handle=record.handle,
+                max_tokens=record.max_tokens,
+                consumed_tokens=prior.consumed_tokens,
+                remaining_tokens=record.max_tokens - prior.consumed_tokens,
+            )
         if estimated_tokens > record.remaining_tokens:
             raise WalletExhaustedError(
                 estimated_tokens=estimated_tokens,

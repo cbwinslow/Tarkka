@@ -208,6 +208,8 @@ def test_wallet_validation_unknown_and_backend_errors(tmp_path) -> None:
     for key, tokens in ((None, 1), ("x" * 257, 1), ("x", True), ("x", -1)):
         with pytest.raises(ValueError):
             wallets.spend_success(record.handle, operation_key=key, estimated_tokens=tokens)
+        with pytest.raises(ValueError):
+            wallets.preview_success(record.handle, operation_key=key, estimated_tokens=tokens)
     limited = wallets.create(1)
     with pytest.raises(WalletExhaustedError):
         wallets.spend_success(limited.wallet_handle, operation_key="large", estimated_tokens=2)
@@ -271,3 +273,13 @@ def test_json_wallet_store_failure_and_commit_branches(tmp_path, monkeypatch) ->
     monkeypatch.setattr(json_context_wallet_store.os, "replace", fail_replace)
     with pytest.raises(OSError):
         store._write({"schema_version": 1, "wallets": {}})
+
+
+def test_json_wallet_store_fsyncs_parent_directory_after_atomic_write(
+    tmp_path, monkeypatch
+) -> None:
+    flushed = []
+    monkeypatch.setattr(json_context_wallet_store, "fsync_directory", flushed.append)
+    store = JsonContextWalletStore(tmp_path / "wallets.json")
+    store.create(ContextWalletRecord(UUID(int=2), 2, 0, utc_now(), utc_now(), {}))
+    assert flushed == [tmp_path]

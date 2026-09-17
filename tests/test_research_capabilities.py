@@ -235,6 +235,7 @@ def test_research_operation_schema_is_compact_and_only_exposes_implemented_input
     ]
     assert expand.inputs[1].allowed_values == ("evidence", "full")
     assert [field.name for field in wallet.inputs] == ["max_tokens"]
+    assert wallet.operation.family == "create"
     assert [field.name for field in wallet_get.inputs] == ["wallet_handle"]
     assert [field.name for field in compare.inputs] == [
         "claim_id",

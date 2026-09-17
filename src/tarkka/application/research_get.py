@@ -173,6 +173,7 @@ class ResearchGetService:
                 may_send_to_model=allowed,
                 payload=payload,
                 wallet_handle=wallet_handle,
+                operation_key=operation_key,
                 initial_estimate=estimated,
             )
         if not wallet.admits(estimated):
@@ -256,6 +257,7 @@ class ResearchGetService:
         may_send_to_model: bool,
         payload: dict[str, object],
         wallet_handle: str,
+        operation_key: str | None,
         initial_estimate: int,
     ) -> int:
         """Converge on the deterministic token cost of the final walleted envelope."""
@@ -263,7 +265,11 @@ class ResearchGetService:
             raise RuntimeError("context wallet persistence is not configured")
         estimate = initial_estimate
         for _ in range(10):
-            balance = self._wallets.preview_success(wallet_handle, estimate)
+            balance = self._wallets.preview_success(
+                wallet_handle,
+                operation_key=operation_key,
+                estimated_tokens=estimate,
+            )
             candidate = ResearchGetResult(
                 resource_id=resource_id,
                 kind=kind,

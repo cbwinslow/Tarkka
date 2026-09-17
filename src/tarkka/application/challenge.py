@@ -272,6 +272,7 @@ class ChallengeService:
                 claim_id,
                 entries,
                 wallet_handle=wallet_handle,
+                operation_key=operation_key,
                 initial_estimate=estimated_tokens,
             )
         wallet = ContextWallet(max_tokens)
@@ -308,6 +309,7 @@ class ChallengeService:
         entries: tuple[ContradictionEntry, ...],
         *,
         wallet_handle: str,
+        operation_key: str | None,
         initial_estimate: int,
     ) -> int:
         """Converge on the token estimate for the final walleted comparison view."""
@@ -315,7 +317,11 @@ class ChallengeService:
             raise RuntimeError("context wallet persistence is not configured")
         estimate = initial_estimate
         for _ in range(10):
-            balance = self._wallets.preview_success(wallet_handle, estimate)
+            balance = self._wallets.preview_success(
+                wallet_handle,
+                operation_key=operation_key,
+                estimated_tokens=estimate,
+            )
             candidate = ContradictionComparison(
                 claim_id=claim_id,
                 entries=entries,

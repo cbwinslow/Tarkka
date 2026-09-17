@@ -129,6 +129,9 @@ def test_mcp_context_wallet_lifecycle(tmp_path: Path) -> None:
     assert _call(server, "research_wallet", {"action": "nope"})["error"]["code"] == (
         "invalid_argument"
     )
+    assert _call(server, "research_wallet", {"action": "get"})["error"]["code"] == (
+        "invalid_argument"
+    )
     assert _call(server, "research_wallet", {"action": "get", "wallet_handle": "bad"})[
         "error"
     ]["code"] == "invalid_argument"
@@ -147,6 +150,11 @@ class _WalletFailureChallenge:
         raise self.error
 
 
+class _FailingWalletLifecycle:
+    def create(self, *_args: object, **_kwargs: object) -> object:
+        raise ContextWalletPersistenceError("unavailable")
+
+
 @pytest.mark.parametrize(
     ("error", "code"),
     [
@@ -163,6 +171,27 @@ def test_mcp_compare_maps_typed_wallet_failures(error: Exception, code: str) -> 
     server = create_server(challenge=_WalletFailureChallenge(error))
     response = _call(server, "research_compare", {"claim_id": str(UUID(int=8))})
     assert response["error"]["code"] == code
+
+
+def test_mcp_wallet_create_maps_persistence_failure() -> None:
+    server = create_server(wallets=_FailingWalletLifecycle())
+    assert _call(server, "research_wallet", {"action": "create"})["error"]["code"] == (
+        "backend_unavailable"
+    )
+
+
+def test_mcp_compare_reuses_injected_wallet_service(monkeypatch, tmp_path: Path) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    observed: dict[str, object] = {}
+
+    def configured(*, wallets: object) -> object:
+        observed["wallets"] = wallets
+        return _WalletFailureChallenge(UnknownContextWalletError("missing"))
+
+    monkeypatch.setattr(mcp, "configured_challenge_service", configured)
+    server = create_server(wallets=wallets)
+    _call(server, "research_compare", {"claim_id": str(UUID(int=8))})
+    assert observed["wallets"] is wallets
 
 
 def test_mcp_server_defers_default_backend_construction_until_a_request(

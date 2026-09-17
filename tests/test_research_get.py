@@ -258,6 +258,10 @@ def test_wallet_protocol_maps_invalid_unknown_and_persistence_errors(tmp_path) -
         service, claim, representation="receipt", wallet_handle="bad", operation_key="x"
     )
     assert invalid["error"]["code"] == "invalid_argument"
+    invalid_expand = research_expand_response(
+        service, claim, include="evidence", wallet_handle="bad", operation_key="x"
+    )
+    assert invalid_expand["error"]["code"] == "invalid_argument"
     unknown = research_expand_response(
         service,
         claim,

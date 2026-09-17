@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from hashlib import sha256
 from uuid import UUID, uuid4
 
 from tarkka.domain.models import utc_now
@@ -113,7 +114,7 @@ def _operation_key(raw: str | None) -> str:
         raise ValueError("operation_key must be a non-blank string when wallet_handle is supplied")
     if len(raw) > 256:
         raise ValueError("operation_key must not exceed 256 characters")
-    return raw
+    return sha256(raw.encode("utf-8")).hexdigest()
 
 
 class ContextWalletService:

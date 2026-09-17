@@ -165,6 +165,7 @@ def test_wallet_denials_do_not_spend_and_json_store_excludes_research_data(tmp_p
     assert "alpha" not in payload
     assert str(UUID(int=8)) not in payload
     assert "resource_id" not in payload
+    assert "receipt" not in payload
 
 
 class _BrokenStore:

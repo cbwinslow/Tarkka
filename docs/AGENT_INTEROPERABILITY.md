@@ -15,7 +15,7 @@ application services
                     |
                     +--> CLI
                     +--> MCP
-                    +--> future REST/OpenAPI
+                    +--> REST/OpenAPI
 ```
 
 No transport is allowed to reimplement provenance, evidence, identity, or persistence
@@ -45,11 +45,11 @@ research.get
 research.expand
 ```
 
-are implemented by `ResearchGetService`. MCP tools `research_get` and `research_expand`
-are thin adapters. Existing tools such as `document_manifest` and `claim_lineage` remain
-as aliases; they are not removed.
+are implemented by `ResearchGetService`. MCP tools `research_get` and `research_expand`,
+plus the HTTP endpoints below, are thin adapters. Existing tools such as
+`document_manifest` and `claim_lineage` remain as aliases; they are not removed.
 
-`research.get` requires `resource_id` (`claim:UUID` or `doc:UUID`), `representation`
+`research.get` requires `resource_id` (`claim:UUID`, `doc:UUID`, or `article:UUID`), `representation`
 (`manifest`, `receipt`, `evidence`, or `full`), and an optional per-request `max_tokens`
 ceiling (default 8000). `send_to_model=true` on `evidence` or `full` fails with `rights_denied`
 when the model-dispatch policy forbids it.
@@ -65,7 +65,16 @@ operation key returns its original wallet outcome without a second spend; reject
 rights, construction, and persistence failures do not spend. The local store contains only the
 handle, counters, timestamps, and retry metadata—never research IDs, request arguments, or text.
 
-HTTP may later expose the same application service; this slice ships MCP first.
+The read-only HTTP API exposes the same unwalleted application envelopes at:
+
+- `GET /v1/research/{resource_id}?representation=...`
+- `GET /v1/research/{resource_id}/expand?include=evidence|full`
+
+Both endpoints accept the same bounded `max_tokens` and explicit `send_to_model` query
+arguments, validate a closed query vocabulary before dispatch, and return the shared
+machine-problem envelope. They intentionally do not accept `wallet_handle` or
+`operation_key`: cumulative-wallet lifecycle and spending need a separately specified HTTP
+mutation boundary.
 
 ## Compare
 
@@ -199,13 +208,15 @@ CLI and MCP construct Claim lineage through the same public runtime helper. JSON
 uses only the local JSON catalogs; PostgreSQL mode uses only PostgreSQL repositories
 created from one `PostgresSettings` object. Mixed durable-state reads are not allowed.
 
-## Future REST/OpenAPI
+## HTTP/OpenAPI
 
-REST/OpenAPI should be an additional adapter over the same three public pieces:
+The read-only HTTP adapter uses the same public pieces as other transports:
 
 - `ClaimLineageService`
 - the Claim-lineage view
 - the Claim-lineage machine-problem vocabulary
+- `ResearchGetService`
+- the shared research get/expand views and machine problems
 
 The HTTP layer should not introduce another lineage schema, repository graph, or error
 taxonomy. This keeps MCP, CLI, Python, and HTTP clients interoperable and makes

@@ -30,7 +30,7 @@ from tarkka.application.research_capability_view import (
     research_operation_schema_view,
 )
 from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
-from tarkka.application.research_get_protocol import research_get_response
+from tarkka.application.research_get_protocol import research_expand_response, research_get_response
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service as configured_claim_lineage_service,
 )
@@ -49,8 +49,10 @@ ASGISend: TypeAlias = Callable[[ASGIMessage], Awaitable[None]]
 _LINEAGE_OPERATION_ID = "research.claims.lineage"
 _REPLAY_OPERATION_ID = "research.documents.replay"
 _GET_OPERATION_ID = "research.get"
+_EXPAND_OPERATION_ID = "research.expand"
 _ALLOWED_LINEAGE_QUERY = frozenset({"offset", "limit", "evidence_offset", "evidence_limit"})
 _ALLOWED_GET_QUERY = frozenset({"representation", "max_tokens", "send_to_model"})
+_ALLOWED_EXPAND_QUERY = frozenset({"include", "max_tokens", "send_to_model"})
 _MAX_QUERY_STRING_BYTES = 4096
 _MAX_QUERY_FIELDS = 16
 _DEFAULT_MAX_CONCURRENT_REPLAYS = 1
@@ -177,10 +179,7 @@ class TarkkaHttpApp:
 
         if _document_replay_handle_from_path(path) is not None:
             status, payload = await self._dispatch_replay_off_loop(path, scope)
-        elif (
-            _claim_handle_from_path(path) is not None
-            or _research_get_handle_from_path(path) is not None
-        ):
+        elif _blocking_handle_from_path(path) is not None:
             status, payload = await asyncio.to_thread(self._dispatch, path, scope)
         else:
             status, payload = self._dispatch(path, scope)
@@ -205,6 +204,10 @@ class TarkkaHttpApp:
                     next_actions=("research_capabilities",),
                 )
             return 200, {"ok": True, **research_operation_schema_view(schema)}
+
+        resource_id = _research_expand_handle_from_path(path)
+        if resource_id is not None:
+            return self._dispatch_research_expand(resource_id, scope)
 
         resource_id = _research_get_handle_from_path(path)
         if resource_id is not None:
@@ -240,6 +243,32 @@ class TarkkaHttpApp:
                 service,
                 resource_id,
                 representation=representation,
+                max_tokens=max_tokens,
+                send_to_model=send_to_model,
+            )
+        return _status_for_agent_response(response), response
+
+    def _dispatch_research_expand(
+        self, resource_id: str, scope: ASGIScope
+    ) -> tuple[int, dict[str, object]]:
+        """Expand one resource through the shared bounded agent envelope."""
+        try:
+            include, max_tokens, send_to_model = _research_expand_query(scope)
+        except ValueError as exc:
+            return 400, agent_error(
+                "invalid_argument", str(exc), next_actions=("research_operation_schema",)
+            )
+        try:
+            service = self._get_service()
+        except (OSError, RuntimeError, ValueError):
+            response = agent_error(
+                "backend_unavailable", "configured research get backend is unavailable"
+            )
+        else:
+            response = research_expand_response(
+                service,
+                resource_id,
+                include=include,
                 max_tokens=max_tokens,
                 send_to_model=send_to_model,
             )
@@ -360,6 +389,15 @@ def openapi_document() -> dict[str, object]:
         for field in get_schema.inputs
         if field.name not in {"resource_id", "wallet_handle", "operation_key"}
     ]
+    expand_schema = research_operation_schema(_EXPAND_OPERATION_ID)
+    expand_resource_field = next(
+        field for field in expand_schema.inputs if field.name == "resource_id"
+    )
+    expand_query_parameters = [
+        _openapi_query_parameter(field)
+        for field in expand_schema.inputs
+        if field.name not in {"resource_id", "wallet_handle", "operation_key"}
+    ]
     error_responses: dict[str, object] = {
         status: _json_schema_response(
             description,
@@ -394,6 +432,20 @@ def openapi_document() -> dict[str, object]:
     get_responses: dict[str, object] = {
         "200": _json_schema_response(
             get_schema.result_summary,
+            {"$ref": "#/components/schemas/ResearchGetEnvelope"},
+        ),
+        "400": error_responses["400"],
+        "403": _json_schema_response(
+            "The requested model-dispatch policy denied this representation.",
+            {"$ref": "#/components/schemas/ErrorEnvelope"},
+        ),
+        "404": error_responses["404"],
+        "413": error_responses["413"],
+        "503": error_responses["503"],
+    }
+    expand_responses: dict[str, object] = {
+        "200": _json_schema_response(
+            expand_schema.result_summary,
             {"$ref": "#/components/schemas/ResearchGetEnvelope"},
         ),
         "400": error_responses["400"],
@@ -501,6 +553,23 @@ def openapi_document() -> dict[str, object]:
                         *get_query_parameters,
                     ],
                     "responses": get_responses,
+                }
+            },
+            "/v1/research/{resource_id}/expand": {
+                "get": {
+                    "operationId": _EXPAND_OPERATION_ID,
+                    "summary": expand_schema.operation.summary,
+                    "parameters": [
+                        {
+                            "name": "resource_id",
+                            "in": "path",
+                            "required": True,
+                            "description": expand_resource_field.summary,
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        *expand_query_parameters,
+                    ],
+                    "responses": expand_responses,
                 }
             },
             "/openapi.json": {
@@ -657,9 +726,19 @@ def _research_get_handle_from_path(path: str) -> str | None:
     return value if value and "/" not in value else None
 
 
+def _research_expand_handle_from_path(path: str) -> str | None:
+    """Extract one resource handle from the exact read-only expand route shape."""
+    return _handle_from_path(path, prefix="/v1/research/", suffix="/expand")
+
+
 def _blocking_handle_from_path(path: str) -> str | None:
     """Return a handle when a route performs durable/blocking work off the event loop."""
-    return _document_replay_handle_from_path(path) or _claim_handle_from_path(path)
+    return (
+        _document_replay_handle_from_path(path)
+        or _claim_handle_from_path(path)
+        or _research_get_handle_from_path(path)
+        or _research_expand_handle_from_path(path)
+    )
 
 
 def _handle_from_path(path: str, *, prefix: str, suffix: str) -> str | None:
@@ -757,6 +836,43 @@ def _research_get_query(scope: ASGIScope) -> tuple[str, int, bool]:
     else:
         raise ValueError("send_to_model must be true or false")
     return representation, parsed_max_tokens, send_to_model
+
+
+def _research_expand_query(scope: ASGIScope) -> tuple[str, int, bool]:
+    """Parse the closed-world query contract for the read-only research expand route."""
+    raw_query = _raw_query(scope)
+    try:
+        values = parse_qs(
+            raw_query.decode("ascii"),
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=_MAX_QUERY_FIELDS,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("query string is malformed") from exc
+    unknown = sorted(set(values) - _ALLOWED_EXPAND_QUERY)
+    if unknown:
+        raise ValueError(f"unsupported query parameter: {unknown[0]}")
+    include = _single_query_value(values, "include")
+    if include is None:
+        raise ValueError("include must be provided exactly once")
+    max_tokens = _single_query_value(values, "max_tokens")
+    try:
+        parsed_max_tokens = DEFAULT_GET_MAX_TOKENS if max_tokens is None else int(max_tokens)
+    except ValueError as exc:
+        raise ValueError("max_tokens must be an integer") from exc
+    if not 0 <= parsed_max_tokens <= DEFAULT_GET_MAX_TOKENS:
+        raise ValueError(f"max_tokens must be between 0 and {DEFAULT_GET_MAX_TOKENS}")
+    raw_send_to_model = _single_query_value(values, "send_to_model")
+    if raw_send_to_model is None:
+        send_to_model = False
+    elif raw_send_to_model == "true":
+        send_to_model = True
+    elif raw_send_to_model == "false":
+        send_to_model = False
+    else:
+        raise ValueError("send_to_model must be true or false")
+    return include, parsed_max_tokens, send_to_model
 
 
 def _single_query_value(values: Mapping[str, list[str]], name: str) -> str | None:

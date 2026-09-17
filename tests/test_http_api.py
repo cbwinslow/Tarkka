@@ -18,7 +18,7 @@ from tarkka.application.claim_lineage_protocol import claim_lineage_response
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_capabilities import ResearchField, research_operation_schema
 from tarkka.application.research_get import ResearchGetService
-from tarkka.application.research_get_protocol import research_get_response
+from tarkka.application.research_get_protocol import research_expand_response, research_get_response
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.interfaces import claim_lineage_runtime, http_api
 from tarkka.interfaces.claim_lineage_runtime import claim_lineage_service, claim_receipt_service
@@ -28,6 +28,8 @@ from tarkka.interfaces.http_api import (
     _lineage_query,
     _openapi_field_schema,
     _raw_query,
+    _research_expand_handle_from_path,
+    _research_expand_query,
     _research_get_handle_from_path,
     _research_get_query,
     _status_for_agent_response,
@@ -47,6 +49,9 @@ class _RaisingLineageService:
 
 class _RaisingGetService:
     def get(self, *_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("unavailable")
+
+    def expand(self, *_args: object, **_kwargs: object) -> object:
         raise RuntimeError("unavailable")
 
 
@@ -171,6 +176,30 @@ def test_http_research_get_matches_the_shared_agent_contract(tmp_path: Path) -> 
     )
 
 
+def test_http_research_expand_matches_the_shared_agent_contract(tmp_path: Path) -> None:
+    fixture = persist_local_claim_lineage(tmp_path)
+    documents = JsonResearchRepository.open_existing(tmp_path / "catalog.json")
+    assert documents is not None
+    getter = ResearchGetService(
+        receipts=claim_receipt_service(home=tmp_path),
+        documents=DocumentRetrievalService(documents=documents),
+        lineage=claim_lineage_service(home=tmp_path),
+    )
+    resource_id = f"claim:{fixture.claim.extraction_id}"
+    status, _, response = _http_request(
+        create_app(getter=getter),
+        f"/v1/research/{resource_id}/expand",
+        query_string=b"include=evidence&max_tokens=8000&send_to_model=false",
+    )
+    assert status == 200
+    assert response == research_expand_response(
+        getter,
+        resource_id,
+        include="evidence",
+        max_tokens=8_000,
+    )
+
+
 def test_http_research_get_rejects_noncanonical_queries_and_exact_route_misses() -> None:
     app = create_app(getter=cast(ResearchGetService, _RaisingLineageService(AssertionError())))
     path = f"/v1/research/claim:{UUID(int=1)}"
@@ -191,6 +220,29 @@ def test_http_research_get_rejects_noncanonical_queries_and_exact_route_misses()
     assert _research_get_handle_from_path("/v1/research/a/b") is None
     with pytest.raises(ValueError, match="malformed"):
         _research_get_query({"query_string": b"representation"})
+
+
+def test_http_research_expand_rejects_noncanonical_queries_and_exact_route_misses() -> None:
+    app = create_app(getter=cast(ResearchGetService, _RaisingLineageService(AssertionError())))
+    resource_id = f"claim:{UUID(int=1)}"
+    path = f"/v1/research/{resource_id}/expand"
+    for query in (
+        b"",
+        b"include=evidence&unknown=1",
+        b"include=",
+        b"include=evidence&max_tokens=one",
+        b"include=evidence&max_tokens=-1",
+        b"include=evidence&max_tokens=8001",
+        b"include=evidence&send_to_model=yes",
+    ):
+        status, _, response = _http_request(app, path, query_string=query)
+        assert status == 400
+        assert response["error"]["code"] == "invalid_argument"
+    assert _research_expand_handle_from_path(path) == resource_id
+    assert _research_expand_handle_from_path("/v1/research//expand") is None
+    assert _research_expand_handle_from_path("/v1/research/a/b/expand") is None
+    with pytest.raises(ValueError, match="malformed"):
+        _research_expand_query({"query_string": b"include"})
 
 
 def test_http_research_get_lazy_runtime_and_failure_are_stable(
@@ -233,6 +285,9 @@ def test_http_research_get_query_defaults_and_model_dispatch_boolean() -> None:
     )
     assert _research_get_query(
         {"query_string": b"representation=evidence&send_to_model=true"}
+    ) == ("evidence", 8_000, True)
+    assert _research_expand_query(
+        {"query_string": b"include=evidence&send_to_model=true"}
     ) == ("evidence", 8_000, True)
     assert _status_for_agent_response({"ok": False, "error": {"code": "rights_denied"}}) == 403
 
@@ -418,6 +473,18 @@ def test_openapi_is_deterministic_and_derived_from_lineage_capability_bounds() -
         assert parameters[name]["schema"]["minimum"] == canonical[name].minimum
         assert parameters[name]["schema"]["maximum"] == canonical[name].maximum
     assert set(lineage_get["responses"]) == {"200", "400", "404", "409", "413", "503"}
+    expand_get = document["paths"]["/v1/research/{resource_id}/expand"]["get"]
+    assert expand_get["operationId"] == "research.expand"
+    expand_parameters = {item["name"]: item for item in expand_get["parameters"]}
+    expand_schema = research_operation_schema("research.expand")
+    expand_canonical = {field.name: field for field in expand_schema.inputs}
+    assert expand_parameters["include"]["schema"]["enum"] == list(
+        expand_canonical["include"].allowed_values
+    )
+    assert expand_parameters["max_tokens"]["schema"]["maximum"] == expand_canonical[
+        "max_tokens"
+    ].maximum
+    assert set(expand_get["responses"]) == {"200", "400", "403", "404", "413", "503"}
     assert document["components"]["schemas"]["ErrorEnvelope"]["additionalProperties"] is False
 
     status, _, served = _http_request(create_app(), "/openapi.json")

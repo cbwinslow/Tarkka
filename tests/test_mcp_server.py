@@ -21,7 +21,13 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.claim_lineage_view import claim_lineage_view
-from tarkka.application.context_wallet import ContextWalletService
+from tarkka.application.context_wallet import (
+    ContextWalletPersistenceError,
+    ContextWalletService,
+    InvalidContextWalletHandleError,
+    UnknownContextWalletError,
+    WalletExhaustedError,
+)
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
@@ -123,6 +129,40 @@ def test_mcp_context_wallet_lifecycle(tmp_path: Path) -> None:
     assert _call(server, "research_wallet", {"action": "nope"})["error"]["code"] == (
         "invalid_argument"
     )
+    assert _call(server, "research_wallet", {"action": "get", "wallet_handle": "bad"})[
+        "error"
+    ]["code"] == "invalid_argument"
+    assert _call(
+        server,
+        "research_wallet",
+        {"action": "get", "wallet_handle": "context_wallet:" + str(UUID(int=1))},
+    )["error"]["code"] == "not_found"
+
+
+class _WalletFailureChallenge:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def compare(self, *_args: object, **_kwargs: object) -> object:
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (InvalidContextWalletHandleError("bad"), "invalid_argument"),
+        (UnknownContextWalletError("missing"), "not_found"),
+        (ContextWalletPersistenceError("unavailable"), "backend_unavailable"),
+        (
+            WalletExhaustedError(estimated_tokens=2, max_tokens=1, remaining_tokens=1),
+            "content_too_large",
+        ),
+    ],
+)
+def test_mcp_compare_maps_typed_wallet_failures(error: Exception, code: str) -> None:
+    server = create_server(challenge=_WalletFailureChallenge(error))
+    response = _call(server, "research_compare", {"claim_id": str(UUID(int=8))})
+    assert response["error"]["code"] == code
 
 
 def test_mcp_server_defers_default_backend_construction_until_a_request(

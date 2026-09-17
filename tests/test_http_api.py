@@ -15,15 +15,21 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.claim_lineage_protocol import claim_lineage_response
+from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_capabilities import ResearchField, research_operation_schema
-from tarkka.interfaces import http_api
-from tarkka.interfaces.claim_lineage_runtime import claim_lineage_service
+from tarkka.application.research_get import ResearchGetService
+from tarkka.application.research_get_protocol import research_get_response
+from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
+from tarkka.interfaces import claim_lineage_runtime, http_api
+from tarkka.interfaces.claim_lineage_runtime import claim_lineage_service, claim_receipt_service
 from tarkka.interfaces.http_api import (
     TarkkaHttpApp,
     _claim_handle_from_path,
     _lineage_query,
     _openapi_field_schema,
     _raw_query,
+    _research_get_handle_from_path,
+    _research_get_query,
     _status_for_agent_response,
     create_app,
     openapi_document,
@@ -37,6 +43,11 @@ class _RaisingLineageService:
 
     def inspect(self, *_args: object, **_kwargs: object) -> object:
         raise self._error
+
+
+class _RaisingGetService:
+    def get(self, *_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("unavailable")
 
 
 def _http_request(
@@ -135,6 +146,119 @@ def test_http_claim_lineage_matches_the_shared_agent_contract(tmp_path: Path) ->
         "total": 4,
     }
     assert response["lineage"]["verification"]["limit"] == 1
+
+
+def test_http_research_get_matches_the_shared_agent_contract(tmp_path: Path) -> None:
+    fixture = persist_local_claim_lineage(tmp_path)
+    documents = JsonResearchRepository.open_existing(tmp_path / "catalog.json")
+    assert documents is not None
+    getter = ResearchGetService(
+        receipts=claim_receipt_service(home=tmp_path),
+        documents=DocumentRetrievalService(documents=documents),
+        lineage=claim_lineage_service(home=tmp_path),
+    )
+    status, _, response = _http_request(
+        create_app(getter=getter),
+        f"/v1/research/claim:{fixture.claim.extraction_id}",
+        query_string=b"representation=receipt&max_tokens=8000&send_to_model=false",
+    )
+    assert status == 200
+    assert response == research_get_response(
+        getter,
+        f"claim:{fixture.claim.extraction_id}",
+        representation="receipt",
+        max_tokens=8_000,
+    )
+
+
+def test_http_research_get_rejects_noncanonical_queries_and_exact_route_misses() -> None:
+    app = create_app(getter=cast(ResearchGetService, _RaisingLineageService(AssertionError())))
+    path = f"/v1/research/claim:{UUID(int=1)}"
+    for query in (
+        b"",
+        b"representation=receipt&unknown=1",
+        b"representation=",
+        b"representation=receipt&max_tokens=one",
+        b"representation=receipt&max_tokens=-1",
+        b"representation=receipt&max_tokens=8001",
+        b"representation=receipt&send_to_model=yes",
+    ):
+        status, _, response = _http_request(app, path, query_string=query)
+        assert status == 400
+        assert response["error"]["code"] == "invalid_argument"
+    assert _research_get_handle_from_path(path) == f"claim:{UUID(int=1)}"
+    assert _research_get_handle_from_path("/v1/research/") is None
+    assert _research_get_handle_from_path("/v1/research/a/b") is None
+    with pytest.raises(ValueError, match="malformed"):
+        _research_get_query({"query_string": b"representation"})
+
+
+def test_http_research_get_lazy_runtime_and_failure_are_stable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    getter = cast(ResearchGetService, _RaisingGetService())
+    calls = 0
+
+    def configured() -> ResearchGetService:
+        nonlocal calls
+        calls += 1
+        return getter
+
+    monkeypatch.setattr(http_api, "configured_research_get_service", configured)
+    app = create_app()
+    status, _, response = _http_request(
+        app, f"/v1/research/claim:{UUID(int=1)}", query_string=b"representation=receipt"
+    )
+    assert status == 503
+    assert response["error"]["code"] == "backend_unavailable"
+    assert calls == 1
+
+    monkeypatch.setattr(
+        http_api,
+        "configured_research_get_service",
+        lambda: (_ for _ in ()).throw(RuntimeError("unavailable")),
+    )
+    status, _, response = _http_request(
+        create_app(), f"/v1/research/claim:{UUID(int=1)}", query_string=b"representation=receipt"
+    )
+    assert status == 503
+    assert response["error"]["code"] == "backend_unavailable"
+
+
+def test_http_research_get_query_defaults_and_model_dispatch_boolean() -> None:
+    assert _research_get_query({"query_string": b"representation=receipt"}) == (
+        "receipt",
+        8_000,
+        False,
+    )
+    assert _research_get_query(
+        {"query_string": b"representation=evidence&send_to_model=true"}
+    ) == ("evidence", 8_000, True)
+    assert _status_for_agent_response({"ok": False, "error": {"code": "rights_denied"}}) == 403
+
+
+def test_configured_research_get_service_reuses_json_and_postgres_runtime_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claim_lineage_runtime, "document_backend", lambda: "json")
+    monkeypatch.setattr(claim_lineage_runtime, "tarkka_home", lambda: tmp_path / "missing")
+    with pytest.raises(FileNotFoundError, match="research catalog"):
+        claim_lineage_runtime.research_get_service()
+
+    persist_local_claim_lineage(tmp_path)
+    monkeypatch.setattr(claim_lineage_runtime, "document_backend", lambda: "json")
+    monkeypatch.setattr(claim_lineage_runtime, "tarkka_home", lambda: tmp_path)
+    assert isinstance(claim_lineage_runtime.research_get_service(), ResearchGetService)
+
+    monkeypatch.setattr(claim_lineage_runtime, "document_backend", lambda: "postgres")
+    sentinel = object()
+    monkeypatch.setattr(
+        claim_lineage_runtime.PostgresSettings, "from_environment", lambda: sentinel
+    )
+    monkeypatch.setattr(claim_lineage_runtime, "PostgresResearchRepository", lambda _: sentinel)
+    monkeypatch.setattr(claim_lineage_runtime, "claim_receipt_service", lambda: sentinel)
+    monkeypatch.setattr(claim_lineage_runtime, "claim_lineage_service", lambda: sentinel)
+    assert isinstance(claim_lineage_runtime.research_get_service(), ResearchGetService)
 
 
 def test_http_backend_construction_is_lazy_and_configuration_failures_are_503(

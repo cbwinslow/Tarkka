@@ -999,14 +999,14 @@ def _research_search_query(scope: ASGIScope) -> tuple[UUID, str, str, str, int]:
     unknown = sorted(set(values) - set(fields))
     if unknown:
         raise ValueError(f"unsupported query parameter: {unknown[0]}")
-    required = {
-        name: _single_query_value(values, name)
-        for name, field in fields.items()
-        if field.required
-    }
-    if any(value is None for value in required.values()):
-        missing = next(name for name, value in required.items() if value is None)
-        raise ValueError(f"{missing} must be provided exactly once")
+    required: dict[str, str] = {}
+    for name, field in fields.items():
+        if not field.required:
+            continue
+        value = _single_query_value(values, name)
+        if value is None:
+            raise ValueError(f"{name} must be provided exactly once")
+        required[name] = value
     document_id = _uuid_query_value(required["document_id"], name="document_id")
     query = required["query"]
     derivation_version = required["derivation_version"]
@@ -1032,10 +1032,8 @@ def _research_search_query(scope: ASGIScope) -> tuple[UUID, str, str, str, int]:
     return document_id, query, derivation_version, configuration_fingerprint, limit
 
 
-def _uuid_query_value(value: str | None, *, name: str) -> UUID:
+def _uuid_query_value(value: str, *, name: str) -> UUID:
     """Parse one required UUID query parameter without accepting handle aliases."""
-    if value is None:
-        raise ValueError(f"{name} must be provided exactly once")
     try:
         return UUID(value)
     except ValueError as exc:

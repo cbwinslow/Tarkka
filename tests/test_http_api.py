@@ -15,7 +15,7 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.claim_lineage_protocol import claim_lineage_response
-from tarkka.application.document_retrieval import DocumentRetrievalService
+from tarkka.application.document_retrieval import DocumentNotFoundError, DocumentRetrievalService
 from tarkka.application.ingest import IngestService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.lexical_retrieval_view import lexical_search_view
@@ -64,8 +64,11 @@ class _RaisingGetService:
 
 
 class _RaisingLexicalService:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
     def search(self, *_args: object, **_kwargs: object) -> object:
-        raise RuntimeError("unavailable")
+        raise self._error
 
 
 def _http_request(
@@ -279,7 +282,9 @@ def test_http_research_search_requires_the_selected_exact_projection(tmp_path: P
 
 
 def test_http_research_search_rejects_closed_world_malformed_and_bounded_queries() -> None:
-    app = create_app(lexical=cast(LexicalRetrievalService, _RaisingLexicalService()))
+    app = create_app(
+        lexical=cast(LexicalRetrievalService, _RaisingLexicalService(AssertionError()))
+    )
     required = (
         f"document_id={UUID(int=1)}&query=retrieval&derivation_version=v1&"
         "configuration_fingerprint=whole-passage-v1"
@@ -291,13 +296,38 @@ def test_http_research_search_rejects_closed_world_malformed_and_bounded_queries
         f"{required}&limit=0".encode(),
         f"{required}&limit=101".encode(),
         f"{required}&limit=one".encode(),
-        f"{required}&document_id=not-a-uuid".encode(),
+        required.replace(f"document_id={UUID(int=1)}", "document_id=not-a-uuid").encode(),
     ):
         status, _, response = _http_request(app, "/v1/research/search", query_string=query)
         assert status == 400
         assert response["error"]["code"] == "invalid_argument"
     with pytest.raises(ValueError, match="malformed"):
         _research_search_query({"query_string": b"document_id"})
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    (
+        (DocumentNotFoundError("missing"), 404, "document_not_found"),
+        (ValueError("invalid"), 400, "invalid_argument"),
+    ),
+)
+def test_http_research_search_maps_shared_service_errors(
+    error: Exception, status: int, code: str
+) -> None:
+    query = (
+        f"document_id={UUID(int=1)}&query=retrieval&derivation_version=v1&"
+        "configuration_fingerprint=whole-passage-v1"
+    ).encode()
+
+    actual_status, _, response = _http_request(
+        create_app(lexical=cast(LexicalRetrievalService, _RaisingLexicalService(error))),
+        "/v1/research/search",
+        query_string=query,
+    )
+
+    assert actual_status == status
+    assert response["error"]["code"] == code
 
 
 def test_http_research_search_lazily_translates_an_unavailable_backend(

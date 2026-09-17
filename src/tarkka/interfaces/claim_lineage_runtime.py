@@ -8,6 +8,8 @@ from uuid import UUID
 
 from tarkka.application.claim_lineage import ClaimLineageService
 from tarkka.application.claim_receipts import ClaimReceiptService
+from tarkka.application.document_retrieval import DocumentRetrievalService
+from tarkka.application.research_get import ResearchGetService
 from tarkka.config import document_backend
 from tarkka.domain.verification import EvidenceRelation
 from tarkka.infrastructure.postgres.citation_context_repository import (
@@ -21,6 +23,7 @@ from tarkka.infrastructure.storage.json_citation_repository import JsonCitationR
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
+from tarkka.ports.repositories import ResearchRepository
 
 
 class _EmptyEvidenceRelationReader:
@@ -54,6 +57,24 @@ def claim_receipt_service(*, home: Path | None = None) -> ClaimReceiptService:
     if document_backend() == "json":
         return _json_claim_receipt_service(home if home is not None else tarkka_home())
     return _postgres_claim_receipt_service()
+
+
+def research_get_service() -> ResearchGetService:
+    """Compose unwalleted progressive retrieval over the configured durable backend."""
+    documents: ResearchRepository
+    if document_backend() == "json":
+        home = tarkka_home()
+        json_documents = JsonResearchRepository.open_existing(home / "catalog.json")
+        if json_documents is None:
+            raise FileNotFoundError(f"research catalog not found: {home / 'catalog.json'}")
+        documents = json_documents
+    else:
+        documents = PostgresResearchRepository(PostgresSettings.from_environment())
+    return ResearchGetService(
+        receipts=claim_receipt_service(),
+        documents=DocumentRetrievalService(documents=documents),
+        lineage=claim_lineage_service(),
+    )
 
 
 def _json_claim_lineage_service(home: Path) -> ClaimLineageService:

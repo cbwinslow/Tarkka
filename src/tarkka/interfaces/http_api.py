@@ -29,8 +29,13 @@ from tarkka.application.research_capability_view import (
     research_capabilities_view,
     research_operation_schema_view,
 )
+from tarkka.application.research_get import ResearchGetService
+from tarkka.application.research_get_protocol import research_get_response
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service as configured_claim_lineage_service,
+)
+from tarkka.interfaces.claim_lineage_runtime import (
+    research_get_service as configured_research_get_service,
 )
 from tarkka.interfaces.document_replay_runtime import (
     document_replay_service as configured_document_replay_service,
@@ -43,7 +48,9 @@ ASGISend: TypeAlias = Callable[[ASGIMessage], Awaitable[None]]
 
 _LINEAGE_OPERATION_ID = "research.claims.lineage"
 _REPLAY_OPERATION_ID = "research.documents.replay"
+_GET_OPERATION_ID = "research.get"
 _ALLOWED_LINEAGE_QUERY = frozenset({"offset", "limit", "evidence_offset", "evidence_limit"})
+_ALLOWED_GET_QUERY = frozenset({"representation", "max_tokens", "send_to_model"})
 _MAX_QUERY_STRING_BYTES = 4096
 _MAX_QUERY_FIELDS = 16
 _DEFAULT_MAX_CONCURRENT_REPLAYS = 1
@@ -89,6 +96,7 @@ class TarkkaHttpApp:
         self,
         *,
         lineage: ClaimLineageService | None = None,
+        getter: ResearchGetService | None = None,
         replay: DocumentReplayer | None = None,
         max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
         max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
@@ -98,6 +106,7 @@ class TarkkaHttpApp:
         if max_concurrent_replays < 1:
             raise ValueError("max_concurrent_replays must be positive")
         self._lineage = lineage
+        self._getter = getter
         self._replay = replay
         self._max_estimated_tokens = max_estimated_tokens
         self._replay_slots = asyncio.Semaphore(max_concurrent_replays)
@@ -113,6 +122,12 @@ class TarkkaHttpApp:
         if self._replay is None:
             self._replay = configured_document_replay_service()
         return self._replay
+
+    def _get_service(self) -> ResearchGetService:
+        """Construct the configured read-only progressive retrieval backend lazily."""
+        if self._getter is None:
+            self._getter = configured_research_get_service()
+        return self._getter
 
     async def _dispatch_replay_off_loop(
         self,
@@ -162,7 +177,10 @@ class TarkkaHttpApp:
 
         if _document_replay_handle_from_path(path) is not None:
             status, payload = await self._dispatch_replay_off_loop(path, scope)
-        elif _claim_handle_from_path(path) is not None:
+        elif (
+            _claim_handle_from_path(path) is not None
+            or _research_get_handle_from_path(path) is not None
+        ):
             status, payload = await asyncio.to_thread(self._dispatch, path, scope)
         else:
             status, payload = self._dispatch(path, scope)
@@ -188,6 +206,10 @@ class TarkkaHttpApp:
                 )
             return 200, {"ok": True, **research_operation_schema_view(schema)}
 
+        resource_id = _research_get_handle_from_path(path)
+        if resource_id is not None:
+            return self._dispatch_research_get(resource_id, scope)
+
         replay_handle = _document_replay_handle_from_path(path)
         if replay_handle is not None:
             return self._dispatch_document_replay(replay_handle, scope)
@@ -196,6 +218,32 @@ class TarkkaHttpApp:
         if claim_handle is None:
             return _route_not_found(path)
         return self._dispatch_claim_lineage(claim_handle, scope)
+
+    def _dispatch_research_get(
+        self, resource_id: str, scope: ASGIScope
+    ) -> tuple[int, dict[str, object]]:
+        """Resolve a bounded read-only get request through its shared agent envelope."""
+        try:
+            representation, max_tokens, send_to_model = _research_get_query(scope)
+        except ValueError as exc:
+            return 400, agent_error(
+                "invalid_argument", str(exc), next_actions=("research_operation_schema",)
+            )
+        try:
+            service = self._get_service()
+        except (OSError, RuntimeError, ValueError):
+            response = agent_error(
+                "backend_unavailable", "configured research get backend is unavailable"
+            )
+        else:
+            response = research_get_response(
+                service,
+                resource_id,
+                representation=representation,
+                max_tokens=max_tokens,
+                send_to_model=send_to_model,
+            )
+        return _status_for_agent_response(response), response
 
     def _dispatch_document_replay(
         self,
@@ -269,6 +317,7 @@ class TarkkaHttpApp:
 def create_app(
     *,
     lineage: ClaimLineageService | None = None,
+    getter: ResearchGetService | None = None,
     replay: DocumentReplayer | None = None,
     max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
     max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
@@ -276,6 +325,7 @@ def create_app(
     """Build the dependency-free ASGI adapter with lazy configured persistence."""
     return TarkkaHttpApp(
         lineage=lineage,
+        getter=getter,
         replay=replay,
         max_estimated_tokens=max_estimated_tokens,
         max_concurrent_replays=max_concurrent_replays,
@@ -303,6 +353,13 @@ def openapi_document() -> dict[str, object]:
     replay_document_field = next(
         field for field in replay_schema.inputs if field.name == "document_id"
     )
+    get_schema = research_operation_schema(_GET_OPERATION_ID)
+    get_resource_field = next(field for field in get_schema.inputs if field.name == "resource_id")
+    get_query_parameters = [
+        _openapi_query_parameter(field)
+        for field in get_schema.inputs
+        if field.name not in {"resource_id", "wallet_handle", "operation_key"}
+    ]
     error_responses: dict[str, object] = {
         status: _json_schema_response(
             description,
@@ -331,6 +388,20 @@ def openapi_document() -> dict[str, object]:
         "400": error_responses["400"],
         "404": error_responses["404"],
         "409": error_responses["409"],
+        "413": error_responses["413"],
+        "503": error_responses["503"],
+    }
+    get_responses: dict[str, object] = {
+        "200": _json_schema_response(
+            get_schema.result_summary,
+            {"$ref": "#/components/schemas/ResearchGetEnvelope"},
+        ),
+        "400": error_responses["400"],
+        "403": _json_schema_response(
+            "The requested model-dispatch policy denied this representation.",
+            {"$ref": "#/components/schemas/ErrorEnvelope"},
+        ),
+        "404": error_responses["404"],
         "413": error_responses["413"],
         "503": error_responses["503"],
     }
@@ -415,6 +486,23 @@ def openapi_document() -> dict[str, object]:
                     "responses": lineage_responses,
                 }
             },
+            "/v1/research/{resource_id}": {
+                "get": {
+                    "operationId": _GET_OPERATION_ID,
+                    "summary": get_schema.operation.summary,
+                    "parameters": [
+                        {
+                            "name": "resource_id",
+                            "in": "path",
+                            "required": True,
+                            "description": get_resource_field.summary,
+                            "schema": {"type": "string", "minLength": 1},
+                        },
+                        *get_query_parameters,
+                    ],
+                    "responses": get_responses,
+                }
+            },
             "/openapi.json": {
                 "get": {
                     "operationId": "openapi_document",
@@ -491,6 +579,27 @@ def openapi_document() -> dict[str, object]:
                         "estimated_tokens": {"type": "integer", "minimum": 0},
                     },
                 },
+                "ResearchGetEnvelope": {
+                    "type": "object",
+                    "required": [
+                        "ok",
+                        "resource_id",
+                        "kind",
+                        "representation",
+                        "estimated_tokens",
+                        "may_send_to_model",
+                        "payload",
+                    ],
+                    "properties": {
+                        "ok": {"const": True},
+                        "resource_id": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "representation": {"type": "string"},
+                        "estimated_tokens": {"type": "integer", "minimum": 0},
+                        "may_send_to_model": {"type": "boolean"},
+                        "payload": {"type": "object"},
+                    },
+                },
             }
         },
     }
@@ -537,6 +646,15 @@ def _claim_handle_from_path(path: str) -> str | None:
 def _document_replay_handle_from_path(path: str) -> str | None:
     """Extract one Document handle only from the exact versioned replay route shape."""
     return _handle_from_path(path, prefix="/v1/documents/", suffix="/replay")
+
+
+def _research_get_handle_from_path(path: str) -> str | None:
+    """Extract one resource handle from the exact read-only research get route shape."""
+    prefix = "/v1/research/"
+    if not path.startswith(prefix):
+        return None
+    value = path.removeprefix(prefix)
+    return value if value and "/" not in value else None
 
 
 def _blocking_handle_from_path(path: str) -> str | None:
@@ -604,6 +722,51 @@ def _lineage_query(scope: ASGIScope) -> tuple[int, int, int, int]:
     )
 
 
+def _research_get_query(scope: ASGIScope) -> tuple[str, int, bool]:
+    """Parse the closed-world query contract for the read-only research get route."""
+    raw_query = _raw_query(scope)
+    try:
+        values = parse_qs(
+            raw_query.decode("ascii"),
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=_MAX_QUERY_FIELDS,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("query string is malformed") from exc
+    unknown = sorted(set(values) - _ALLOWED_GET_QUERY)
+    if unknown:
+        raise ValueError(f"unsupported query parameter: {unknown[0]}")
+    representation = _single_query_value(values, "representation")
+    if representation is None:
+        raise ValueError("representation must be provided exactly once")
+    max_tokens = _single_query_value(values, "max_tokens")
+    try:
+        parsed_max_tokens = 8_000 if max_tokens is None else int(max_tokens)
+    except ValueError as exc:
+        raise ValueError("max_tokens must be an integer") from exc
+    raw_send_to_model = _single_query_value(values, "send_to_model")
+    if raw_send_to_model is None:
+        send_to_model = False
+    elif raw_send_to_model == "true":
+        send_to_model = True
+    elif raw_send_to_model == "false":
+        send_to_model = False
+    else:
+        raise ValueError("send_to_model must be true or false")
+    return representation, parsed_max_tokens, send_to_model
+
+
+def _single_query_value(values: Mapping[str, list[str]], name: str) -> str | None:
+    """Return one optional scalar query field while rejecting duplicate or blank values."""
+    raw_values = values.get(name)
+    if raw_values is None:
+        return None
+    if len(raw_values) != 1 or not raw_values[0].strip():
+        raise ValueError(f"{name} must be provided exactly once")
+    return raw_values[0]
+
+
 def _status_for_agent_response(response: dict[str, object]) -> int:
     """Map stable semantic agent problem codes to HTTP status without changing the body."""
     if response.get("ok") is True:
@@ -612,12 +775,14 @@ def _status_for_agent_response(response: dict[str, object]) -> int:
     code = error.get("code") if isinstance(error, dict) else None
     if code == "invalid_argument":
         return 400
-    if code in _NOT_FOUND_CODES or code == "unknown_operation":
+    if code in _NOT_FOUND_CODES or code in {"not_found", "unknown_operation"}:
         return 404
     if code == "lineage_mismatch" or code in _REPLAY_CONFLICT_CODES:
         return 409
     if code == "content_too_large":
         return 413
+    if code == "rights_denied":
+        return 403
     if code in {
         "backend_unavailable",
         "citation_repository_unavailable",

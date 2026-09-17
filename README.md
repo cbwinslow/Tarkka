@@ -16,6 +16,20 @@ The core is intentionally usable without an LLM, hosted service, or mandatory ex
 research providers, document parsers, databases, and future model providers live behind replaceable
 contracts.
 
+## Run the read-only HTTP API
+
+Install the optional API host, then start the existing `/v1` ASGI/OpenAPI surface on loopback:
+
+```bash
+python -m pip install 'tarkka[api]'
+tarkka-api
+```
+
+The default listener is `127.0.0.1:8000`; discover its bounded operations at
+`http://127.0.0.1:8000/openapi.json`. Passing a non-loopback `--host` is explicit. This initial
+server exposes only the documented read-only API; authentication, writes, jobs, and cumulative wallet
+lifecycle are not remotely exposed.
+
 ## Install a release
 
 Download the wheel and `SHA256SUMS` from the

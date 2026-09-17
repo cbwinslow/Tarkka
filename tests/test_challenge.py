@@ -162,6 +162,30 @@ def test_compare_wallet_guards(tmp_path: Path) -> None:
     assert wallets.get(roomy.wallet_handle).consumed_tokens == 0
 
 
+def test_walleted_comparison_estimate_refuses_nonconvergence(tmp_path: Path, monkeypatch) -> None:
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "ws.yaml"
+    manifest.write_text("version: 1\nkind: research_workspace\nmetadata:\n  name: converge\n")
+    workspace = workspaces.init_from_manifest(manifest)
+    claim_id = workspaces.run(workspace.workspace.workspace_id, source=source).claim_ids[0]
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    walleted = ChallengeService(
+        extractions=challenge._extractions,
+        verification=challenge._verification,
+        relations=challenge._relations,
+        wallets=wallets,
+    )
+    wallet = wallets.create(1_000)
+    import tarkka.application.challenge as challenge_module
+
+    calls = iter(range(1, 20))
+    monkeypatch.setattr(challenge_module, "estimate_tokens", lambda _payload: next(calls))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        walleted._walleted_comparison_tokens(
+            claim_id, (), wallet_handle=wallet.wallet_handle, initial_estimate=0
+        )
+
+
 def test_challenge_singleton_is_no_new_evidence(tmp_path: Path) -> None:
     source = tmp_path / "one.txt"
     source.write_text(

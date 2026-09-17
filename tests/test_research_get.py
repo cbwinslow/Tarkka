@@ -281,6 +281,10 @@ def test_wallet_protocol_maps_invalid_unknown_and_persistence_errors(tmp_path) -
         )
     with pytest.raises(RuntimeError, match="persistence"):
         live._wallet_remaining("context_wallet:" + str(UUID(int=1)))
+    with pytest.raises(RuntimeError, match="persistence"):
+        live._spend_wallet(
+            "context_wallet:" + str(UUID(int=1)), operation_key="x", estimated_tokens=1
+        )
     assert "wallet" not in research_get_view(live.get(claim, representation="receipt"))
 
 

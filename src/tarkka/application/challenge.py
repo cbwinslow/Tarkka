@@ -278,8 +278,7 @@ class ChallengeService:
         if not wallet.admits(estimated_tokens):
             remaining_tokens: int | None = None
             if wallet_handle is not None:
-                if self._wallets is None:
-                    raise RuntimeError("context wallet persistence is not configured")
+                assert self._wallets is not None
                 remaining_tokens = self._wallets.get(wallet_handle).remaining_tokens
             raise WalletExhaustedError(
                 estimated_tokens=estimated_tokens,
@@ -288,8 +287,7 @@ class ChallengeService:
             )
         balance: ContextWalletBalance | None = None
         if wallet_handle is not None:
-            if self._wallets is None:
-                raise RuntimeError("context wallet persistence is not configured")
+            assert self._wallets is not None
             balance = self._wallets.spend_success(
                 wallet_handle,
                 operation_key=operation_key,

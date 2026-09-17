@@ -245,6 +245,11 @@ def test_json_wallet_store_failure_and_commit_branches(tmp_path, monkeypatch) ->
     )
     with pytest.raises(RuntimeError, match="invalid context wallet"):
         store.get(UUID("00000000-0000-0000-0000-000000000000"))
+    malformed_record = {"00000000-0000-0000-0000-000000000000": []}
+    malformed_store = {"schema_version": 1, "wallets": malformed_record}
+    path.write_text(json.dumps(malformed_store), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="invalid context wallet"):
+        store.get(UUID("00000000-0000-0000-0000-000000000000"))
     valid = {
         "wallet_id": str(record.wallet_id),
         "max_tokens": 2,

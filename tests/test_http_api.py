@@ -276,6 +276,14 @@ def test_http_research_get_lazy_runtime_and_failure_are_stable(
     assert status == 503
     assert response["error"]["code"] == "backend_unavailable"
 
+    status, _, response = _http_request(
+        create_app(),
+        f"/v1/research/claim:{UUID(int=1)}/expand",
+        query_string=b"include=evidence",
+    )
+    assert status == 503
+    assert response["error"]["code"] == "backend_unavailable"
+
 
 def test_http_research_get_query_defaults_and_model_dispatch_boolean() -> None:
     assert _research_get_query({"query_string": b"representation=receipt"}) == (
@@ -289,6 +297,11 @@ def test_http_research_get_query_defaults_and_model_dispatch_boolean() -> None:
     assert _research_expand_query(
         {"query_string": b"include=evidence&send_to_model=true"}
     ) == ("evidence", 8_000, True)
+    assert _research_expand_query({"query_string": b"include=evidence"}) == (
+        "evidence",
+        8_000,
+        False,
+    )
     assert _status_for_agent_response({"ok": False, "error": {"code": "rights_denied"}}) == 403
 
 

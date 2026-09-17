@@ -1011,9 +1011,6 @@ def _research_search_query(scope: ASGIScope) -> tuple[UUID, str, str, str, int]:
     query = required["query"]
     derivation_version = required["derivation_version"]
     configuration_fingerprint = required["configuration_fingerprint"]
-    assert query is not None
-    assert derivation_version is not None
-    assert configuration_fingerprint is not None
     limit_field = fields["limit"]
     raw_limit = _single_query_value(values, "limit")
     try:
@@ -1021,10 +1018,8 @@ def _research_search_query(scope: ASGIScope) -> tuple[UUID, str, str, str, int]:
     except ValueError as exc:
         raise ValueError("limit must be an integer") from exc
     if (
-        limit_field.minimum is not None
-        and limit < limit_field.minimum
-        or limit_field.maximum is not None
-        and limit > limit_field.maximum
+        (limit_field.minimum is not None and limit < limit_field.minimum)
+        or (limit_field.maximum is not None and limit > limit_field.maximum)
     ):
         raise ValueError(
             f"limit must be between {limit_field.minimum} and {limit_field.maximum}"

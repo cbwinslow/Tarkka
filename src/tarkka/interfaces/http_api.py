@@ -20,6 +20,12 @@ from tarkka.application.document_replay_protocol import (
     document_replay_backend_unavailable_response,
     document_replay_response,
 )
+from tarkka.application.document_retrieval import DocumentNotFoundError
+from tarkka.application.lexical_retrieval import (
+    LexicalRetrievalService,
+    RetrievalIndexNotFoundError,
+)
+from tarkka.application.lexical_retrieval_view import lexical_search_view
 from tarkka.application.research_capabilities import (
     ResearchField,
     UnknownResearchOperationError,
@@ -40,6 +46,8 @@ from tarkka.interfaces.claim_lineage_runtime import (
 from tarkka.interfaces.document_replay_runtime import (
     document_replay_service as configured_document_replay_service,
 )
+from tarkka.interfaces.main import _lexical_retrieval_service
+from tarkka.ports.retrieval import LexicalRetrievalQuery
 
 ASGIMessage: TypeAlias = dict[str, object]
 ASGIScope: TypeAlias = Mapping[str, object]
@@ -50,6 +58,7 @@ _LINEAGE_OPERATION_ID = "research.claims.lineage"
 _REPLAY_OPERATION_ID = "research.documents.replay"
 _GET_OPERATION_ID = "research.get"
 _EXPAND_OPERATION_ID = "research.expand"
+_SEARCH_OPERATION_ID = "research.search"
 _ALLOWED_LINEAGE_QUERY = frozenset({"offset", "limit", "evidence_offset", "evidence_limit"})
 _ALLOWED_GET_QUERY = frozenset({"representation", "max_tokens", "send_to_model"})
 _ALLOWED_EXPAND_QUERY = frozenset({"include", "max_tokens", "send_to_model"})
@@ -99,6 +108,7 @@ class TarkkaHttpApp:
         *,
         lineage: ClaimLineageService | None = None,
         getter: ResearchGetService | None = None,
+        lexical: LexicalRetrievalService | None = None,
         replay: DocumentReplayer | None = None,
         max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
         max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
@@ -109,6 +119,7 @@ class TarkkaHttpApp:
             raise ValueError("max_concurrent_replays must be positive")
         self._lineage = lineage
         self._getter = getter
+        self._lexical = lexical
         self._replay = replay
         self._max_estimated_tokens = max_estimated_tokens
         self._replay_slots = asyncio.Semaphore(max_concurrent_replays)
@@ -130,6 +141,12 @@ class TarkkaHttpApp:
         if self._getter is None:
             self._getter = configured_research_get_service()
         return self._getter
+
+    def _lexical_service(self) -> LexicalRetrievalService:
+        """Construct the configured exact lexical-search backend only when requested."""
+        if self._lexical is None:
+            self._lexical = _lexical_retrieval_service()
+        return self._lexical
 
     async def _dispatch_replay_off_loop(
         self,
@@ -177,7 +194,9 @@ class TarkkaHttpApp:
             )
             return
 
-        if _document_replay_handle_from_path(path) is not None:
+        if path == "/v1/research/search":
+            status, payload = await asyncio.to_thread(self._dispatch, path, scope)
+        elif _document_replay_handle_from_path(path) is not None:
             status, payload = await self._dispatch_replay_off_loop(path, scope)
         elif _blocking_handle_from_path(path) is not None:
             status, payload = await asyncio.to_thread(self._dispatch, path, scope)
@@ -205,6 +224,9 @@ class TarkkaHttpApp:
                 )
             return 200, {"ok": True, **research_operation_schema_view(schema)}
 
+        if path == "/v1/research/search":
+            return self._dispatch_research_search(scope)
+
         resource_id = _research_expand_handle_from_path(path)
         if resource_id is not None:
             return self._dispatch_research_expand(resource_id, scope)
@@ -221,6 +243,51 @@ class TarkkaHttpApp:
         if claim_handle is None:
             return _route_not_found(path)
         return self._dispatch_claim_lineage(claim_handle, scope)
+
+    def _dispatch_research_search(self, scope: ASGIScope) -> tuple[int, dict[str, object]]:
+        """Search one explicit persisted lexical projection through the shared service."""
+        try:
+            document_id, query, derivation_version, configuration_fingerprint, limit = (
+                _research_search_query(scope)
+            )
+        except ValueError as exc:
+            return 400, agent_error(
+                "invalid_argument", str(exc), next_actions=("research_operation_schema",)
+            )
+        try:
+            hits = self._lexical_service().search(
+                document_id,
+                derivation_version=derivation_version,
+                configuration_fingerprint=configuration_fingerprint,
+                query=LexicalRetrievalQuery(text=query, limit=limit),
+            )
+        except DocumentNotFoundError as exc:
+            response = agent_error(
+                "document_not_found", str(exc), next_actions=("research_capabilities",)
+            )
+        except RetrievalIndexNotFoundError as exc:
+            response = agent_error(
+                "not_found", str(exc), next_actions=("research_capabilities",)
+            )
+        except ValueError as exc:
+            response = agent_error(
+                "invalid_argument", str(exc), next_actions=("research_operation_schema",)
+            )
+        except (OSError, RuntimeError):
+            response = agent_error(
+                "backend_unavailable", "configured lexical retrieval backend is unavailable"
+            )
+        else:
+            response = {
+                "ok": True,
+                **lexical_search_view(
+                    document_id=str(document_id),
+                    derivation_version=derivation_version,
+                    configuration_fingerprint=configuration_fingerprint,
+                    hits=hits,
+                ),
+            }
+        return _status_for_agent_response(response), response
 
     def _dispatch_research_get(
         self, resource_id: str, scope: ASGIScope
@@ -347,6 +414,7 @@ def create_app(
     *,
     lineage: ClaimLineageService | None = None,
     getter: ResearchGetService | None = None,
+    lexical: LexicalRetrievalService | None = None,
     replay: DocumentReplayer | None = None,
     max_estimated_tokens: int = MAX_CLAIM_LINEAGE_ESTIMATED_TOKENS,
     max_concurrent_replays: int = _DEFAULT_MAX_CONCURRENT_REPLAYS,
@@ -355,6 +423,7 @@ def create_app(
     return TarkkaHttpApp(
         lineage=lineage,
         getter=getter,
+        lexical=lexical,
         replay=replay,
         max_estimated_tokens=max_estimated_tokens,
         max_concurrent_replays=max_concurrent_replays,
@@ -397,6 +466,10 @@ def openapi_document() -> dict[str, object]:
         _openapi_query_parameter(field)
         for field in expand_schema.inputs
         if field.name not in {"resource_id", "wallet_handle", "operation_key"}
+    ]
+    search_schema = research_operation_schema(_SEARCH_OPERATION_ID)
+    search_query_parameters = [
+        _openapi_query_parameter(field) for field in search_schema.inputs
     ]
     error_responses: dict[str, object] = {
         status: _json_schema_response(
@@ -455,6 +528,15 @@ def openapi_document() -> dict[str, object]:
         ),
         "404": error_responses["404"],
         "413": error_responses["413"],
+        "503": error_responses["503"],
+    }
+    search_responses: dict[str, object] = {
+        "200": _json_schema_response(
+            search_schema.result_summary,
+            {"$ref": "#/components/schemas/ResearchSearchEnvelope"},
+        ),
+        "400": error_responses["400"],
+        "404": error_responses["404"],
         "503": error_responses["503"],
     }
     operation_responses: dict[str, object] = {
@@ -572,6 +654,14 @@ def openapi_document() -> dict[str, object]:
                     "responses": expand_responses,
                 }
             },
+            "/v1/research/search": {
+                "get": {
+                    "operationId": _SEARCH_OPERATION_ID,
+                    "summary": search_schema.operation.summary,
+                    "parameters": search_query_parameters,
+                    "responses": search_responses,
+                }
+            },
             "/openapi.json": {
                 "get": {
                     "operationId": "openapi_document",
@@ -667,6 +757,23 @@ def openapi_document() -> dict[str, object]:
                         "estimated_tokens": {"type": "integer", "minimum": 0},
                         "may_send_to_model": {"type": "boolean"},
                         "payload": {"type": "object"},
+                    },
+                },
+                "ResearchSearchEnvelope": {
+                    "type": "object",
+                    "required": [
+                        "ok",
+                        "document_id",
+                        "derivation_version",
+                        "configuration_fingerprint",
+                        "hits",
+                    ],
+                    "properties": {
+                        "ok": {"const": True},
+                        "document_id": {"type": "string", "format": "uuid"},
+                        "derivation_version": {"type": "string"},
+                        "configuration_fingerprint": {"type": "string"},
+                        "hits": {"type": "array", "items": {"type": "object"}},
                     },
                 },
             }
@@ -873,6 +980,66 @@ def _research_expand_query(scope: ASGIScope) -> tuple[str, int, bool]:
     else:
         raise ValueError("send_to_model must be true or false")
     return include, parsed_max_tokens, send_to_model
+
+
+def _research_search_query(scope: ASGIScope) -> tuple[UUID, str, str, str, int]:
+    """Parse the exact lexical-search query contract from capability metadata."""
+    search_schema = research_operation_schema(_SEARCH_OPERATION_ID)
+    fields = {field.name: field for field in search_schema.inputs}
+    raw_query = _raw_query(scope)
+    try:
+        values = parse_qs(
+            raw_query.decode("ascii"),
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=_MAX_QUERY_FIELDS,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("query string is malformed") from exc
+    unknown = sorted(set(values) - set(fields))
+    if unknown:
+        raise ValueError(f"unsupported query parameter: {unknown[0]}")
+    required = {
+        name: _single_query_value(values, name)
+        for name, field in fields.items()
+        if field.required
+    }
+    if any(value is None for value in required.values()):
+        missing = next(name for name, value in required.items() if value is None)
+        raise ValueError(f"{missing} must be provided exactly once")
+    document_id = _uuid_query_value(required["document_id"], name="document_id")
+    query = required["query"]
+    derivation_version = required["derivation_version"]
+    configuration_fingerprint = required["configuration_fingerprint"]
+    assert query is not None
+    assert derivation_version is not None
+    assert configuration_fingerprint is not None
+    limit_field = fields["limit"]
+    raw_limit = _single_query_value(values, "limit")
+    try:
+        limit = 10 if raw_limit is None else int(raw_limit)
+    except ValueError as exc:
+        raise ValueError("limit must be an integer") from exc
+    if (
+        limit_field.minimum is not None
+        and limit < limit_field.minimum
+        or limit_field.maximum is not None
+        and limit > limit_field.maximum
+    ):
+        raise ValueError(
+            f"limit must be between {limit_field.minimum} and {limit_field.maximum}"
+        )
+    return document_id, query, derivation_version, configuration_fingerprint, limit
+
+
+def _uuid_query_value(value: str | None, *, name: str) -> UUID:
+    """Parse one required UUID query parameter without accepting handle aliases."""
+    if value is None:
+        raise ValueError(f"{name} must be provided exactly once")
+    try:
+        return UUID(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a UUID") from exc
 
 
 def _single_query_value(values: Mapping[str, list[str]], name: str) -> str | None:

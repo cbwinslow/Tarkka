@@ -133,6 +133,11 @@ Each hit retains its segment handle and exact normalized-passage spans. The tool
 index, exposes a local path, or falls back to another projection; callers must explicitly index the
 matching projection through the CLI first.
 
+The read-only HTTP transport exposes the same contract as
+`GET /v1/research/search`. All five `research.search` inputs are closed-world query parameters;
+their requiredness and bounds derive from the capability schema. It returns the same lexical view
+and does not create an index or select a fallback projection.
+
 `research_capabilities` remains the first call; it advertises transport-neutral operation handles
 without eagerly exposing every argument schema. `research_operation_schema` then loads one schema.
 `research_compare` is the compact, read-only comparison step for one Claim's recorded

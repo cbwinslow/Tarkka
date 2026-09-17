@@ -20,7 +20,7 @@ mcp = [
     "mcp>=2,<3",
 ]
 embeddings = [
-    "sentence-transformers>=5,<6",
+    "sentence-transformers>=5,<7",
 ]
 api = [
     "uvicorn>=0.53,<1",

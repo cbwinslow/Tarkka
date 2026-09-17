@@ -29,7 +29,7 @@ from tarkka.application.research_capability_view import (
     research_capabilities_view,
     research_operation_schema_view,
 )
-from tarkka.application.research_get import ResearchGetService
+from tarkka.application.research_get import DEFAULT_GET_MAX_TOKENS, ResearchGetService
 from tarkka.application.research_get_protocol import research_get_response
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service as configured_claim_lineage_service,
@@ -742,9 +742,11 @@ def _research_get_query(scope: ASGIScope) -> tuple[str, int, bool]:
         raise ValueError("representation must be provided exactly once")
     max_tokens = _single_query_value(values, "max_tokens")
     try:
-        parsed_max_tokens = 8_000 if max_tokens is None else int(max_tokens)
+        parsed_max_tokens = DEFAULT_GET_MAX_TOKENS if max_tokens is None else int(max_tokens)
     except ValueError as exc:
         raise ValueError("max_tokens must be an integer") from exc
+    if not 0 <= parsed_max_tokens <= DEFAULT_GET_MAX_TOKENS:
+        raise ValueError(f"max_tokens must be between 0 and {DEFAULT_GET_MAX_TOKENS}")
     raw_send_to_model = _single_query_value(values, "send_to_model")
     if raw_send_to_model is None:
         send_to_model = False

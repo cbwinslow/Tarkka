@@ -179,6 +179,8 @@ def test_http_research_get_rejects_noncanonical_queries_and_exact_route_misses()
         b"representation=receipt&unknown=1",
         b"representation=",
         b"representation=receipt&max_tokens=one",
+        b"representation=receipt&max_tokens=-1",
+        b"representation=receipt&max_tokens=8001",
         b"representation=receipt&send_to_model=yes",
     ):
         status, _, response = _http_request(app, path, query_string=query)

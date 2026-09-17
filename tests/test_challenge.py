@@ -11,12 +11,18 @@ from tarkka.application.challenge import (
     ChallengeService,
     is_contrary,
 )
+from tarkka.application.context_wallet import (
+    ContextWalletService,
+    UnknownContextWalletError,
+    WalletExhaustedError,
+)
 from tarkka.application.extraction import ExtractionService
 from tarkka.application.ingest import IngestService
 from tarkka.application.verification import ClaimNotFoundError, EvidenceVerificationService
 from tarkka.application.workspace import WorkspaceNotFoundError, WorkspaceService
 from tarkka.domain.extraction import Claim
 from tarkka.infrastructure.extraction.rule_claims import RuleBasedClaimExtractor
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
@@ -34,7 +40,9 @@ _CONFLICT_TEXT = (
 )
 
 
-def _challenge_stack(tmp_path: Path) -> tuple[ChallengeService, WorkspaceService, Path]:
+def _challenge_stack(
+    tmp_path: Path, *, wallets: ContextWalletService | None = None
+) -> tuple[ChallengeService, WorkspaceService, Path]:
     source = tmp_path / "conflict.txt"
     source.write_text(_CONFLICT_TEXT, encoding="utf-8")
     documents = JsonResearchRepository(tmp_path / "catalog.json")
@@ -57,6 +65,7 @@ def _challenge_stack(tmp_path: Path) -> tuple[ChallengeService, WorkspaceService
         verification=EvidenceVerificationService(source=extractions, relations=relations),
         relations=relations,
         workspaces=workspaces,
+        wallets=wallets,
     )
     return challenge, workspace_service, source
 
@@ -92,6 +101,8 @@ def test_challenge_records_contradicts_and_is_idempotent(tmp_path: Path) -> None
     assert [item.relation_id for item in again.relations] == [
         item.relation_id for item in result.relations
     ]
+
+
     board = challenge.list_contradictions(workspace.workspace.workspace_id)
     assert {item.kind for item in board} == {"contradicts"}
     assert not any("score" in item.kind for item in board)
@@ -125,6 +136,77 @@ def test_challenge_records_contradicts_and_is_idempotent(tmp_path: Path) -> None
     assert empty.outcome in {"recorded", "no_new_evidence"}
     with pytest.raises(WorkspaceNotFoundError):
         challenge.challenge(first, workspace_id=UUID(int=8))
+
+
+def test_compare_wallet_guards(tmp_path: Path) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    challenge, workspaces, source = _challenge_stack(tmp_path, wallets=wallets)
+    manifest = tmp_path / "ws.yaml"
+    manifest.write_text("version: 1\nkind: research_workspace\nmetadata:\n  name: wallet\n")
+    workspace = workspaces.init_from_manifest(manifest)
+    claim_id = workspaces.run(workspace.workspace.workspace_id, source=source).claim_ids[0]
+    with pytest.raises(ValueError, match="operation_key"):
+        challenge.compare(claim_id, operation_key="x")
+    with pytest.raises(UnknownContextWalletError, match="not found"):
+        challenge.compare(
+            claim_id,
+            wallet_handle="context_wallet:" + str(UUID(int=1)),
+            operation_key="x",
+        )
+    wallet = wallets.create(1)
+    with pytest.raises(WalletExhaustedError, match="estimated_tokens"):
+        challenge.compare(
+            claim_id,
+            max_tokens=0,
+            wallet_handle=wallet.wallet_handle,
+            operation_key="small",
+        )
+    assert wallets.get(wallet.wallet_handle).consumed_tokens == 0
+    roomy = wallets.create(1_000)
+    with pytest.raises(WalletExhaustedError):
+        challenge.compare(
+            claim_id,
+            max_tokens=0,
+            wallet_handle=roomy.wallet_handle,
+            operation_key="request-small",
+        )
+    assert wallets.get(roomy.wallet_handle).consumed_tokens == 0
+
+
+def test_compare_rejects_wallet_when_persistence_is_not_configured(tmp_path: Path) -> None:
+    challenge, workspaces, source = _challenge_stack(tmp_path)
+    manifest = tmp_path / "unconfigured.yaml"
+    manifest.write_text("version: 1\nkind: research_workspace\nmetadata:\n  name: unconfigured\n")
+    workspace = workspaces.init_from_manifest(manifest)
+    claim_id = workspaces.run(workspace.workspace.workspace_id, source=source).claim_ids[0]
+    with pytest.raises(RuntimeError, match="persistence"):
+        challenge.compare(
+            claim_id,
+            wallet_handle="context_wallet:" + str(UUID(int=1)),
+            operation_key="x",
+        )
+
+
+def test_walleted_comparison_estimate_refuses_nonconvergence(tmp_path: Path, monkeypatch) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    challenge, workspaces, source = _challenge_stack(tmp_path, wallets=wallets)
+    manifest = tmp_path / "ws.yaml"
+    manifest.write_text("version: 1\nkind: research_workspace\nmetadata:\n  name: converge\n")
+    workspace = workspaces.init_from_manifest(manifest)
+    claim_id = workspaces.run(workspace.workspace.workspace_id, source=source).claim_ids[0]
+    wallet = wallets.create(1_000)
+    import tarkka.application.challenge as challenge_module
+
+    calls = iter(range(1, 20))
+    monkeypatch.setattr(challenge_module, "estimate_tokens", lambda _payload: next(calls))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        challenge._walleted_comparison_tokens(
+            claim_id,
+            (),
+            wallet_handle=wallet.wallet_handle,
+            operation_key="nonconvergent",
+            initial_estimate=0,
+        )
 
 
 def test_challenge_singleton_is_no_new_evidence(tmp_path: Path) -> None:

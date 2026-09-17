@@ -21,12 +21,20 @@ from tarkka.application.claim_lineage import (
     ClaimLineageService,
 )
 from tarkka.application.claim_lineage_view import claim_lineage_view
+from tarkka.application.context_wallet import (
+    ContextWalletPersistenceError,
+    ContextWalletService,
+    InvalidContextWalletHandleError,
+    UnknownContextWalletError,
+    WalletExhaustedError,
+)
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.application.lexical_retrieval import LexicalRetrievalService
 from tarkka.application.research_get import ResearchGetService
 from tarkka.domain.telemetry import AgentUsageEvent
 from tarkka.infrastructure.json_retrieval_index_store import JsonRetrievalSegmentStore
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.infrastructure.storage.local_artifacts import LocalArtifactStore
 from tarkka.infrastructure.storage.text_parser import PlainTextParser
@@ -79,9 +87,10 @@ def test_mcp_server_registers_explicit_bundle_writes_alongside_read_only_operati
     assert [tool.name for tool in tools] == [
         "research_capabilities",
         "research_operation_schema",
-        "research_get",
-        "research_expand",
-        "research_compare",
+            "research_get",
+            "research_expand",
+            "research_wallet",
+            "research_compare",
         "claim_lineage",
         "document_manifest",
         "document_sections",
@@ -92,15 +101,97 @@ def test_mcp_server_registers_explicit_bundle_writes_alongside_read_only_operati
         "research_search",
         "retrieval_search",
     ]
-    write_names = {"proof_bundle_export", "proof_bundle_verify"}
+    write_names = {"proof_bundle_export", "proof_bundle_verify", "research_wallet"}
     assert all(tool.annotations is not None for tool in tools)
     assert all(
         tool.annotations.read_only_hint is (tool.name not in write_names) for tool in tools
     )
-    assert all(tool.annotations is not None and tool.annotations.idempotent_hint for tool in tools)
+    assert all(
+        tool.annotations.idempotent_hint is (tool.name != "research_wallet") for tool in tools
+    )
     assert all(
         tool.annotations is not None and not tool.annotations.open_world_hint for tool in tools
     )
+
+
+def test_mcp_context_wallet_lifecycle(tmp_path: Path) -> None:
+    server = create_server(
+        wallets=ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    )
+    created = _call(server, "research_wallet", {"action": "create", "max_tokens": 9})
+    assert created["remaining_tokens"] == 9
+    loaded = _call(
+        server,
+        "research_wallet",
+        {"action": "get", "wallet_handle": created["wallet_handle"]},
+    )
+    assert loaded == created
+    assert _call(server, "research_wallet", {"action": "nope"})["error"]["code"] == (
+        "invalid_argument"
+    )
+    assert _call(server, "research_wallet", {"action": "get"})["error"]["code"] == (
+        "invalid_argument"
+    )
+    assert _call(server, "research_wallet", {"action": "get", "wallet_handle": "bad"})[
+        "error"
+    ]["code"] == "invalid_argument"
+    assert _call(
+        server,
+        "research_wallet",
+        {"action": "get", "wallet_handle": "context_wallet:" + str(UUID(int=1))},
+    )["error"]["code"] == "not_found"
+
+
+class _WalletFailureChallenge:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def compare(self, *_args: object, **_kwargs: object) -> object:
+        raise self.error
+
+
+class _FailingWalletLifecycle:
+    def create(self, *_args: object, **_kwargs: object) -> object:
+        raise ContextWalletPersistenceError("unavailable")
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (InvalidContextWalletHandleError("bad"), "invalid_argument"),
+        (UnknownContextWalletError("missing"), "not_found"),
+        (ContextWalletPersistenceError("unavailable"), "backend_unavailable"),
+        (
+            WalletExhaustedError(estimated_tokens=2, max_tokens=1, remaining_tokens=1),
+            "content_too_large",
+        ),
+    ],
+)
+def test_mcp_compare_maps_typed_wallet_failures(error: Exception, code: str) -> None:
+    server = create_server(challenge=_WalletFailureChallenge(error))
+    response = _call(server, "research_compare", {"claim_id": str(UUID(int=8))})
+    assert response["error"]["code"] == code
+
+
+def test_mcp_wallet_create_maps_persistence_failure() -> None:
+    server = create_server(wallets=_FailingWalletLifecycle())
+    assert _call(server, "research_wallet", {"action": "create"})["error"]["code"] == (
+        "backend_unavailable"
+    )
+
+
+def test_mcp_compare_reuses_injected_wallet_service(monkeypatch, tmp_path: Path) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    observed: dict[str, object] = {}
+
+    def configured(*, wallets: object) -> object:
+        observed["wallets"] = wallets
+        return _WalletFailureChallenge(UnknownContextWalletError("missing"))
+
+    monkeypatch.setattr(mcp, "configured_challenge_service", configured)
+    server = create_server(wallets=wallets)
+    _call(server, "research_compare", {"claim_id": str(UUID(int=8))})
+    assert observed["wallets"] is wallets
 
 
 def test_mcp_server_defers_default_backend_construction_until_a_request(

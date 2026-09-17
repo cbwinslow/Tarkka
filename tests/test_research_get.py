@@ -5,6 +5,11 @@ from uuid import UUID
 import pytest
 
 from tarkka.application.claim_receipt_view import claim_receipt_view
+from tarkka.application.context_wallet import (
+    ContextWalletPersistenceError,
+    ContextWalletService,
+    UnknownContextWalletError,
+)
 from tarkka.application.document_retrieval import DocumentRetrievalService
 from tarkka.application.research_get import (
     AllowAllModelDispatch,
@@ -19,6 +24,7 @@ from tarkka.application.research_get import (
 )
 from tarkka.application.research_get_protocol import research_expand_response, research_get_response
 from tarkka.application.research_get_view import research_get_view
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
 from tarkka.interfaces.claim_lineage_runtime import (
     claim_lineage_service,
@@ -35,7 +41,7 @@ class _DenyModelDispatch:
         return False
 
 
-def _service(tmp_path, *, model_dispatch=None) -> ResearchGetService:
+def _service(tmp_path, *, model_dispatch=None, wallets=None) -> ResearchGetService:
     persist_local_claim_lineage(tmp_path)
     documents = JsonResearchRepository.open_existing(tmp_path / "catalog.json")
     assert documents is not None
@@ -44,6 +50,7 @@ def _service(tmp_path, *, model_dispatch=None) -> ResearchGetService:
         documents=DocumentRetrievalService(documents=documents),
         lineage=claim_lineage_service(home=tmp_path),
         model_dispatch=model_dispatch,
+        wallets=wallets,
     )
 
 
@@ -239,4 +246,102 @@ def test_send_to_model_must_be_boolean(tmp_path) -> None:
             "claim:" + str(UUID(int=8)),
             representation="receipt",
             send_to_model="yes",  # type: ignore[arg-type]
+        )
+
+
+def test_wallet_protocol_maps_invalid_unknown_and_persistence_errors(tmp_path) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    service = _service(tmp_path, wallets=wallets)
+    live = _service(tmp_path)
+    claim = "claim:" + str(UUID(int=8))
+    invalid = research_get_response(
+        service, claim, representation="receipt", wallet_handle="bad", operation_key="x"
+    )
+    assert invalid["error"]["code"] == "invalid_argument"
+    invalid_expand = research_expand_response(
+        service, claim, include="evidence", wallet_handle="bad", operation_key="x"
+    )
+    assert invalid_expand["error"]["code"] == "invalid_argument"
+    unknown = research_expand_response(
+        service,
+        claim,
+        include="evidence",
+        wallet_handle="context_wallet:" + str(UUID(int=1)),
+        operation_key="x",
+    )
+    assert unknown["error"]["code"] == "not_found"
+    unconfigured = research_get_response(
+        live,
+        claim,
+        representation="receipt",
+        wallet_handle="context_wallet:" + str(UUID(int=1)),
+        operation_key="x",
+    )
+    assert unconfigured["error"]["code"] == "backend_unavailable"
+    with pytest.raises(ValueError, match="operation_key"):
+        live.get(claim, representation="receipt", operation_key="x")
+    with pytest.raises(RuntimeError, match="persistence"):
+        live.get(
+            claim,
+            representation="receipt",
+            wallet_handle="context_wallet:" + str(UUID(int=1)),
+            operation_key="x",
+        )
+    with pytest.raises(RuntimeError, match="persistence"):
+        live._wallet_remaining("context_wallet:" + str(UUID(int=1)))
+    with pytest.raises(RuntimeError, match="persistence"):
+        live._spend_wallet(
+            "context_wallet:" + str(UUID(int=1)), operation_key="x", estimated_tokens=1
+        )
+    assert "wallet" not in research_get_view(live.get(claim, representation="receipt"))
+
+
+class _WalletFailureGet(ResearchGetService):
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def get(self, *args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise self.error
+
+    def expand(self, *args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (UnknownContextWalletError("missing"), "not_found"),
+        (ContextWalletPersistenceError("unavailable"), "backend_unavailable"),
+    ],
+)
+def test_wallet_protocol_maps_typed_wallet_failures(error: Exception, code: str) -> None:
+    service = _WalletFailureGet(error)
+    assert research_get_response(service, "claim:" + str(UUID(int=8)), representation="receipt")[
+        "error"
+    ]["code"] == code
+    assert research_expand_response(service, "claim:" + str(UUID(int=8)), include="evidence")[
+        "error"
+    ]["code"] == code
+
+
+def test_walleted_estimate_refuses_nonconvergent_view(tmp_path, monkeypatch) -> None:
+    wallets = ContextWalletService(JsonContextWalletStore(tmp_path / "wallets.json"))
+    service = _service(tmp_path, wallets=wallets)
+    wallet = wallets.create(1_000)
+    import tarkka.application.research_get as research_get_module
+
+    calls = iter(range(1, 20))
+    monkeypatch.setattr(research_get_module, "_payload_tokens", lambda _payload: next(calls))
+    with pytest.raises(RuntimeError, match="did not converge"):
+        service._walleted_result_tokens(
+            resource_id="claim:" + str(UUID(int=8)),
+            kind="claim",
+            representation="receipt",
+            may_send_to_model=True,
+            payload={},
+            wallet_handle=wallet.wallet_handle,
+            operation_key="nonconvergent",
+            initial_estimate=0,
         )

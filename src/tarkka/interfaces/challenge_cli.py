@@ -14,15 +14,19 @@ from tarkka.application.challenge import (
     challenge_view,
     contradiction_board_view,
 )
+from tarkka.application.context_wallet import ContextWalletService
 from tarkka.application.verification import ClaimNotFoundError, EvidenceVerificationService
 from tarkka.application.workspace import WorkspaceNotFoundError
+from tarkka.infrastructure.storage.json_context_wallet_store import JsonContextWalletStore
 from tarkka.infrastructure.storage.json_extraction_repository import JsonExtractionRepository
 from tarkka.infrastructure.storage.json_verification_repository import JsonVerificationRepository
 from tarkka.infrastructure.storage.json_workspace_store import JsonWorkspaceStore
 from tarkka.interfaces.cli import _home
 
 
-def configured_challenge_service() -> ChallengeService:
+def configured_challenge_service(
+    *, wallets: ContextWalletService | None = None
+) -> ChallengeService:
     home = _home()
     extractions = JsonExtractionRepository(home / "extractions.json")
     relations = JsonVerificationRepository(home / "verifications.json")
@@ -31,6 +35,11 @@ def configured_challenge_service() -> ChallengeService:
         verification=EvidenceVerificationService(source=extractions, relations=relations),
         relations=relations,
         workspaces=JsonWorkspaceStore(home / "workspaces.json"),
+        wallets=(
+            wallets
+            if wallets is not None
+            else ContextWalletService(JsonContextWalletStore(home / "context_wallets.json"))
+        ),
     )
 
 

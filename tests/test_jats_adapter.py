@@ -184,6 +184,24 @@ def test_jats_preserves_spanned_anchored_cells_and_rejects_invalid_spans(tmp_pat
     with pytest.raises(ValueError, match="invalid JATS table colspan"):
         JatsParser().parse(artifact, invalid)
 
+    invalid_rowspan = tmp_path / "invalid-rowspan.nxml"
+    invalid_rowspan.write_text(
+        "<article><body><table-wrap><table><tr><td rowspan=\"2\">Bad</td></tr>"
+        "</table></table-wrap></body></article>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="rowspan exceeds"):
+        JatsParser().parse(artifact, invalid_rowspan)
+
+    oversized = tmp_path / "oversized.nxml"
+    oversized.write_text(
+        "<article><body><table-wrap><table><tr><td colspan=\"100001\">Bad</td></tr>"
+        "</table></table-wrap></body></article>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="grid exceeds"):
+        JatsParser().parse(artifact, oversized)
+
     empty = tmp_path / "empty-cell.nxml"
     empty.write_text(
         "<article><body><table-wrap><table><tr><td colspan=\"2\"></td></tr>"

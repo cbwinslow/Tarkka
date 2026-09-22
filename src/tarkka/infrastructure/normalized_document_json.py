@@ -256,8 +256,9 @@ def _validate_artifact_list(value: object, *, kind: str) -> None:
                 "caption",
                 "row_count",
                 "column_count",
-                "cells",
             }
+            if "cells" in item:
+                expected.add("cells")
             identifier_field = "table_id"
         else:
             expected = {
@@ -286,11 +287,12 @@ def _validate_artifact_list(value: object, *, kind: str) -> None:
             _optional_non_negative_integer(
                 item["column_count"], "normalized document table column_count"
             )
-            _validate_table_cells(
-                item["cells"],
-                row_count=item["row_count"],
-                column_count=item["column_count"],
-            )
+            if "cells" in item:
+                _validate_table_cells(
+                    item["cells"],
+                    row_count=item["row_count"],
+                    column_count=item["column_count"],
+                )
         else:
             _optional_non_blank_string(
                 item["source_text"], "normalized document equation source_text"

@@ -151,7 +151,7 @@ def test_semantic_html_preserves_spanned_anchored_cells_and_rejects_invalid_span
 
     invalid = tmp_path / "invalid-span.html"
     invalid.write_text(
-        "<html><body><table><tr><td rowspan=\"0\">Bad</td></tr></table></body></html>",
+        "<html><body><table><tr><td rowspan=\"-1\">Bad</td></tr></table></body></html>",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="invalid HTML table rowspan"):
@@ -164,6 +164,32 @@ def test_semantic_html_preserves_spanned_anchored_cells_and_rejects_invalid_span
     )
     with pytest.raises(ValueError, match="invalid HTML table colspan"):
         SemanticHtmlParser().parse(artifact, invalid_text)
+
+    zero_rowspan = tmp_path / "zero-rowspan.html"
+    zero_rowspan.write_text(
+        "<html><body><table><tr><td rowspan=\"0\">All rows</td></tr>"
+        "<tr><td>Second row</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    zero_table = SemanticHtmlParser().parse(artifact, zero_rowspan).tables[0]
+    assert zero_table.cells[0].row_end == 2
+
+    oversized = tmp_path / "oversized.html"
+    oversized.write_text(
+        "<html><body><table><tr><td colspan=\"100001\">Bad</td></tr>"
+        "</table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="grid exceeds"):
+        SemanticHtmlParser().parse(artifact, oversized)
+
+    excess_rowspan = tmp_path / "excess-rowspan.html"
+    excess_rowspan.write_text(
+        "<html><body><table><tr><td rowspan=\"2\">Bad</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid HTML table rowspan"):
+        SemanticHtmlParser().parse(artifact, excess_rowspan)
 
     empty = tmp_path / "empty-cell.html"
     empty.write_text(

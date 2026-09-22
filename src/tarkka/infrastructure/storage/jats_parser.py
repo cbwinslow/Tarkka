@@ -44,6 +44,7 @@ _PASSAGE_STRUCTURAL_ELEMENTS = frozenset(
         "graphic",
     }
 )
+_MAX_NATIVE_TABLE_GRID_CELLS = 100_000
 
 
 class JatsParser:
@@ -348,6 +349,7 @@ def _table_cells(rows: list[ET.Element]) -> tuple[TableCell, ...]:
     """Preserve native JATS cell coordinates without reconstructing missing cells."""
     values: list[TableCell] = []
     occupied: set[tuple[int, int]] = set()
+    maximum_columns = _MAX_NATIVE_TABLE_GRID_CELLS // max(len(rows), 1)
     for row_index, row in enumerate(rows):
         column_index = 0
         for cell in (child for child in row if _local_name(child.tag) in {"th", "td"}):
@@ -355,6 +357,10 @@ def _table_cells(rows: list[ET.Element]) -> tuple[TableCell, ...]:
                 column_index += 1
             colspan = _positive_table_span(cell, "colspan")
             rowspan = _positive_table_span(cell, "rowspan")
+            if rowspan > len(rows) - row_index:
+                raise ValueError("JATS table rowspan exceeds its native rows")
+            if column_index + colspan > maximum_columns:
+                raise ValueError("JATS table grid exceeds the supported cell limit")
             coordinates = {
                 (row, column)
                 for row in range(row_index, row_index + rowspan)

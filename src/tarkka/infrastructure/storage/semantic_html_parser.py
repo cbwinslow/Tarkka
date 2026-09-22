@@ -40,6 +40,7 @@ _VOID_TAGS = frozenset(
 )
 _IGNORED_TEXT_TAGS = frozenset({"script", "style", "template", "noscript"})
 _BLOCK_TAGS = frozenset({"p", "li", "blockquote", "pre", "dd", "dt"})
+_MAX_NATIVE_TABLE_GRID_CELLS = 100_000
 
 
 @dataclass(slots=True)
@@ -361,13 +362,16 @@ def _table_cells(rows: list[_Node]) -> tuple[TableCell, ...]:
     """Preserve native HTML cell coordinates without synthesizing absent cells."""
     values: list[TableCell] = []
     occupied: set[tuple[int, int]] = set()
+    maximum_columns = _MAX_NATIVE_TABLE_GRID_CELLS // max(len(rows), 1)
     for row_index, row in enumerate(rows):
         column_index = 0
         for cell in (child for child in row.children if child.tag in {"th", "td"}):
             while (row_index, column_index) in occupied:
                 column_index += 1
             colspan = _positive_table_span(cell, "colspan")
-            rowspan = _positive_table_span(cell, "rowspan")
+            rowspan = _html_rowspan(cell, remaining_rows=len(rows) - row_index)
+            if column_index + colspan > maximum_columns:
+                raise ValueError("HTML table grid exceeds the supported cell limit")
             occupied.update(
                 (row, column)
                 for row in range(row_index, row_index + rowspan)
@@ -398,6 +402,19 @@ def _positive_table_span(cell: _Node, name: str) -> int:
         raise ValueError(f"invalid HTML table {name}: {raw!r}") from exc
     if value < 1:
         raise ValueError(f"invalid HTML table {name}: {raw!r}")
+    return value
+
+
+def _html_rowspan(cell: _Node, *, remaining_rows: int) -> int:
+    raw = cell.attrs.get("rowspan", "1")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"invalid HTML table rowspan: {raw!r}") from exc
+    if value == 0:
+        return remaining_rows
+    if value < 0 or value > remaining_rows:
+        raise ValueError(f"invalid HTML table rowspan: {raw!r}")
     return value
 
 

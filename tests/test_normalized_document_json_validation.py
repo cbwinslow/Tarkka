@@ -250,6 +250,13 @@ def test_normalized_document_preserves_and_validates_table_cells() -> None:
     _reject(value, "role is invalid")
 
 
+def test_normalized_document_accepts_historical_tables_without_cells() -> None:
+    value = _value()
+    del value["tables"][0]["cells"]
+
+    assert parse_canonical_normalized_document_bytes(_canonical_json(value)) == value
+
+
 def test_normalized_document_accepts_absent_optional_source_artifact_metadata() -> None:
     value = _value()
     value["figures"][0]["page_number"] = None

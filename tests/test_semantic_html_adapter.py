@@ -157,6 +157,23 @@ def test_semantic_html_preserves_spanned_anchored_cells_and_rejects_invalid_span
     with pytest.raises(ValueError, match="invalid HTML table rowspan"):
         SemanticHtmlParser().parse(artifact, invalid)
 
+    invalid_text = tmp_path / "invalid-text-span.html"
+    invalid_text.write_text(
+        "<html><body><table><tr><td colspan=\"two\">Bad</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid HTML table colspan"):
+        SemanticHtmlParser().parse(artifact, invalid_text)
+
+    empty = tmp_path / "empty-cell.html"
+    empty.write_text(
+        "<html><body><table><tr><td colspan=\"2\"></td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    empty_table = SemanticHtmlParser().parse(artifact, empty).tables[0]
+    assert empty_table.column_count == 2
+    assert empty_table.cells == ()
+
 
 def test_semantic_html_capabilities_are_explicit() -> None:
     manifest = SemanticHtmlParser.manifest

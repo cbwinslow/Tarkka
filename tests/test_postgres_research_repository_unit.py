@@ -10,7 +10,7 @@ import pytest
 
 from tarkka.domain.manifest import build_document_manifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
-from tarkka.domain.source_artifacts import Equation, Figure, Table
+from tarkka.domain.source_artifacts import Equation, Figure, Table, TableCell
 from tarkka.infrastructure.postgres.connection import PostgresSettings
 from tarkka.infrastructure.postgres.research_repository import (
     PostgresResearchRepository,
@@ -126,6 +126,12 @@ def _document() -> Document:
                 "Table",
                 3,
                 2,
+                (
+                    TableCell(0, 1, 0, 2, "Header", "header", "header-cell"),
+                    TableCell(1, 3, 0, 1, "Row label", source_anchor="row-label"),
+                    TableCell(1, 2, 1, 2, "One"),
+                    TableCell(2, 3, 1, 2, "Two"),
+                ),
             ),
         ),
         equations=(
@@ -161,10 +167,43 @@ def test_postgres_row_deserializers_preserve_document_structure() -> None:
     )
     assert _tables_from_rows(
         [(UUID("00000000-0000-0000-0000-00000000f105"), 0, None, None, "Table", 3, 2)],
+        [
+            (
+                UUID("00000000-0000-0000-0000-00000000f105"),
+                0,
+                1,
+                0,
+                2,
+                "Header",
+                "header",
+                "header-cell",
+            ),
+            (
+                UUID("00000000-0000-0000-0000-00000000f105"),
+                1,
+                3,
+                0,
+                1,
+                "Row label",
+                "data",
+                "row-label",
+            ),
+        ],
         _DOCUMENT_ID,
     ) == (
         Table(
-            UUID("00000000-0000-0000-0000-00000000f105"), _DOCUMENT_ID, 0, None, None, "Table", 3, 2
+            UUID("00000000-0000-0000-0000-00000000f105"),
+            _DOCUMENT_ID,
+            0,
+            None,
+            None,
+            "Table",
+            3,
+            2,
+            (
+                TableCell(0, 1, 0, 2, "Header", "header", "header-cell"),
+                TableCell(1, 3, 0, 1, "Row label", source_anchor="row-label"),
+            ),
         ),
     )
     assert _equations_from_rows(
@@ -287,6 +326,7 @@ def test_postgres_repository_writes_complete_immutable_document_graph() -> None:
     assert "INSERT INTO tarkka.passage" in statements
     assert "INSERT INTO tarkka.figure" in statements
     assert "INSERT INTO tarkka.document_table" in statements
+    assert "INSERT INTO tarkka.table_cell" in statements
     assert "INSERT INTO tarkka.equation" in statements
     assert "INSERT INTO tarkka.resource_manifest" in statements
     assert connection.closed
@@ -341,6 +381,50 @@ def test_postgres_repository_reconstructs_complete_document_graph() -> None:
                         "Table",
                         3,
                         2,
+                    ),
+                ]
+            ),
+            _Cursor(
+                rows=[
+                    (
+                        UUID("00000000-0000-0000-0000-00000000f105"),
+                        0,
+                        1,
+                        0,
+                        2,
+                        "Header",
+                        "header",
+                        "header-cell",
+                    ),
+                    (
+                        UUID("00000000-0000-0000-0000-00000000f105"),
+                        1,
+                        3,
+                        0,
+                        1,
+                        "Row label",
+                        "data",
+                        "row-label",
+                    ),
+                    (
+                        UUID("00000000-0000-0000-0000-00000000f105"),
+                        1,
+                        2,
+                        1,
+                        2,
+                        "One",
+                        "data",
+                        None,
+                    ),
+                    (
+                        UUID("00000000-0000-0000-0000-00000000f105"),
+                        2,
+                        3,
+                        1,
+                        2,
+                        "Two",
+                        "data",
+                        None,
                     )
                 ]
             ),

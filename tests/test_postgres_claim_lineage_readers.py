@@ -268,6 +268,7 @@ def test_connection_bound_document_reader_reuses_decoders_and_caches_full_object
             _Cursor(rows=[]),
             _Cursor(rows=[]),
             _Cursor(rows=[]),
+            _Cursor(rows=[]),
             _Cursor(row=_artifact_row(fixture)),
         ]
     )
@@ -284,7 +285,7 @@ def test_connection_bound_document_reader_reuses_decoders_and_caches_full_object
     assert reader.get_document(fixture.document.document_id) == expected_document
     assert reader.get_artifact(fixture.artifact.artifact_id) == fixture.artifact
     assert reader.get_artifact(fixture.artifact.artifact_id) == fixture.artifact
-    assert len(connection.calls) == 7
+    assert len(connection.calls) == 8
     assert connection.cursors == []
 
 

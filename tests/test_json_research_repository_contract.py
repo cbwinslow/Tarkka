@@ -10,6 +10,8 @@ import pytest
 from tarkka.application.ingest import IngestResult, IngestService
 from tarkka.conformance import ResearchRepositoryContract
 from tarkka.domain.document_structure import DocumentStructureError
+from tarkka.domain.manifest import build_document_manifest
+from tarkka.domain.source_artifacts import Table, TableCell
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.storage import json_repository
 from tarkka.infrastructure.storage.json_repository import JsonResearchRepository
@@ -111,6 +113,30 @@ def test_json_repository_preserves_first_class_source_artifacts_on_reload(tmp_pa
     assert restored.figures == result.document.figures
     assert restored.tables == result.document.tables
     assert restored.equations == result.document.equations
+
+
+def test_json_repository_round_trips_preserved_table_cells(tmp_path: Path) -> None:
+    result = _ingest_sample(tmp_path)
+    table = Table(
+        table_id=uuid4(),
+        document_id=result.document.document_id,
+        ordinal=0,
+        row_count=2,
+        column_count=2,
+        cells=(
+            TableCell(0, 1, 0, 2, "Heading", "header", "heading"),
+            TableCell(1, 2, 0, 1, "Left"),
+            TableCell(1, 2, 1, 2, "Right"),
+        ),
+    )
+    document = replace(result.document, tables=(table,))
+    repository = JsonResearchRepository(tmp_path / "catalog.json")
+    repository.save_document(document, build_document_manifest(document, result.artifact))
+
+    restored = JsonResearchRepository(tmp_path / "catalog.json").get_document(document.document_id)
+
+    assert restored is not None
+    assert restored.tables == (table,)
 
 
 def test_json_repository_fsyncs_parent_directory_after_atomic_write(

@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 
 from tarkka.domain.citations import BibliographicReference, CitationMention
 from tarkka.domain.models import Artifact, Document, Passage, Section
-from tarkka.domain.source_artifacts import Equation, Figure, Table
+from tarkka.domain.source_artifacts import Equation, Figure, Table, TableCell
 from tarkka.domain.source_observations import (
     AdapterKind,
     Capability,
@@ -44,6 +44,7 @@ _PASSAGE_STRUCTURAL_ELEMENTS = frozenset(
         "graphic",
     }
 )
+_MAX_NATIVE_TABLE_GRID_CELLS = 100_000
 
 
 class JatsParser:
@@ -317,7 +318,15 @@ def _tables(root: ET.Element, document_id: UUID) -> tuple[Table, ...]:
     for ordinal, element in enumerate(root.findall(".//table-wrap")):
         native_id = element.attrib.get("id")
         rows = element.findall(".//tr")
-        column_count = max((_row_column_count(row) for row in rows), default=0)
+        cells = _table_cells(rows)
+        # A rowspan can shift a later row's first native cell past the raw
+        # colspan total of that row. Retain the widest observed coordinate,
+        # while still counting empty native cells that cannot be represented
+        # as a non-blank canonical TableCell.
+        column_count = max(
+            max((_row_column_count(row) for row in rows), default=0),
+            max((cell.column_end for cell in cells), default=0),
+        )
         values.append(
             Table(
                 table_id=_stable_id(
@@ -330,23 +339,67 @@ def _tables(root: ET.Element, document_id: UUID) -> tuple[Table, ...]:
                 caption=_text(element.find("./caption")) or None,
                 row_count=len(rows),
                 column_count=column_count,
+                cells=cells,
             )
         )
     return tuple(values)
 
 
+def _table_cells(rows: list[ET.Element]) -> tuple[TableCell, ...]:
+    """Preserve native JATS cell coordinates without reconstructing missing cells."""
+    values: list[TableCell] = []
+    occupied: set[tuple[int, int]] = set()
+    maximum_columns = _MAX_NATIVE_TABLE_GRID_CELLS // max(len(rows), 1)
+    for row_index, row in enumerate(rows):
+        column_index = 0
+        for cell in (child for child in row if _local_name(child.tag) in {"th", "td"}):
+            while (row_index, column_index) in occupied:
+                column_index += 1
+            colspan = _positive_table_span(cell, "colspan")
+            rowspan = _positive_table_span(cell, "rowspan")
+            if rowspan > len(rows) - row_index:
+                raise ValueError("JATS table rowspan exceeds its native rows")
+            if column_index + colspan > maximum_columns:
+                raise ValueError("JATS table grid exceeds the supported cell limit")
+            coordinates = {
+                (row, column)
+                for row in range(row_index, row_index + rowspan)
+                for column in range(column_index, column_index + colspan)
+            }
+            occupied.update(coordinates)
+            text = _text(cell)
+            if text:
+                values.append(
+                    TableCell(
+                        row_start=row_index,
+                        row_end=row_index + rowspan,
+                        column_start=column_index,
+                        column_end=column_index + colspan,
+                        text=text,
+                        role="header" if _local_name(cell.tag) == "th" else "data",
+                        source_anchor=cell.attrib.get("id"),
+                    )
+                )
+            column_index += colspan
+    return tuple(values)
+
+
+def _positive_table_span(cell: ET.Element, name: str) -> int:
+    raw = cell.attrib.get(name, "1")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"invalid JATS table {name}: {raw!r}") from exc
+    if value < 1:
+        raise ValueError(f"invalid JATS table {name}: {raw!r}")
+    return value
+
+
 def _row_column_count(row: ET.Element) -> int:
-    count = 0
-    for cell in (*row.findall("./th"), *row.findall("./td")):
-        raw_colspan = cell.attrib.get("colspan", "1")
-        try:
-            colspan = int(raw_colspan)
-        except ValueError as exc:
-            raise ValueError(f"invalid JATS table colspan: {raw_colspan!r}") from exc
-        if colspan < 1:
-            raise ValueError(f"invalid JATS table colspan: {raw_colspan!r}")
-        count += colspan
-    return count
+    return sum(
+        _positive_table_span(cell, "colspan")
+        for cell in (*row.findall("./th"), *row.findall("./td"))
+    )
 
 
 def _equations(root: ET.Element, document_id: UUID) -> tuple[Equation, ...]:

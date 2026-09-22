@@ -209,6 +209,54 @@ def test_normalized_document_rejects_source_artifact_invariant_violations() -> N
     _reject(value, "table IDs and ordinals must be unique")
 
 
+def test_normalized_document_preserves_and_validates_table_cells() -> None:
+    value = _value()
+    value["tables"][0]["cells"] = [
+        {
+            "row_start": 0,
+            "row_end": 1,
+            "column_start": 0,
+            "column_end": 2,
+            "text": "Heading",
+            "role": "header",
+            "source_anchor": "head",
+        },
+        {
+            "row_start": 1,
+            "row_end": 2,
+            "column_start": 0,
+            "column_end": 1,
+            "text": "Value",
+            "role": "data",
+            "source_anchor": None,
+        },
+    ]
+
+    assert parse_canonical_normalized_document_bytes(_canonical_json(value)) == value
+
+    value["tables"][0]["cells"][1]["row_start"] = 0
+    _reject(value, "must not overlap")
+
+    value = _value()
+    value["tables"][0]["cells"] = [{
+        "row_start": 0,
+        "row_end": 1,
+        "column_start": 0,
+        "column_end": 1,
+        "text": "Value",
+        "role": "invalid",
+        "source_anchor": None,
+    }]
+    _reject(value, "role is invalid")
+
+
+def test_normalized_document_accepts_historical_tables_without_cells() -> None:
+    value = _value()
+    del value["tables"][0]["cells"]
+
+    assert parse_canonical_normalized_document_bytes(_canonical_json(value)) == value
+
+
 def test_normalized_document_accepts_absent_optional_source_artifact_metadata() -> None:
     value = _value()
     value["figures"][0]["page_number"] = None

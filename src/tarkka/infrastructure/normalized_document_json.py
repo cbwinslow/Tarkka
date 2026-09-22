@@ -257,6 +257,8 @@ def _validate_artifact_list(value: object, *, kind: str) -> None:
                 "row_count",
                 "column_count",
             }
+            if "cells" in item:
+                expected.add("cells")
             identifier_field = "table_id"
         else:
             expected = {
@@ -285,6 +287,12 @@ def _validate_artifact_list(value: object, *, kind: str) -> None:
             _optional_non_negative_integer(
                 item["column_count"], "normalized document table column_count"
             )
+            if "cells" in item:
+                _validate_table_cells(
+                    item["cells"],
+                    row_count=item["row_count"],
+                    column_count=item["column_count"],
+                )
         else:
             _optional_non_blank_string(
                 item["source_text"], "normalized document equation source_text"
@@ -295,6 +303,53 @@ def _validate_artifact_list(value: object, *, kind: str) -> None:
             )
         ids.add(identifier)
         ordinals.add(ordinal)
+
+
+def _validate_table_cells(
+    value: object, *, row_count: object, column_count: object
+) -> None:
+    """Validate exact, non-overlapping native table-cell coordinates."""
+    _optional_non_negative_integer(row_count, "normalized document table row_count")
+    _optional_non_negative_integer(column_count, "normalized document table column_count")
+    rows = None if row_count is None else _integer(row_count, "normalized document table row_count")
+    columns = (
+        None
+        if column_count is None
+        else _integer(column_count, "normalized document table column_count")
+    )
+    occupied: set[tuple[int, int]] = set()
+    for raw in _list(value, "normalized document table cells"):
+        cell = _mapping(raw, "normalized document table cell")
+        _exact_keys(
+            cell,
+            {
+                "row_start", "row_end", "column_start", "column_end", "text", "role",
+                "source_anchor",
+            },
+            "normalized document table cell",
+        )
+        row_start = _non_negative_integer(cell["row_start"], "normalized table cell row_start")
+        row_end = _non_negative_integer(cell["row_end"], "normalized table cell row_end")
+        column_start = _non_negative_integer(
+            cell["column_start"], "normalized table cell column_start"
+        )
+        column_end = _non_negative_integer(cell["column_end"], "normalized table cell column_end")
+        if row_end <= row_start or column_end <= column_start:
+            raise NormalizedDocumentJsonError("normalized table cell range must be non-empty")
+        if rows is not None and row_end > rows or columns is not None and column_end > columns:
+            raise NormalizedDocumentJsonError("normalized table cell range exceeds table bounds")
+        _non_blank_string(cell["text"], "normalized table cell text")
+        if cell["role"] not in {"header", "data", "note"}:
+            raise NormalizedDocumentJsonError("normalized table cell role is invalid")
+        _optional_non_blank_string(cell["source_anchor"], "normalized table cell source_anchor")
+        coordinates = {
+            (row, column)
+            for row in range(row_start, row_end)
+            for column in range(column_start, column_end)
+        }
+        if occupied & coordinates:
+            raise NormalizedDocumentJsonError("normalized table cells must not overlap")
+        occupied.update(coordinates)
 
 
 def _mapping(value: object, field_name: str) -> Mapping[str, Any]:

@@ -110,6 +110,7 @@ def _source_connection(fixture: ClaimLineageFixture | None) -> _Connection:
             _Cursor(rows=[]),
             _Cursor(rows=[]),
             _Cursor(rows=[]),
+            _Cursor(rows=[]),
             _Cursor(row=_artifact_row(fixture)),
             _Cursor(rows=[]),
             _Cursor(rows=[]),

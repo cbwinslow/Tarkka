@@ -11,7 +11,7 @@ from uuid import UUID
 from tarkka.domain.document_structure import validate_document_structure
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
-from tarkka.domain.source_artifacts import Equation, Figure, Table
+from tarkka.domain.source_artifacts import Equation, Figure, Table, TableCell
 from tarkka.domain.work_documents import WorkDocumentLink
 from tarkka.infrastructure.storage.locking import exclusive_lock
 
@@ -271,6 +271,18 @@ def _document_to_dict(document: Document) -> dict[str, Any]:
                 "caption": table.caption,
                 "row_count": table.row_count,
                 "column_count": table.column_count,
+                "cells": [
+                    {
+                        "row_start": cell.row_start,
+                        "row_end": cell.row_end,
+                        "column_start": cell.column_start,
+                        "column_end": cell.column_end,
+                        "text": cell.text,
+                        "role": cell.role,
+                        "source_anchor": cell.source_anchor,
+                    }
+                    for cell in table.cells
+                ],
             }
             for table in document.tables
         ],
@@ -348,6 +360,18 @@ def _document_from_dict(raw: dict[str, Any]) -> Document:
                 caption=item.get("caption"),
                 row_count=item.get("row_count"),
                 column_count=item.get("column_count"),
+                cells=tuple(
+                    TableCell(
+                        row_start=int(cell["row_start"]),
+                        row_end=int(cell["row_end"]),
+                        column_start=int(cell["column_start"]),
+                        column_end=int(cell["column_end"]),
+                        text=cell["text"],
+                        role=cell.get("role", "data"),
+                        source_anchor=cell.get("source_anchor"),
+                    )
+                    for cell in item.get("cells", [])
+                ),
             )
             for item in raw.get("tables", [])
         ),

@@ -16,7 +16,7 @@ from tarkka.domain.document_structure import (
 )
 from tarkka.domain.manifest import ResourceManifest
 from tarkka.domain.models import Artifact, Document, Passage, Section
-from tarkka.domain.source_artifacts import Equation, Figure, Table
+from tarkka.domain.source_artifacts import Equation, Figure, Table, TableCell
 from tarkka.infrastructure.postgres.connection import (
     ConnectionFactory,
     PostgresSettings,
@@ -192,6 +192,15 @@ class PostgresResearchRepository:
                 FROM tarkka.document_table WHERE document_id = %s ORDER BY ordinal""",
                     (document_id,),
                 ).fetchall(),
+                connection.execute(
+                    """SELECT table_id, row_start, row_end, column_start, column_end,
+                       cell_text, cell_role, source_anchor
+                    FROM tarkka.table_cell
+                    WHERE table_id IN (
+                        SELECT table_id FROM tarkka.document_table WHERE document_id = %s
+                    ) ORDER BY table_id, row_start, column_start""",
+                    (document_id,),
+                ).fetchall(),
                 document_id,
             ),
             equations=_equations_from_rows(
@@ -284,6 +293,23 @@ class PostgresResearchRepository:
                     table.column_count,
                 ),
             )
+            for cell in table.cells:
+                connection.execute(
+                    """INSERT INTO tarkka.table_cell (
+                        table_id, row_start, row_end, column_start, column_end,
+                        cell_text, cell_role, source_anchor
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        table.table_id,
+                        cell.row_start,
+                        cell.row_end,
+                        cell.column_start,
+                        cell.column_end,
+                        cell.text,
+                        cell.role,
+                        cell.source_anchor,
+                    ),
+                )
         for equation in document.equations:
             connection.execute(
                 """INSERT INTO tarkka.equation (
@@ -411,7 +437,18 @@ def _figures_from_rows(rows: list[tuple[Any, ...]], document_id: UUID) -> tuple[
     )
 
 
-def _tables_from_rows(rows: list[tuple[Any, ...]], document_id: UUID) -> tuple[Table, ...]:
+def _tables_from_rows(
+    rows: list[tuple[Any, ...]], cell_rows: list[tuple[Any, ...]], document_id: UUID
+) -> tuple[Table, ...]:
+    cells_by_table: dict[UUID, list[TableCell]] = {}
+    for row in cell_rows:
+        cells_by_table.setdefault(cast(UUID, row[0]), []).append(
+            TableCell(
+                row_start=int(row[1]), row_end=int(row[2]), column_start=int(row[3]),
+                column_end=int(row[4]), text=cast(str, row[5]), role=cast(str, row[6]),
+                source_anchor=cast(str | None, row[7]),
+            )
+        )
     return tuple(
         Table(
             table_id=cast(UUID, row[0]),
@@ -422,6 +459,7 @@ def _tables_from_rows(rows: list[tuple[Any, ...]], document_id: UUID) -> tuple[T
             caption=cast(str | None, row[4]),
             row_count=cast(int | None, row[5]),
             column_count=cast(int | None, row[6]),
+            cells=tuple(cells_by_table.get(cast(UUID, row[0]), [])),
         )
         for row in rows
     )

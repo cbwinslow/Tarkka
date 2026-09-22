@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -24,6 +25,7 @@ from tarkka.domain.source_artifacts import (
     FigureRef,
     PassageSpan,
     Table,
+    TableCell,
     TableCellRange,
 )
 from tarkka.evaluation.claims import evaluate_claims
@@ -77,6 +79,11 @@ def _document() -> Document:
                 caption="Model comparison",
                 row_count=5,
                 column_count=4,
+                cells=tuple(
+                    TableCell(row, row + 1, column, column + 1, f"{row}:{column}")
+                    for row in range(5)
+                    for column in range(4)
+                ),
             ),
         ),
         equations=(
@@ -213,6 +220,67 @@ def test_table_evidence_fails_closed_outside_known_shape() -> None:
 
     with pytest.raises(ValueError, match="row range"):
         ExtractionBatch(document=document, run=run, evidence=(bad,), extractions=(claim,))
+
+
+def test_table_evidence_requires_preserved_cells_when_available() -> None:
+    document = _document()
+    table = document.tables[0]
+    document = replace(
+        document,
+        tables=(
+            replace(
+                table,
+                cells=(
+                    TableCell(0, 2, 0, 1, "Spans two rows"),
+                    TableCell(0, 1, 1, 2, "Top right"),
+                ),
+            ),
+        ),
+    )
+    run, provenance = _run(document)
+    resolved = TableEvidence(
+        evidence_id=uuid4(),
+        document_id=document.document_id,
+        table_id=table.table_id,
+        row_start=0,
+        row_end=2,
+        column_start=0,
+        column_end=1,
+        provenance=provenance,
+    )
+    missing = TableEvidence(
+        evidence_id=uuid4(),
+        document_id=document.document_id,
+        table_id=table.table_id,
+        row_start=1,
+        row_end=2,
+        column_start=1,
+        column_end=2,
+        provenance=provenance,
+    )
+    claim = Claim(
+        extraction_id=uuid4(),
+        document_id=document.document_id,
+        evidence_ids=(resolved.evidence_id,),
+        provenance=provenance,
+        text="A preserved table cell is cited.",
+    )
+
+    assert ExtractionBatch(document=document, run=run, evidence=(resolved,), extractions=(claim,))
+    missing_claim = Claim(
+        extraction_id=uuid4(),
+        document_id=document.document_id,
+        evidence_ids=(missing.evidence_id,),
+        provenance=provenance,
+        text="A missing table cell is cited.",
+    )
+    with pytest.raises(ValueError, match="does not resolve to normalized cells"):
+        ExtractionBatch(
+            document=document,
+            run=run,
+            evidence=(missing,),
+            extractions=(missing_claim,),
+        )
 
 
 def test_document_rejects_cross_document_source_artifact() -> None:

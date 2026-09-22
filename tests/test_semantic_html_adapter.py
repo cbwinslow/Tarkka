@@ -61,6 +61,15 @@ def test_semantic_html_preserves_structure_and_first_class_artifacts() -> None:
     assert document.tables[0].caption == "Model coefficients."
     assert document.tables[0].row_count == 2
     assert document.tables[0].column_count == 2
+    assert [
+        (cell.row_start, cell.column_start, cell.text, cell.role)
+        for cell in document.tables[0].cells
+    ] == [
+        (0, 0, "Term", "header"),
+        (0, 1, "Estimate", "header"),
+        (1, 0, "x", "data"),
+        (1, 1, "1.2", "data"),
+    ]
 
     assert len(document.equations) == 1
     assert document.equations[0].label == "Equation 1"
@@ -105,6 +114,108 @@ def test_semantic_html_ids_are_stable_for_same_artifact() -> None:
     ]
     assert first.references[0].reference_id == second.references[0].reference_id
     assert first.mentions[0].mention_id == second.mentions[0].mention_id
+
+
+def test_semantic_html_preserves_spanned_anchored_cells_and_rejects_invalid_spans(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "spans.html"
+    path.write_text(
+        """<html><body><table id="table-1"><tbody>
+<tr><th id="head" colspan="2">Heading</th></tr>
+<tr><td id="label" rowspan="2">Row label</td><td>One</td></tr>
+<tr><td>Two</td></tr>
+</tbody></table></body></html>""",
+        encoding="utf-8",
+    )
+    artifact = Artifact(
+        artifact_id=uuid4(),
+        sha256="2" * 64,
+        size_bytes=path.stat().st_size,
+        media_type="text/html",
+        storage_key=PurePosixPath("22/spans"),
+        original_name="spans.html",
+    )
+
+    table = SemanticHtmlParser().parse(artifact, path).tables[0]
+
+    assert table.row_count == 3
+    assert table.column_count == 2
+    assert [(cell.row_start, cell.row_end, cell.column_start, cell.column_end, cell.text,
+             cell.role, cell.source_anchor) for cell in table.cells] == [
+        (0, 1, 0, 2, "Heading", "header", "head"),
+        (1, 3, 0, 1, "Row label", "data", "label"),
+        (1, 2, 1, 2, "One", "data", None),
+        (2, 3, 1, 2, "Two", "data", None),
+    ]
+
+    invalid = tmp_path / "invalid-span.html"
+    invalid.write_text(
+        "<html><body><table><tr><td rowspan=\"-1\">Bad</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid HTML table rowspan"):
+        SemanticHtmlParser().parse(artifact, invalid)
+
+    invalid_text = tmp_path / "invalid-text-span.html"
+    invalid_text.write_text(
+        "<html><body><table><tr><td colspan=\"two\">Bad</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid HTML table colspan"):
+        SemanticHtmlParser().parse(artifact, invalid_text)
+
+    zero_colspan = tmp_path / "zero-colspan.html"
+    zero_colspan.write_text(
+        "<html><body><table><tr><td colspan=\"0\">Bad</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid HTML table colspan"):
+        SemanticHtmlParser().parse(artifact, zero_colspan)
+
+    invalid_text_rowspan = tmp_path / "invalid-text-rowspan.html"
+    invalid_text_rowspan.write_text(
+        "<html><body><table><tr><td rowspan=\"two\">Bad</td></tr>"
+        "</table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid HTML table rowspan"):
+        SemanticHtmlParser().parse(artifact, invalid_text_rowspan)
+
+    zero_rowspan = tmp_path / "zero-rowspan.html"
+    zero_rowspan.write_text(
+        "<html><body><table><tr><td rowspan=\"0\">All rows</td></tr>"
+        "<tr><td>Second row</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    zero_table = SemanticHtmlParser().parse(artifact, zero_rowspan).tables[0]
+    assert zero_table.cells[0].row_end == 2
+
+    oversized = tmp_path / "oversized.html"
+    oversized.write_text(
+        "<html><body><table><tr><td colspan=\"100001\">Bad</td></tr>"
+        "</table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="grid exceeds"):
+        SemanticHtmlParser().parse(artifact, oversized)
+
+    excess_rowspan = tmp_path / "excess-rowspan.html"
+    excess_rowspan.write_text(
+        "<html><body><table><tr><td rowspan=\"2\">Bad</td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid HTML table rowspan"):
+        SemanticHtmlParser().parse(artifact, excess_rowspan)
+
+    empty = tmp_path / "empty-cell.html"
+    empty.write_text(
+        "<html><body><table><tr><td colspan=\"2\"></td></tr></table></body></html>",
+        encoding="utf-8",
+    )
+    empty_table = SemanticHtmlParser().parse(artifact, empty).tables[0]
+    assert empty_table.column_count == 2
+    assert empty_table.cells == ()
 
 
 def test_semantic_html_capabilities_are_explicit() -> None:

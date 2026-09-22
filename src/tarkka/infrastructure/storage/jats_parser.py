@@ -390,17 +390,10 @@ def _positive_table_span(cell: ET.Element, name: str) -> int:
 
 
 def _row_column_count(row: ET.Element) -> int:
-    count = 0
-    for cell in (*row.findall("./th"), *row.findall("./td")):
-        raw_colspan = cell.attrib.get("colspan", "1")
-        try:
-            colspan = int(raw_colspan)
-        except ValueError as exc:
-            raise ValueError(f"invalid JATS table colspan: {raw_colspan!r}") from exc
-        if colspan < 1:
-            raise ValueError(f"invalid JATS table colspan: {raw_colspan!r}")
-        count += colspan
-    return count
+    return sum(
+        _positive_table_span(cell, "colspan")
+        for cell in (*row.findall("./th"), *row.findall("./td"))
+    )
 
 
 def _equations(root: ET.Element, document_id: UUID) -> tuple[Equation, ...]:

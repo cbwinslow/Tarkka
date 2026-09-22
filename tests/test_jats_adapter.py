@@ -184,6 +184,16 @@ def test_jats_preserves_spanned_anchored_cells_and_rejects_invalid_spans(tmp_pat
     with pytest.raises(ValueError, match="invalid JATS table colspan"):
         JatsParser().parse(artifact, invalid)
 
+    empty = tmp_path / "empty-cell.nxml"
+    empty.write_text(
+        "<article><body><table-wrap><table><tr><td colspan=\"2\"></td></tr>"
+        "</table></table-wrap></body></article>",
+        encoding="utf-8",
+    )
+    empty_table = JatsParser().parse(artifact, empty).tables[0]
+    assert empty_table.column_count == 2
+    assert empty_table.cells == ()
+
 
 def test_duplicate_native_ids_do_not_alias_canonical_records(tmp_path: Path) -> None:
     path = tmp_path / "duplicates.nxml"

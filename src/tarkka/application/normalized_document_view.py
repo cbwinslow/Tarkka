@@ -67,6 +67,18 @@ def normalized_document_view(document: Document) -> dict[str, object]:
                 "caption": table.caption,
                 "row_count": table.row_count,
                 "column_count": table.column_count,
+                "cells": [
+                    {
+                        "row_start": cell.row_start,
+                        "row_end": cell.row_end,
+                        "column_start": cell.column_start,
+                        "column_end": cell.column_end,
+                        "text": cell.text,
+                        "role": cell.role,
+                        "source_anchor": cell.source_anchor,
+                    }
+                    for cell in table.cells
+                ],
             }
             for table in document.tables
         ],

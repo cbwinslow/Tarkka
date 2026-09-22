@@ -133,6 +133,7 @@ def _document_read_cursors(document: Document | None) -> list[_Cursor]:
         _Cursor(rows=[]),
         _Cursor(rows=[]),
         _Cursor(rows=[]),
+        _Cursor(rows=[]),
     ]
 
 

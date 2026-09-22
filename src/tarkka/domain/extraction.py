@@ -421,6 +421,24 @@ class ExtractionBatch:
                     raise ValueError("evidence row range is outside its normalized table")
                 if table.column_count is not None and evidence_item.column_end > table.column_count:
                     raise ValueError("evidence column range is outside its normalized table")
+                if table.cells:
+                    covered = {
+                        (row, column)
+                        for cell in table.cells
+                        for row in range(cell.row_start, cell.row_end)
+                        for column in range(cell.column_start, cell.column_end)
+                    }
+                    requested = {
+                        (row, column)
+                        for row in range(evidence_item.row_start, evidence_item.row_end)
+                        for column in range(
+                            evidence_item.column_start, evidence_item.column_end
+                        )
+                    }
+                    if not requested <= covered:
+                        raise ValueError(
+                            "evidence table range does not resolve to normalized cells"
+                        )
             else:
                 if evidence_item.equation_id not in equations:
                     raise ValueError("evidence does not resolve to a normalized equation")

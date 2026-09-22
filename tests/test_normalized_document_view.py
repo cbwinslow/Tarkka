@@ -64,6 +64,7 @@ def test_normalized_document_view_preserves_complete_structural_content() -> Non
             "caption": "Alpha table.",
             "row_count": 2,
             "column_count": 2,
+            "cells": [],
         }
     ]
     assert value["equations"] == [

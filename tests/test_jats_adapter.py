@@ -58,6 +58,17 @@ def test_jats_adapter_preserves_native_structure_without_markdown_flattening() -
     assert document.tables[0].caption == "Preserved table caption."
     assert document.tables[0].row_count == 3
     assert document.tables[0].column_count == 2
+    assert [
+        (cell.row_start, cell.column_start, cell.text, cell.role)
+        for cell in document.tables[0].cells
+    ] == [
+        (0, 0, "A", "header"),
+        (0, 1, "B", "header"),
+        (1, 0, "1", "data"),
+        (1, 1, "2", "data"),
+        (2, 0, "3", "data"),
+        (2, 1, "4", "data"),
+    ]
 
     assert len(document.equations) == 1
     assert document.equations[0].label == "(1)"
@@ -131,6 +142,47 @@ def test_jats_default_namespace_preserves_descendants(tmp_path: Path) -> None:
     assert document.title == "Namespaced"
     assert [section.title for section in document.sections] == ["Methods"]
     assert document.sections[0].passages[0].text == "Native paragraph."
+
+
+def test_jats_preserves_spanned_anchored_cells_and_rejects_invalid_spans(tmp_path: Path) -> None:
+    path = tmp_path / "spans.nxml"
+    path.write_text(
+        """<article><body><table-wrap id="table-1"><table><tbody>
+<tr><th id="head" colspan="2">Heading</th></tr>
+<tr><td id="label" rowspan="2">Row label</td><td>One</td></tr>
+<tr><td>Two</td></tr>
+</tbody></table></table-wrap></body></article>""",
+        encoding="utf-8",
+    )
+    artifact = Artifact(
+        artifact_id=uuid4(),
+        sha256="1" * 64,
+        size_bytes=path.stat().st_size,
+        media_type="application/jats+xml",
+        storage_key=PurePosixPath("11/spans"),
+        original_name="spans.nxml",
+    )
+
+    table = JatsParser().parse(artifact, path).tables[0]
+
+    assert table.row_count == 3
+    assert table.column_count == 2
+    assert [(cell.row_start, cell.row_end, cell.column_start, cell.column_end, cell.text,
+             cell.role, cell.source_anchor) for cell in table.cells] == [
+        (0, 1, 0, 2, "Heading", "header", "head"),
+        (1, 3, 0, 1, "Row label", "data", "label"),
+        (1, 2, 1, 2, "One", "data", None),
+        (2, 3, 1, 2, "Two", "data", None),
+    ]
+
+    invalid = tmp_path / "invalid-span.nxml"
+    invalid.write_text(
+        "<article><body><table-wrap><table><tr><td colspan=\"zero\">Bad</td></tr>"
+        "</table></table-wrap></body></article>",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid JATS table colspan"):
+        JatsParser().parse(artifact, invalid)
 
 
 def test_duplicate_native_ids_do_not_alias_canonical_records(tmp_path: Path) -> None:

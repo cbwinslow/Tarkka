@@ -29,6 +29,31 @@ class Figure:
 
 
 @dataclass(frozen=True, slots=True)
+class TableCell:
+    """One source-preserved table cell addressed by its half-open coordinate range."""
+
+    row_start: int
+    row_end: int
+    column_start: int
+    column_end: int
+    text: str
+    role: str = "data"
+    source_anchor: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.row_start < 0 or self.column_start < 0:
+            raise ValueError("table cell starts must be non-negative")
+        if self.row_end <= self.row_start or self.column_end <= self.column_start:
+            raise ValueError("table cell range must be non-empty")
+        if not self.text.strip():
+            raise ValueError("table cell text must not be blank")
+        if self.role not in {"header", "data", "note"}:
+            raise ValueError("table cell role must be header, data, or note")
+        if self.source_anchor is not None and not self.source_anchor.strip():
+            raise ValueError("table cell source_anchor must not be blank when provided")
+
+
+@dataclass(frozen=True, slots=True)
 class Table:
     table_id: UUID
     document_id: UUID
@@ -38,6 +63,7 @@ class Table:
     caption: str | None = None
     row_count: int | None = None
     column_count: int | None = None
+    cells: tuple[TableCell, ...] = ()
 
     def __post_init__(self) -> None:
         if self.ordinal < 0:
@@ -52,6 +78,20 @@ class Table:
             raise ValueError("table row_count must be non-negative when provided")
         if self.column_count is not None and self.column_count < 0:
             raise ValueError("table column_count must be non-negative when provided")
+        occupied: set[tuple[int, int]] = set()
+        for cell in self.cells:
+            if self.row_count is not None and cell.row_end > self.row_count:
+                raise ValueError("table cell row range exceeds table row_count")
+            if self.column_count is not None and cell.column_end > self.column_count:
+                raise ValueError("table cell column range exceeds table column_count")
+            coordinates = {
+                (row, column)
+                for row in range(cell.row_start, cell.row_end)
+                for column in range(cell.column_start, cell.column_end)
+            }
+            if occupied & coordinates:
+                raise ValueError("table cells must not overlap")
+            occupied.update(coordinates)
 
 
 @dataclass(frozen=True, slots=True)

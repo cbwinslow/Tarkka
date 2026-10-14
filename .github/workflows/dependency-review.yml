@@ -27,7 +27,7 @@ jobs:
 
       - name: Submit PR base uv.lock dependencies
         if: ${{ github.event_name == 'pull_request' }}
-        uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2 # v0.1.6
+        uses: advanced-security/component-detection-dependency-submission-action@a02aeda7a175ad4dd38a13c4d3ff2df9da8f2cf0 # v0.2.0
         with:
           detectorArgs: "UvLock=EnableIfDefaultOff"
           snapshot-sha: ${{ github.event.pull_request.base.sha }}
@@ -43,7 +43,7 @@ jobs:
 
       - name: Submit PR head uv.lock dependencies
         if: ${{ github.event_name == 'pull_request' }}
-        uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2 # v0.1.6
+        uses: advanced-security/component-detection-dependency-submission-action@a02aeda7a175ad4dd38a13c4d3ff2df9da8f2cf0 # v0.2.0
         with:
           detectorArgs: "UvLock=EnableIfDefaultOff"
           snapshot-sha: ${{ github.event.pull_request.head.sha }}
@@ -58,7 +58,7 @@ jobs:
 
       - name: Submit pushed main uv.lock dependencies
         if: ${{ github.event_name == 'push' }}
-        uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2 # v0.1.6
+        uses: advanced-security/component-detection-dependency-submission-action@a02aeda7a175ad4dd38a13c4d3ff2df9da8f2cf0 # v0.2.0
         with:
           detectorArgs: "UvLock=EnableIfDefaultOff"
           snapshot-sha: ${{ github.sha }}

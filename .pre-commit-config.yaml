@@ -12,13 +12,13 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.6
+    rev: v0.17.3
     hooks:
       - id: ruff-check
         args: [--fix]
 
   - repo: https://github.com/sqlfluff/sqlfluff
-    rev: 4.3.0
+    rev: 4.5.0
     hooks:
       - id: sqlfluff-lint
         types: [sql]
